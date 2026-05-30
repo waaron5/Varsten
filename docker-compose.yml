@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: varsten-db
+    environment:
+      POSTGRES_USER: varsten
+      POSTGRES_PASSWORD: varsten
+      POSTGRES_DB: varsten
+    ports:
+      - "5434:5432"
+    volumes:
+      - varsten-db-data:/var/lib/postgresql/data
+
+volumes:
+  varsten-db-data:
