@@ -4,11 +4,27 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import require_user
 from app.db.session import get_db
-from app.models import Organization, Project
+from app.models import Organization, OrgMembership, Project, User
 from app.schemas import ProjectCreate, ProjectOut
 
 router = APIRouter(tags=["projects"])
+
+
+@router.get("/projects", response_model=list[ProjectOut])
+def list_my_projects(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> list[Project]:
+    """Projects across every organization the signed-in user belongs to."""
+    stmt = (
+        select(Project)
+        .join(OrgMembership, OrgMembership.organization_id == Project.organization_id)
+        .where(OrgMembership.user_id == user.id)
+        .order_by(Project.created_at.desc())
+    )
+    return list(db.scalars(stmt))
 
 
 @router.post(

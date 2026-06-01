@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_api_key
+from app.api.deps import resolve_project
 from app.db.session import get_db
 from app.models import Project, UsageEvent
 from app.schemas.metrics import (
@@ -35,7 +35,7 @@ def _utc_day_start(now: datetime) -> datetime:
 
 @router.get("/overview", response_model=MetricsOverview)
 def overview(
-    project: Project = Depends(require_api_key),
+    project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> MetricsOverview:
     now = datetime.now(timezone.utc)
@@ -79,7 +79,7 @@ def overview(
 
 @router.get("/spend-trend", response_model=SpendTrend)
 def spend_trend(
-    project: Project = Depends(require_api_key),
+    project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
     days: int = Query(default=30, ge=1, le=365),
 ) -> SpendTrend:
@@ -106,7 +106,7 @@ def spend_trend(
 
 @router.get("/breakdown", response_model=Breakdown)
 def breakdown(
-    project: Project = Depends(require_api_key),
+    project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
     dimension: Literal["provider", "model", "workflow", "external_user_id"] = Query(
         ..., description="Column to group spend by"

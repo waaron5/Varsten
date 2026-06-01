@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_api_key
+from app.api.deps import require_api_key, resolve_project
 from app.db.session import get_db
 from app.models import Project, UsageEvent
 from app.schemas import UsageEventCreate, UsageEventOut, UsageEventPage
@@ -45,7 +45,7 @@ def create_usage_event(
 
 @router.get("/usage-events", response_model=UsageEventPage)
 def list_usage_events(
-    project: Project = Depends(require_api_key),
+    project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
     provider: str | None = None,
     model: str | None = None,
@@ -91,7 +91,7 @@ def list_usage_events(
 @router.get("/usage-events/{event_id}", response_model=UsageEventOut)
 def get_usage_event(
     event_id: uuid.UUID,
-    project: Project = Depends(require_api_key),
+    project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> UsageEvent:
     event = db.get(UsageEvent, event_id)
