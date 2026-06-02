@@ -31,14 +31,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 17l5-6 4 4 6-8" />
-            </svg>
-          </div>
-          <div className="brand-name">
-            Vars<b>ten</b>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
         </div>
         <nav className="nav">
           <div className="nav-group-label">Workspace</div>

@@ -84,15 +84,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; gap: 9px;
   padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
-.brand-mark {
-  width: 26px; height: 26px; border-radius: 7px;
-  background: linear-gradient(145deg, var(--accent), #8c7bff);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 4px 12px rgba(106, 92, 255, 0.35);
-  display: grid; place-items: center;
-}
-.brand-mark svg { width: 15px; height: 15px; }
-.brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.03em; }
-.brand-name b { color: var(--accent); font-weight: 600; }
+.brand-logo { height: 28px; width: auto; display: block; }
 
 .nav { flex: 1; overflow-y: auto; padding: 12px; }
 .nav-group-label {
