@@ -1,67 +1,162 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, ApiError } from "@/lib/api";
 import { useApiKey } from "@/components/providers";
+import { useSession } from "@/components/session";
+import { RequireSession } from "@/components/RequireSession";
+import { relativeTime } from "@/lib/format";
+import type { ApiKeySummary } from "@/lib/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export default function SetupPage() {
-  const { apiKey, ready, setApiKey, clearApiKey } = useApiKey();
-  const [draft, setDraft] = useState("");
+  return (
+    <RequireSession>
+      <Setup />
+    </RequireSession>
+  );
+}
 
-  if (!ready) {
-    return (
-      <div className="view" style={{ display: "grid", placeItems: "center", minHeight: 240 }}>
-        <div className="spinner" />
-      </div>
-    );
-  }
+function Setup() {
+  const { getToken, activeProjectId, projects } = useSession();
+  const { apiKey, setApiKey } = useApiKey();
+  const [keys, setKeys] = useState<ApiKeySummary[]>([]);
+  const [generated, setGenerated] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const activeProject = projects.find((p) => p.id === activeProjectId);
+
+  const loadKeys = useCallback(async () => {
+    if (!activeProjectId) return;
+    const token = await getToken();
+    setKeys(await api.listApiKeys(token, activeProjectId));
+  }, [getToken, activeProjectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await loadKeys();
+      } catch (e) {
+        if (!cancelled) setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadKeys]);
+
+  const generate = async () => {
+    if (!activeProjectId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const created = await api.createApiKey(token, activeProjectId, "ingest-key");
+      setGenerated(created.plaintext_key);
+      setApiKey(created.plaintext_key); // powers the curl snippet + waiting status
+      await loadKeys();
+    } catch (e) {
+      setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (id: string) => {
+    try {
+      const token = await getToken();
+      await api.revokeApiKey(token, id);
+      await loadKeys();
+    } catch (e) {
+      setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e));
+    }
+  };
+
+  const active = keys.filter((k) => !k.revoked_at);
 
   return (
-    <div className="view" style={{ maxWidth: 820 }}>
+    <div className="view" style={{ maxWidth: 860 }}>
       <div className="page-head">
         <div>
           <div className="page-title">Setup</div>
-          <div className="page-sub">Connect a project key and send your first usage event.</div>
+          <div className="page-sub">
+            Generate an API key for <b>{activeProject?.name ?? "your project"}</b> and send your first usage event.
+          </div>
         </div>
       </div>
 
+      {error && (
+        <div className="card card-pad" style={{ marginBottom: 16, color: "var(--neg)" }}>{error}</div>
+      )}
+
       <div className="card card-pad" style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 14, marginBottom: 4 }}>1. Connect your project key</h3>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+          <h3 style={{ fontSize: 14 }}>1. API keys</h3>
+          <button className="btn primary" style={{ marginLeft: "auto" }} disabled={busy} onClick={generate}>
+            {busy ? "Generating…" : "Generate key"}
+          </button>
+        </div>
         <p className="page-sub" style={{ marginBottom: 14 }}>
-          Generate a key for your project, then paste it here. It is stored only in this browser.
+          A key authenticates usage events sent to this project. You paste it into your own app — the one calling OpenAI, Claude, etc.
         </p>
-        {apiKey ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span className="pill green">
-              <span className="dotp" style={{ background: "var(--pos)" }} />
-              Connected · {apiKey.slice(0, 7)}…
-            </span>
-            <button className="btn" onClick={() => clearApiKey()}>
-              Disconnect
-            </button>
+
+        {generated && (
+          <div
+            className="card-pad"
+            style={{
+              border: "1px solid var(--accent-line)",
+              background: "var(--accent-soft)",
+              borderRadius: "var(--radius)",
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+              Copy your key now — it will not be shown again.
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <code className="mono" style={{ flex: 1, wordBreak: "break-all" }}>{generated}</code>
+              <button className="btn" onClick={() => navigator.clipboard.writeText(generated)}>Copy</button>
+            </div>
           </div>
+        )}
+
+        {active.length > 0 ? (
+          <table className="tbl" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)" }}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Prefix</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th className="r"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {active.map((k) => (
+                <tr key={k.id}>
+                  <td className="name">{k.name}</td>
+                  <td className="mono muted">{k.key_prefix}…</td>
+                  <td className="muted">{relativeTime(k.created_at)}</td>
+                  <td className="muted">{k.last_used_at ? relativeTime(k.last_used_at) : "never"}</td>
+                  <td className="r">
+                    <button className="btn" onClick={() => revoke(k.id)}>Revoke</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              className="input"
-              style={{ flex: 1 }}
-              placeholder="vk_..."
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-            <button className="btn primary" disabled={!draft.trim()} onClick={() => setApiKey(draft.trim())}>
-              Connect
-            </button>
-          </div>
+          <div className="empty-hint">No active keys yet. Generate one to get started.</div>
         )}
       </div>
 
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <h3 style={{ fontSize: 14, marginBottom: 4 }}>2. Send a usage event</h3>
         <p className="page-sub" style={{ marginBottom: 14 }}>
-          Run this from any service. The event lands in your project and shows up below within seconds.
+          Run this from any terminal or service. The event lands in this project and shows up below within seconds.
         </p>
         <CurlSnippet apiKey={apiKey} />
       </div>
@@ -72,7 +167,7 @@ export default function SetupPage() {
 }
 
 function CurlSnippet({ apiKey }: { apiKey: string | null }) {
-  const key = apiKey ?? "vk_your_key_here";
+  const key = apiKey ?? "vk_generate_a_key_above";
   const snippet = `curl -X POST ${BASE}/v1/usage-events \\
   -H "authorization: Bearer ${key}" \\
   -H "content-type: application/json" \\
@@ -118,7 +213,8 @@ function WaitingStatus() {
     let cancelled = false;
     const poll = async () => {
       try {
-        const page = await api.usageEvents(apiKey, { limit: 1 });
+        // API-key auth: project is implied by the key, so no project_id.
+        const page = await api.usageEvents(apiKey, undefined, { limit: 1 });
         if (cancelled) return;
         setCount(page.items.length);
         if (page.items[0]) {

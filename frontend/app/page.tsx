@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
-import { useApiKey } from "@/components/providers";
-import { RequireKey } from "@/components/RequireKey";
+import { ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useSession } from "@/components/session";
+import { RequireSession } from "@/components/RequireSession";
 import { SpendLineChart, HBars, type HBarItem } from "@/components/charts";
 import { usd, compact, relativeTime } from "@/lib/format";
 import type {
@@ -27,14 +28,14 @@ function toBars(b: Breakdown | null): HBarItem[] {
 
 export default function OverviewPage() {
   return (
-    <RequireKey>
+    <RequireSession>
       <Overview />
-    </RequireKey>
+    </RequireSession>
   );
 }
 
 function Overview() {
-  const { apiKey } = useApiKey();
+  const { getToken, activeProjectId } = useSession();
   const [overview, setOverview] = useState<MetricsOverview | null>(null);
   const [trend, setTrend] = useState<SpendTrend | null>(null);
   const [models, setModels] = useState<Breakdown | null>(null);
@@ -44,16 +45,18 @@ function Overview() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!apiKey) return;
+    if (!activeProjectId) return;
     let cancelled = false;
-    Promise.all([
-      api.overview(apiKey),
-      api.spendTrend(apiKey, 30),
-      api.breakdown(apiKey, "model", { limit: 5 }),
-      api.breakdown(apiKey, "provider", { limit: 6 }),
-      api.usageEvents(apiKey, { limit: 8 }),
-    ])
-      .then(([o, t, m, p, r]) => {
+    (async () => {
+      try {
+        const token = await getToken();
+        const [o, t, m, p, r] = await Promise.all([
+          api.overview(token, activeProjectId),
+          api.spendTrend(token, activeProjectId, 30),
+          api.breakdown(token, activeProjectId, "model", { limit: 5 }),
+          api.breakdown(token, activeProjectId, "provider", { limit: 6 }),
+          api.usageEvents(token, activeProjectId, { limit: 8 }),
+        ]);
         if (cancelled) return;
         setOverview(o);
         setTrend(t);
@@ -61,16 +64,16 @@ function Overview() {
         setProviders(p);
         setRecent(r);
         setError(null);
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e));
-      })
-      .finally(() => !cancelled && setLoading(false));
+      } catch (e) {
+        if (!cancelled) setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [apiKey]);
+  }, [activeProjectId, getToken]);
 
   if (loading) {
     return (
@@ -86,7 +89,6 @@ function Overview() {
         <div className="empty">
           <div className="et">Could not load metrics</div>
           <div className="es">{error}</div>
-          <Link href="/setup" className="btn">Check your key</Link>
         </div>
       </div>
     );

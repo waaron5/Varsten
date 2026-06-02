@@ -65,6 +65,44 @@ export interface Breakdown {
   rows: BreakdownRow[];
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  monthly_spend_budget_usd: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: string;
+  organization_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string | null;
+  organizations: Organization[];
+}
+
+export interface ApiKeySummary {
+  id: string;
+  project_id: string;
+  name: string;
+  key_prefix: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface ApiKeyCreated extends ApiKeySummary {
+  // The plaintext key, returned only once at creation.
+  plaintext_key: string;
+}
+
 export interface UsageEventFilters {
   provider?: string;
   model?: string;

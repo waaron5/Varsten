@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useApiKey } from "./providers";
+import { useUser } from "@auth0/nextjs-auth0";
+import { useSession } from "./session";
 
 const NAV: { href: string; label: string; icon: string }[] = [
   { href: "/", label: "Overview", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
@@ -22,7 +23,8 @@ function Icon({ path }: { path: string }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { apiKey } = useApiKey();
+  const { user, isLoading } = useUser();
+  const { projects, activeProjectId, setActiveProjectId } = useSession();
   const current = NAV.find((n) => n.href === pathname) ?? NAV[0];
 
   return (
@@ -59,10 +61,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <b>{current.label}</b>
           </div>
           <div className="topbar-actions">
-            <span className={`pill ${apiKey ? "green" : "amber"}`}>
-              <span className="dotp" style={{ background: apiKey ? "var(--pos)" : "var(--warn)" }} />
-              {apiKey ? "Key connected" : "No key"}
-            </span>
+            {user && projects.length > 0 && (
+              <select
+                className="input"
+                value={activeProjectId ?? ""}
+                onChange={(e) => setActiveProjectId(e.target.value)}
+                aria-label="Active project"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+            {!isLoading &&
+              (user ? (
+                <>
+                  <span className="pill neutral">{user.name ?? user.email}</span>
+                  {/* Auth routes must use <a>, not <Link>, to avoid client-side routing. */}
+                  <a href="/auth/logout" className="btn">Log out</a>
+                </>
+              ) : (
+                <a href="/auth/login" className="btn primary">Log in</a>
+              ))}
           </div>
         </header>
         <div className="content">{children}</div>

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { useApiKey } from "@/components/providers";
-import { RequireKey } from "@/components/RequireKey";
+import { useSession } from "@/components/session";
+import { RequireSession } from "@/components/RequireSession";
 import { usd, compact } from "@/lib/format";
 import type { Breakdown, BreakdownDimension } from "@/lib/types";
 
@@ -16,29 +16,39 @@ const DIMENSIONS: { key: BreakdownDimension; label: string }[] = [
 
 export default function BreakdownsPage() {
   return (
-    <RequireKey>
+    <RequireSession>
       <Breakdowns />
-    </RequireKey>
+    </RequireSession>
   );
 }
 
 function Breakdowns() {
-  const { apiKey } = useApiKey();
+  const { getToken, activeProjectId } = useSession();
   const [dimension, setDimension] = useState<BreakdownDimension>("provider");
   const [data, setData] = useState<Breakdown | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!apiKey) return;
+    if (!activeProjectId) return;
     let cancelled = false;
-    api
-      .breakdown(apiKey, dimension, { days: 30, limit: 50 })
-      .then((d) => !cancelled && (setData(d), setError(null)))
-      .catch((e: unknown) => !cancelled && setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e)))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, [apiKey, dimension]);
+    (async () => {
+      try {
+        const token = await getToken();
+        const d = await api.breakdown(token, activeProjectId, dimension, { days: 30, limit: 50 });
+        if (cancelled) return;
+        setData(d);
+        setError(null);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, activeProjectId, dimension]);
 
   const total = (data?.rows ?? []).reduce((s, r) => s + parseFloat(r.spend), 0);
 

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { useApiKey } from "@/components/providers";
-import { RequireKey } from "@/components/RequireKey";
+import { useSession } from "@/components/session";
+import { RequireSession } from "@/components/RequireSession";
 import { usd, relativeTime } from "@/lib/format";
 import type { UsageEvent, UsageEventFilters, UsageEventPage } from "@/lib/types";
 
@@ -20,14 +20,14 @@ const FILTER_FIELDS: { key: StringFilterKey; label: string }[] = [
 
 export default function ExplorerPage() {
   return (
-    <RequireKey>
+    <RequireSession>
       <Explorer />
-    </RequireKey>
+    </RequireSession>
   );
 }
 
 function Explorer() {
-  const { apiKey } = useApiKey();
+  const { getToken, activeProjectId } = useSession();
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<UsageEventFilters>({});
   const [offset, setOffset] = useState(0);
@@ -37,18 +37,24 @@ function Explorer() {
   const [selected, setSelected] = useState<UsageEvent | null>(null);
 
   const load = useCallback(() => {
-    if (!apiKey) return;
-    api
-      .usageEvents(apiKey, { ...filters, limit: PAGE_SIZE, offset })
-      .then((p) => {
+    if (!activeProjectId) return;
+    (async () => {
+      try {
+        const token = await getToken();
+        const p = await api.usageEvents(token, activeProjectId, {
+          ...filters,
+          limit: PAGE_SIZE,
+          offset,
+        });
         setPage(p);
         setError(null);
-      })
-      .catch((e: unknown) =>
-        setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e)),
-      )
-      .finally(() => setLoading(false));
-  }, [apiKey, filters, offset]);
+      } catch (e) {
+        setError(e instanceof ApiError ? `${e.status}: ${e.message}` : String(e));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [getToken, activeProjectId, filters, offset]);
 
   useEffect(load, [load]);
 
