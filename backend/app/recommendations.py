@@ -1,0 +1,570 @@
+import calendar
+from dataclasses import dataclass
+
+from datetime import datetime, timezone
+from decimal import Decimal
+
+from sqlalchemy import or_, func, select
+from sqlalchemy.orm import Session
+
+from app.models import ModelCatalog, ModelPrice, Project, Recommendation, UsageEvent
+
+OPEN = "open"
+
+
+@dataclass(frozen=True)
+class RecommendationSeed:
+    dedupe_key: str
+    type: str
+    title: str
+    description: str
+    estimated_monthly_savings_usd: Decimal | None
+    risk_level: str
+    confidence: str
+    lever: str | None = None
+    target_type: str | None = None
+    target_key: str | None = None
+    rationale: str | None = None
+    monthly_request_volume: int | None = None
+    quality_delta_percent: Decimal | None = None
+    measurement_method: str = "estimated"
+    related_provider: str | None = None
+    related_model: str | None = None
+    related_feature: str | None = None
+    related_customer_id: str | None = None
+    related_environment: str | None = None
+
+
+def _month_start(now: datetime) -> datetime:
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _upsert(db: Session, project: Project, seed: RecommendationSeed) -> None:
+    existing = db.scalar(
+        select(Recommendation).where(
+            Recommendation.project_id == project.id,
+            Recommendation.dedupe_key == seed.dedupe_key,
+        )
+    )
+    if existing is not None:
+        if existing.status != OPEN:
+            return
+        existing.title = seed.title
+        existing.description = seed.description
+        existing.lever = seed.lever
+        existing.target_type = seed.target_type
+        existing.target_key = seed.target_key
+        existing.rationale = seed.rationale
+        existing.estimated_monthly_savings_usd = seed.estimated_monthly_savings_usd
+        existing.monthly_request_volume = seed.monthly_request_volume
+        existing.quality_delta_percent = seed.quality_delta_percent
+        existing.measurement_method = seed.measurement_method
+        existing.risk_level = seed.risk_level
+        existing.confidence = seed.confidence
+        existing.related_provider = seed.related_provider
+        existing.related_model = seed.related_model
+        existing.related_feature = seed.related_feature
+        existing.related_customer_id = seed.related_customer_id
+        existing.related_environment = seed.related_environment
+        existing.updated_at = datetime.now(timezone.utc)
+        return
+
+    db.add(
+        Recommendation(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            dedupe_key=seed.dedupe_key,
+            type=seed.type,
+            lever=seed.lever,
+            target_type=seed.target_type,
+            target_key=seed.target_key,
+            title=seed.title,
+            description=seed.description,
+            rationale=seed.rationale,
+            estimated_monthly_savings_usd=seed.estimated_monthly_savings_usd,
+            monthly_request_volume=seed.monthly_request_volume,
+            quality_delta_percent=seed.quality_delta_percent,
+            measurement_method=seed.measurement_method,
+            risk_level=seed.risk_level,
+            confidence=seed.confidence,
+            related_provider=seed.related_provider,
+            related_model=seed.related_model,
+            related_feature=seed.related_feature,
+            related_customer_id=seed.related_customer_id,
+            related_environment=seed.related_environment,
+        )
+    )
+
+
+def _money(value: Decimal | None) -> Decimal:
+    return value or Decimal("0")
+
+
+def _run_rate(value: Decimal, now: datetime) -> Decimal:
+    if value <= 0:
+        return Decimal("0")
+    return value / Decimal(now.day) * Decimal(calendar.monthrange(now.year, now.month)[1])
+
+
+def _target_name(request_type: str | None, feature: str | None) -> str:
+    if request_type and feature:
+        return f"{feature} / {request_type}"
+    return feature or request_type or "unknown workload"
+
+
+def _latest_price(db: Session, model_key: str, provider: str) -> ModelPrice | None:
+    base = select(ModelPrice).where(ModelPrice.model_key == model_key)
+    for stmt in (base.where(ModelPrice.provider == provider), base):
+        row = db.scalars(stmt.order_by(ModelPrice.effective_at.desc()).limit(1)).first()
+        if row is not None:
+            return row
+    return None
+
+
+def _model_catalog(db: Session, model_key: str, provider: str) -> ModelCatalog | None:
+    base = select(ModelCatalog).where(ModelCatalog.model_key == model_key)
+    for stmt in (base.where(ModelCatalog.provider == provider), base):
+        row = db.scalars(stmt.limit(1)).first()
+        if row is not None:
+            return row
+    return None
+
+
+def _priced_cost(
+    price: ModelPrice,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    use_batch: bool = False,
+) -> Decimal:
+    input_rate = (
+        price.input_cost_per_token_batch
+        if use_batch and price.input_cost_per_token_batch is not None
+        else price.input_cost_per_token
+    )
+    output_rate = (
+        price.output_cost_per_token_batch
+        if use_batch and price.output_cost_per_token_batch is not None
+        else price.output_cost_per_token
+    )
+    return input_tokens * input_rate + output_tokens * output_rate
+
+
+def _route_key(request_type: str | None, feature: str | None) -> str:
+    return f"{feature or 'unknown'}:{request_type or 'unknown'}"
+
+
+def _add_token_trim_recommendation(
+    db: Session, project: Project, start: datetime, now: datetime, total_spend: Decimal
+) -> None:
+    if total_spend <= 0:
+        return
+    rows = db.execute(
+        select(
+            UsageEvent.request_type,
+            UsageEvent.feature,
+            func.count().label("requests"),
+            func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("spend"),
+            func.coalesce(func.sum(UsageEvent.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(UsageEvent.output_tokens), 0).label("output_tokens"),
+        )
+        .where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+        .group_by(UsageEvent.request_type, UsageEvent.feature)
+        .order_by(func.coalesce(func.sum(UsageEvent.cost_usd), 0).desc())
+        .limit(5)
+    )
+    for row in rows:
+        output_tokens = int(row.output_tokens or 0)
+        input_tokens = int(row.input_tokens or 0)
+        spend = _money(row.spend)
+        if output_tokens <= 0 or input_tokens / output_tokens < 8 or spend <= 0:
+            continue
+        target = _target_name(row.request_type, row.feature)
+        savings = _run_rate(spend * Decimal("0.15"), now)
+        _upsert(
+            db,
+            project,
+            RecommendationSeed(
+                dedupe_key=f"token_trim:{_route_key(row.request_type, row.feature)}:{now:%Y-%m}",
+                type="token_trim",
+                lever="token_trim",
+                title=f"Trim context for {target}",
+                description=f"{target} sends {input_tokens / max(output_tokens, 1):.1f}x as many input tokens as output tokens. Trim retrieval/context before the model call.",
+                rationale="High input-to-output ratio is the strongest metadata-only signal for token trimming.",
+                estimated_monthly_savings_usd=savings,
+                monthly_request_volume=int(row.requests or 0),
+                risk_level="medium",
+                confidence="medium",
+                target_type="route",
+                target_key=_route_key(row.request_type, row.feature),
+                related_feature=row.feature,
+            ),
+        )
+        return
+
+
+def _add_semantic_cache_recommendation(
+    db: Session, project: Project, start: datetime, now: datetime
+) -> None:
+    cache_key = UsageEvent.event_metadata["semantic_cache_key"].astext
+    rows = db.execute(
+        select(
+            cache_key.label("cache_key"),
+            UsageEvent.request_type,
+            UsageEvent.feature,
+            func.count().label("requests"),
+            func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("spend"),
+        )
+        .where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.received_at >= start,
+            cache_key.is_not(None),
+        )
+        .group_by(cache_key, UsageEvent.request_type, UsageEvent.feature)
+        .order_by(func.count().desc())
+        .limit(1)
+    ).first()
+    if rows is None or int(rows.requests or 0) < 3:
+        return
+    spend = _money(rows.spend)
+    if spend <= 0:
+        return
+    target = _target_name(rows.request_type, rows.feature)
+    _upsert(
+        db,
+        project,
+        RecommendationSeed(
+            dedupe_key=f"semantic_cache:{rows.cache_key}:{now:%Y-%m}",
+            type="semantic_cache",
+            lever="semantic_cache",
+            title=f"Cache repeated requests for {target}",
+            description=f"{rows.requests} requests share semantic cache key '{rows.cache_key}'. Add a semantic cache policy for this workload.",
+            rationale="Repeated semantic cache keys indicate avoidable full model calls.",
+            estimated_monthly_savings_usd=_run_rate(spend * Decimal("0.50"), now),
+            monthly_request_volume=int(rows.requests or 0),
+            risk_level="low",
+            confidence="medium",
+            target_type="route",
+            target_key=_route_key(rows.request_type, rows.feature),
+            related_feature=rows.feature,
+        ),
+    )
+
+
+def _add_batching_recommendation(
+    db: Session, project: Project, start: datetime, now: datetime
+) -> None:
+    batchable = UsageEvent.event_metadata["batchable"].astext.in_(("true", "1", "yes"))
+    rows = db.execute(
+        select(
+            UsageEvent.provider,
+            UsageEvent.model,
+            UsageEvent.request_type,
+            UsageEvent.feature,
+            func.count().label("requests"),
+            func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("spend"),
+            func.coalesce(func.sum(UsageEvent.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(UsageEvent.output_tokens), 0).label("output_tokens"),
+        )
+        .where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.received_at >= start,
+            or_(
+                batchable,
+                UsageEvent.request_type.ilike("%batch%"),
+                UsageEvent.request_type.ilike("%background%"),
+                UsageEvent.request_type.ilike("%export%"),
+                UsageEvent.request_type.ilike("%sync%"),
+            ),
+        )
+        .group_by(
+            UsageEvent.provider,
+            UsageEvent.model,
+            UsageEvent.request_type,
+            UsageEvent.feature,
+        )
+        .order_by(func.coalesce(func.sum(UsageEvent.cost_usd), 0).desc())
+        .limit(10)
+    )
+    for row in rows:
+        price = _latest_price(db, row.model, row.provider)
+        if (
+            price is None
+            or price.input_cost_per_token_batch is None
+            or price.output_cost_per_token_batch is None
+        ):
+            continue
+        current = _priced_cost(price, int(row.input_tokens or 0), int(row.output_tokens or 0))
+        batched = _priced_cost(
+            price,
+            int(row.input_tokens or 0),
+            int(row.output_tokens or 0),
+            use_batch=True,
+        )
+        savings = current - batched
+        if savings <= 0:
+            continue
+        target = _target_name(row.request_type, row.feature)
+        _upsert(
+            db,
+            project,
+            RecommendationSeed(
+                dedupe_key=f"batching:{_route_key(row.request_type, row.feature)}:{row.model}:{now:%Y-%m}",
+                type="batching",
+                lever="batching",
+                title=f"Batch non-urgent {target} calls",
+                description=f"{target} is marked batchable and {row.model} has batch pricing. Route non-urgent jobs through batch endpoints.",
+                rationale="Batch pricing is available and the workload is explicitly marked non-urgent or background.",
+                estimated_monthly_savings_usd=_run_rate(savings, now),
+                monthly_request_volume=int(row.requests or 0),
+                risk_level="low",
+                confidence="high",
+                target_type="route",
+                target_key=_route_key(row.request_type, row.feature),
+                related_provider=row.provider,
+                related_model=row.model,
+                related_feature=row.feature,
+            ),
+        )
+        return
+
+
+def _add_cheaper_model_recommendation(
+    db: Session, project: Project, start: datetime, now: datetime
+) -> None:
+    rows = db.execute(
+        select(
+            UsageEvent.provider,
+            UsageEvent.model,
+            UsageEvent.feature,
+            UsageEvent.environment,
+            func.count().label("requests"),
+            func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("spend"),
+            func.coalesce(func.sum(UsageEvent.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(UsageEvent.output_tokens), 0).label("output_tokens"),
+        )
+        .where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+        .group_by(UsageEvent.provider, UsageEvent.model, UsageEvent.feature, UsageEvent.environment)
+        .order_by(func.coalesce(func.sum(UsageEvent.cost_usd), 0).desc())
+        .limit(20)
+    )
+    for row in rows:
+        catalog = _model_catalog(db, row.model, row.provider)
+        if catalog is None or not catalog.cheaper_substitute_key:
+            continue
+        current_price = _latest_price(db, row.model, row.provider)
+        cheaper_price = _latest_price(db, catalog.cheaper_substitute_key, row.provider)
+        if current_price is None or cheaper_price is None:
+            continue
+        current = _priced_cost(current_price, int(row.input_tokens or 0), int(row.output_tokens or 0))
+        cheaper = _priced_cost(cheaper_price, int(row.input_tokens or 0), int(row.output_tokens or 0))
+        savings = current - cheaper
+        if savings <= 0:
+            continue
+        feature = row.feature or row.model
+        _upsert(
+            db,
+            project,
+            RecommendationSeed(
+                dedupe_key=f"cheaper_model:{feature}:{row.model}:{catalog.cheaper_substitute_key}:{now:%Y-%m}",
+                type="cheaper_model",
+                lever="cheaper_model",
+                title=f"Evaluate {catalog.cheaper_substitute_key} for {feature}",
+                description=f"{feature} uses {row.model}. The catalog maps it to cheaper substitute {catalog.cheaper_substitute_key}; replay/eval before applying.",
+                rationale="Catalog tier metadata identifies a cheaper workload-level substitute.",
+                estimated_monthly_savings_usd=_run_rate(savings, now),
+                monthly_request_volume=int(row.requests or 0),
+                risk_level="medium" if row.environment in {"production", "prod"} else "low",
+                confidence="medium",
+                target_type="feature",
+                target_key=feature,
+                related_provider=row.provider,
+                related_model=row.model,
+                related_feature=row.feature,
+                related_environment=row.environment,
+            ),
+        )
+        return
+
+
+def _add_smart_routing_recommendation(
+    db: Session, project: Project, start: datetime, now: datetime
+) -> None:
+    rows = list(
+        db.execute(
+            select(
+                UsageEvent.request_type,
+                UsageEvent.feature,
+                UsageEvent.provider,
+                UsageEvent.model,
+                func.count().label("requests"),
+                func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("spend"),
+            )
+            .where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+            .group_by(
+                UsageEvent.request_type,
+                UsageEvent.feature,
+                UsageEvent.provider,
+                UsageEvent.model,
+            )
+        )
+    )
+    by_route: dict[str, list] = {}
+    for row in rows:
+        by_route.setdefault(_route_key(row.request_type, row.feature), []).append(row)
+
+    best_seed: RecommendationSeed | None = None
+    best_savings = Decimal("0")
+    for route, route_rows in by_route.items():
+        if len(route_rows) < 2:
+            continue
+        priced_rows = [row for row in route_rows if _money(row.spend) > 0 and row.requests]
+        if len(priced_rows) < 2:
+            continue
+        cheapest = min(priced_rows, key=lambda row: _money(row.spend) / Decimal(row.requests))
+        expensive = max(priced_rows, key=lambda row: _money(row.spend) / Decimal(row.requests))
+        cheapest_avg = _money(cheapest.spend) / Decimal(cheapest.requests)
+        expensive_avg = _money(expensive.spend) / Decimal(expensive.requests)
+        if expensive_avg <= cheapest_avg:
+            continue
+        candidate_savings = (expensive_avg - cheapest_avg) * Decimal(expensive.requests)
+        if candidate_savings <= best_savings:
+            continue
+        target = _target_name(expensive.request_type, expensive.feature)
+        best_savings = candidate_savings
+        best_seed = RecommendationSeed(
+            dedupe_key=f"smart_routing:{route}:{expensive.model}:{cheapest.model}:{now:%Y-%m}",
+            type="smart_routing",
+            lever="smart_routing",
+            title=f"Route some {target} traffic to {cheapest.model}",
+            description=f"{target} has traffic on both {expensive.model} and lower-cost {cheapest.model}. Evaluate routing policy by request risk.",
+            rationale="The same route is already served by models with different cost per request, so routing policy can shift eligible traffic.",
+            estimated_monthly_savings_usd=_run_rate(candidate_savings, now),
+            monthly_request_volume=int(expensive.requests or 0),
+            risk_level="medium",
+            confidence="medium",
+            target_type="route",
+            target_key=route,
+            related_provider=expensive.provider,
+            related_model=expensive.model,
+            related_feature=expensive.feature,
+        )
+    if best_seed is not None:
+        _upsert(db, project, best_seed)
+
+
+def refresh_recommendations(db: Session, project: Project) -> None:
+    now = datetime.now(timezone.utc)
+    start = _month_start(now)
+    cost = UsageEvent.cost_usd
+
+    totals = db.execute(
+        select(
+            func.coalesce(func.sum(cost), 0).label("spend"),
+            func.count().label("requests"),
+            func.count().filter(UsageEvent.pricing_status != "priced").label("unpriced"),
+            func.coalesce(func.sum(cost).filter(UsageEvent.success.is_(False)), 0).label("failed_spend"),
+            func.count().filter(UsageEvent.success.is_(False)).label("failed_count"),
+            func.coalesce(func.sum(UsageEvent.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(UsageEvent.output_tokens), 0).label("output_tokens"),
+        ).where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+    ).one()
+
+    spend = _money(totals.spend)
+    days_in_month = now.day
+    monthly_forecast = (
+        spend / Decimal(days_in_month) * Decimal(calendar.monthrange(now.year, now.month)[1])
+        if days_in_month
+        else Decimal("0")
+    )
+
+    if totals.unpriced:
+        _upsert(
+            db,
+            project,
+            RecommendationSeed(
+                dedupe_key=f"unpriced:{now:%Y-%m}",
+                type="unpriced_usage",
+                title="Review unpriced usage",
+                description=f"{totals.unpriced} events this month could not be priced from the catalog. Add model prices or an org override so spend totals are trusted.",
+                estimated_monthly_savings_usd=None,
+                risk_level="low",
+                confidence="high",
+                target_type="pricing_catalog",
+                target_key="unpriced_usage",
+                rationale="Pricing trust must be fixed before savings can be defended.",
+            ),
+        )
+
+    budget = project.organization.monthly_spend_budget_usd
+    if budget is not None and monthly_forecast > budget:
+        _upsert(
+            db,
+            project,
+            RecommendationSeed(
+                dedupe_key=f"budget_overrun:{now:%Y-%m}",
+                type="budget_overrun",
+                title="Forecast is over budget",
+                description=f"Current run-rate forecast is ${monthly_forecast:.2f}, above the monthly budget of ${budget:.2f}. Review top spend drivers and reduce low-value usage.",
+                estimated_monthly_savings_usd=monthly_forecast - budget,
+                risk_level="medium",
+                confidence="medium",
+                target_type="budget",
+                target_key="monthly_spend_budget",
+                rationale="Budget variance is an input to the decision queue until automated controls exist.",
+            ),
+        )
+
+    env_rows = db.execute(
+        select(
+            UsageEvent.environment,
+            func.coalesce(func.sum(cost), 0).label("spend"),
+        )
+        .where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+        .group_by(UsageEvent.environment)
+    )
+    for row in env_rows:
+        env = row.environment or "unknown"
+        env_spend = _money(row.spend)
+        if env not in {"production", "prod"} and env_spend > 0:
+            _upsert(
+                db,
+                project,
+                RecommendationSeed(
+                    dedupe_key=f"nonprod:{env}:{now:%Y-%m}",
+                    type="non_production_spend",
+                    title=f"Review {env} AI spend",
+                    description=f"{env} usage has spent ${env_spend:.2f} this month. Add a budget cap or investigate runaway non-production calls.",
+                    estimated_monthly_savings_usd=env_spend,
+                    risk_level="low",
+                    confidence="medium",
+                    target_type="environment",
+                    target_key=env,
+                    rationale="Non-production spend is usually safer to cap or pause than production traffic.",
+                    related_environment=env,
+                ),
+            )
+
+    if totals.failed_count and _money(totals.failed_spend) > 0:
+        _upsert(
+            db,
+            project,
+            RecommendationSeed(
+                dedupe_key=f"failed_spend:{now:%Y-%m}",
+                type="failed_request_spend",
+                title="Investigate failed request spend",
+                description=f"{totals.failed_count} failed requests consumed billable tokens this month. Review retries, provider errors, and validation failures.",
+                estimated_monthly_savings_usd=_money(totals.failed_spend),
+                risk_level="low",
+                confidence="medium",
+                target_type="request_health",
+                target_key="failed_requests",
+                rationale="Failed requests can consume billable tokens without creating customer value.",
+            ),
+        )
+
+    _add_token_trim_recommendation(db, project, start, now, spend)
+    _add_semantic_cache_recommendation(db, project, start, now)
+    _add_batching_recommendation(db, project, start, now)
+    _add_cheaper_model_recommendation(db, project, start, now)
+    _add_smart_routing_recommendation(db, project, start, now)

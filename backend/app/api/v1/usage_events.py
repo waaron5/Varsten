@@ -6,10 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_api_key, resolve_project
+from app.api.deps import ApiKeyContext, require_api_key_context, resolve_project
 from app.db.session import get_db
 from app.models import Project, UsageEvent
-from app.pricing import UnpriceableEvent, price_usage_event
+from app.pricing import price_usage_event
+from app.recommendations import refresh_recommendations
 from app.schemas import UsageEventCreate, UsageEventOut, UsageEventPage
 
 router = APIRouter(tags=["usage-events"])
@@ -23,9 +24,10 @@ router = APIRouter(tags=["usage-events"])
 def create_usage_event(
     payload: UsageEventCreate,
     response: Response,
-    project: Project = Depends(require_api_key),
+    api_context: ApiKeyContext = Depends(require_api_key_context),
     db: Session = Depends(get_db),
 ) -> UsageEvent:
+    project = api_context.project
     # v1 prices in USD only. Blending currencies in SUM(cost_usd) would silently
     # corrupt every total, so reject rather than guess an FX rate.
     if payload.currency.upper() != "USD":
@@ -34,33 +36,36 @@ def create_usage_event(
             detail="only USD is supported in v1",
         )
 
-    # event_timestamp picks the price version that was live when the call happened.
-    at = payload.event_timestamp or datetime.now(timezone.utc)
-    try:
-        cost_usd, cost_source, price_version_id = price_usage_event(
-            db,
-            organization_id=project.organization_id,
-            model_key=payload.model,
-            provider=payload.provider,
-            input_tokens=payload.input_tokens,
-            output_tokens=payload.output_tokens,
-            cached_input_tokens=payload.cached_input_tokens,
-            reported_cost_usd=payload.cost_usd,
-            at=at,
-        )
-    except UnpriceableEvent:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="cannot price event: send token counts for a known model, or include cost_usd",
-        )
+    # occurred_at picks the price version that was live when the call happened.
+    at = payload.occurred_at or datetime.now(timezone.utc)
+    cost_usd, cost_source, pricing_status, price_version_id = price_usage_event(
+        db,
+        organization_id=project.organization_id,
+        model_key=payload.model,
+        provider=payload.provider,
+        input_tokens=payload.input_tokens,
+        output_tokens=payload.output_tokens,
+        cached_input_tokens=payload.cached_input_tokens,
+        reported_cost_usd=payload.cost_usd,
+        at=at,
+    )
 
     event = UsageEvent(
         project_id=project.id,
+        organization_id=project.organization_id,
+        api_key_id=api_context.api_key.id,
         provider=payload.provider,
         model=payload.model,
         operation=payload.operation,
         external_user_id=payload.external_user_id,
         workflow=payload.workflow,
+        request_type=payload.request_type,
+        feature=payload.feature,
+        customer_id=payload.customer_id,
+        user_id=payload.user_id,
+        team=payload.team,
+        department=payload.department,
+        environment=payload.environment or "unknown",
         input_tokens=payload.input_tokens,
         output_tokens=payload.output_tokens,
         cached_input_tokens=payload.cached_input_tokens,
@@ -69,11 +74,16 @@ def create_usage_event(
         cost_usd=cost_usd,
         reported_cost_usd=payload.cost_usd,
         cost_source=cost_source,
+        pricing_status=pricing_status,
         price_version_id=price_version_id,
         currency=payload.currency.upper(),
         status=payload.status,
+        success=bool(payload.success),
+        error_code=payload.error_code,
+        latency_ms=payload.latency_ms,
         idempotency_key=payload.idempotency_key,
         event_timestamp=payload.event_timestamp,
+        occurred_at=payload.occurred_at,
         event_metadata=payload.metadata,
     )
     db.add(event)
@@ -94,6 +104,9 @@ def create_usage_event(
         response.status_code = status.HTTP_200_OK
         return existing
     db.refresh(event)
+    refresh_recommendations(db, project)
+    db.commit()
+    db.refresh(event)
     return event
 
 
@@ -105,6 +118,12 @@ def list_usage_events(
     model: str | None = None,
     workflow: str | None = None,
     external_user_id: str | None = None,
+    feature: str | None = None,
+    customer_id: str | None = None,
+    user_id: str | None = None,
+    team: str | None = None,
+    environment: str | None = None,
+    request_type: str | None = None,
     start: datetime | None = Query(default=None, description="received_at >= start (inclusive)"),
     end: datetime | None = Query(default=None, description="received_at <= end (inclusive)"),
     limit: int = Query(default=50, ge=1, le=100),
@@ -116,9 +135,21 @@ def list_usage_events(
     if model is not None:
         stmt = stmt.where(UsageEvent.model == model)
     if workflow is not None:
-        stmt = stmt.where(UsageEvent.workflow == workflow)
+        stmt = stmt.where(UsageEvent.feature == workflow)
     if external_user_id is not None:
-        stmt = stmt.where(UsageEvent.external_user_id == external_user_id)
+        stmt = stmt.where(UsageEvent.user_id == external_user_id)
+    if feature is not None:
+        stmt = stmt.where(UsageEvent.feature == feature)
+    if customer_id is not None:
+        stmt = stmt.where(UsageEvent.customer_id == customer_id)
+    if user_id is not None:
+        stmt = stmt.where(UsageEvent.user_id == user_id)
+    if team is not None:
+        stmt = stmt.where(UsageEvent.team == team)
+    if environment is not None:
+        stmt = stmt.where(UsageEvent.environment == environment)
+    if request_type is not None:
+        stmt = stmt.where(UsageEvent.request_type == request_type)
     if start is not None:
         stmt = stmt.where(UsageEvent.received_at >= start)
     if end is not None:

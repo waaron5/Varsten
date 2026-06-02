@@ -8,9 +8,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     UniqueConstraint,
+    Boolean,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -19,6 +21,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.api_key import ApiKey
+    from app.models.tenant import Organization
     from app.models.project import Project
 
 
@@ -60,6 +64,36 @@ class UsageEvent(Base):
         UniqueConstraint(
             "project_id", "idempotency_key", name="uq_usage_events_project_idempotency"
         ),
+        Index(
+            "ix_usage_events_project_feature_received_at",
+            "project_id",
+            "feature",
+            text("received_at DESC"),
+        ),
+        Index(
+            "ix_usage_events_project_customer_received_at",
+            "project_id",
+            "customer_id",
+            text("received_at DESC"),
+        ),
+        Index(
+            "ix_usage_events_project_environment_received_at",
+            "project_id",
+            "environment",
+            text("received_at DESC"),
+        ),
+        Index(
+            "ix_usage_events_project_request_type_received_at",
+            "project_id",
+            "request_type",
+            text("received_at DESC"),
+        ),
+        Index(
+            "ix_usage_events_project_pricing_status_received_at",
+            "project_id",
+            "pricing_status",
+            text("received_at DESC"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -70,11 +104,30 @@ class UsageEvent(Base):
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    api_key_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("api_keys.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     operation: Mapped[str] = mapped_column(String(64), nullable=False)
     external_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     workflow: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    request_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    feature: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    environment: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=text("'unknown'")
+    )
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     # Subset of input_tokens served from a provider prompt cache (billed cheaper).
@@ -88,17 +141,22 @@ class UsageEvent(Base):
     )
     total_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     # Authoritative cost, from whichever source cost_source names.
-    cost_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
-    # The client-supplied cost, retained even when we derived our own, so drift
-    # between reported and derived is auditable.
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    # The client-supplied cost, retained even when Varsten calculates its own, so
+    # drift between reported and authoritative cost is auditable.
     reported_cost_usd: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 8), nullable=True
     )
-    # How cost_usd was determined: override | derived | reported.
+    # How cost_usd was determined: override | catalog | reported | unknown.
     cost_source: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'reported'")
     )
-    # The model_prices row that produced a derived cost (NULL for override/reported).
+    # The pricing trust state: priced | model_not_in_catalog |
+    # missing_token_counts | missing_reported_cost | suspected_model_alias.
+    pricing_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'priced'")
+    )
+    # The model_prices row that produced a catalog cost (NULL for override/reported/unknown).
     price_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_prices.id", ondelete="SET NULL"),
@@ -112,6 +170,11 @@ class UsageEvent(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'success'")
     )
+    success: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
@@ -128,5 +191,10 @@ class UsageEvent(Base):
     event_timestamp: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    occurred_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     project: Mapped["Project"] = relationship(back_populates="usage_events")
+    organization: Mapped["Organization"] = relationship()
+    api_key: Mapped["ApiKey | None"] = relationship()

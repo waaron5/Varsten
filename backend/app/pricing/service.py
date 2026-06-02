@@ -15,13 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.models import ModelPrice, OrgModelPriceOverride
 
-# usage_events.cost_usd is Numeric(18, 8); quantize derived costs to match.
+# usage_events.cost_usd is Numeric(18, 8); quantize calculated costs to match.
 COST_QUANTUM = Decimal("0.00000001")
-
-
-class UnpriceableEvent(Exception):
-    """No catalog/override price covers the model and the client sent no cost, so
-    we refuse to invent a number."""
 
 
 @dataclass(frozen=True)
@@ -29,7 +24,7 @@ class ResolvedPrice:
     input_cost_per_token: Decimal
     output_cost_per_token: Decimal
     cache_read_input_token_cost: Decimal | None
-    # "override" (per-org rate) or "derived" (public catalog).
+    # "override" (per-org rate) or "catalog" (public catalog).
     source: str
     # Set only when the price came from a model_prices row, for audit pinning.
     price_version_id: uuid.UUID | None
@@ -88,7 +83,7 @@ def _catalog_price_for(
                 input_cost_per_token=row.input_cost_per_token,
                 output_cost_per_token=row.output_cost_per_token,
                 cache_read_input_token_cost=row.cache_read_input_token_cost,
-                source="derived",
+                source="catalog",
                 price_version_id=row.id,
             )
     return None
@@ -143,17 +138,20 @@ def price_usage_event(
     cached_input_tokens: int,
     reported_cost_usd: Decimal | None,
     at: datetime,
-) -> tuple[Decimal, str, uuid.UUID | None]:
+) -> tuple[Decimal | None, str, str, uuid.UUID | None]:
     """Resolve the authoritative cost for an event.
 
-    Returns (cost_usd, cost_source, price_version_id). Derives from the catalog
-    when the model is priced; otherwise falls back to the client's reported cost;
-    otherwise raises UnpriceableEvent.
+    Returns (cost_usd, cost_source, pricing_status, price_version_id). Derives
+    from override/catalog when priced; otherwise keeps the event with reported or
+    unknown cost so observability data is not lost.
     """
+    if input_tokens == 0 and output_tokens == 0 and reported_cost_usd is None:
+        return None, "unknown", "missing_token_counts", None
+
     price = resolve_price(db, organization_id, model_key, provider, at)
     if price is not None:
         cost = compute_cost(price, input_tokens, output_tokens, cached_input_tokens)
-        return cost, price.source, price.price_version_id
+        return cost, price.source, "priced", price.price_version_id
     if reported_cost_usd is not None:
-        return reported_cost_usd, "reported", None
-    raise UnpriceableEvent(model_key)
+        return reported_cost_usd, "reported", "model_not_in_catalog", None
+    return None, "unknown", "model_not_in_catalog", None

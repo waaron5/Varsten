@@ -6,12 +6,9 @@ compute_cost is pure.
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-import pytest
-
 from app.models import ModelPrice, Organization, OrgModelPriceOverride
 from app.pricing import (
     ResolvedPrice,
-    UnpriceableEvent,
     compute_cost,
     price_usage_event,
     resolve_price,
@@ -27,7 +24,7 @@ def _price(**rate) -> ResolvedPrice:
         cache_read_input_token_cost=(
             Decimal(rate["cache"]) if "cache" in rate else None
         ),
-        source="derived",
+        source="catalog",
         price_version_id=None,
     )
 
@@ -121,7 +118,7 @@ def test_resolve_returns_none_on_miss(db_session):
 
 def test_price_usage_event_falls_back_to_reported(db_session):
     org = _org(db_session)
-    cost, source, version = price_usage_event(
+    cost, source, pricing_status, version = price_usage_event(
         db_session,
         organization_id=org.id,
         model_key="unknown",
@@ -132,20 +129,30 @@ def test_price_usage_event_falls_back_to_reported(db_session):
         reported_cost_usd=Decimal("0.005"),
         at=NOW,
     )
-    assert (cost, source, version) == (Decimal("0.005"), "reported", None)
+    assert (cost, source, pricing_status, version) == (
+        Decimal("0.005"),
+        "reported",
+        "model_not_in_catalog",
+        None,
+    )
 
 
-def test_price_usage_event_unpriceable_without_reported(db_session):
+def test_price_usage_event_unknown_without_reported_returns_null_cost(db_session):
     org = _org(db_session)
-    with pytest.raises(UnpriceableEvent):
-        price_usage_event(
-            db_session,
-            organization_id=org.id,
-            model_key="unknown",
-            provider="openai",
-            input_tokens=10,
-            output_tokens=10,
-            cached_input_tokens=0,
-            reported_cost_usd=None,
-            at=NOW,
-        )
+    cost, source, pricing_status, version = price_usage_event(
+        db_session,
+        organization_id=org.id,
+        model_key="unknown",
+        provider="openai",
+        input_tokens=10,
+        output_tokens=10,
+        cached_input_tokens=0,
+        reported_cost_usd=None,
+        at=NOW,
+    )
+    assert (cost, source, pricing_status, version) == (
+        None,
+        "unknown",
+        "model_not_in_catalog",
+        None,
+    )

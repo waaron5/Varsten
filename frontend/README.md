@@ -1,6 +1,6 @@
 # Varsten Frontend
 
-Next.js 16 dashboard for Varsten.
+Next.js 16 control-plane UI for Varsten.
 
 ## Local Setup
 

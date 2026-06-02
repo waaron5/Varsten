@@ -1,10 +1,32 @@
 import type {
+  AdminBillingSecurity,
+  AdminConnections,
+  AdminTeam,
   ApiKeyCreated,
   ApiKeySummary,
+  AlertRule,
+  AnalysisCustomers,
+  AnalysisModels,
+  AnalysisSpend,
+  AlertRuleCreate,
+  AutomationLever,
+  BudgetRule,
+  BudgetRuleCreate,
   Breakdown,
   BreakdownDimension,
+  CommandCenter,
+  LeverConfig,
+  LeverName,
   MetricsOverview,
+  MonthlyReport,
+  ProofAttribution,
+  ProofDataQuality,
+  ProofSavings,
   Project,
+  QualityGuardrail,
+  QualityGuardrailCreate,
+  Recommendation,
+  RecommendationStatus,
   SpendTrend,
   UsageEvent,
   UsageEventFilters,
@@ -34,6 +56,24 @@ async function request<T>(
       authorization: `Bearer ${token}`,
       ...(init?.headers ?? {}),
     },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // non-JSON error body; keep statusText
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function publicRequest<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}/v1${path}`, {
+    headers: { "content-type": "application/json" },
     cache: "no-store",
   });
   if (!res.ok) {
@@ -114,6 +154,157 @@ export const api = {
 
   usageEvent: (token: string, projectId: string | undefined, id: string) =>
     request<UsageEvent>(readPath(`/usage-events/${id}`, projectId), token),
+
+  recommendations: (
+    token: string,
+    projectId: string | undefined,
+    status: RecommendationStatus = "open",
+  ) =>
+    request<Recommendation[]>(
+      readPath("/recommendations", projectId, { status }),
+      token,
+    ),
+
+  commandCenter: (token: string, projectId: string | undefined) =>
+    request<CommandCenter>(readPath("/command-center", projectId), token),
+
+  engineRecommendations: (
+    token: string,
+    projectId: string | undefined,
+    status: RecommendationStatus = "open",
+  ) =>
+    request<Recommendation[]>(
+      readPath("/engine/recommendations", projectId, { status }),
+      token,
+    ),
+
+  updateEngineRecommendation: (
+    token: string,
+    projectId: string | undefined,
+    id: string,
+    status: RecommendationStatus,
+  ) =>
+    request<Recommendation>(
+      readPath(`/engine/recommendations/${id}`, projectId),
+      token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      },
+    ),
+
+  engineLevers: (token: string, projectId: string | undefined) =>
+    request<LeverConfig[]>(readPath("/engine/levers", projectId), token),
+
+  updateLever: (
+    token: string,
+    projectId: string | undefined,
+    lever: LeverName | string,
+    body: { enabled?: boolean; automation_mode?: "auto" | "approve" },
+  ) =>
+    request<LeverConfig>(readPath(`/engine/levers/${lever}`, projectId), token, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  engineAutomation: (token: string, projectId: string | undefined) =>
+    request<AutomationLever[]>(readPath("/engine/automation", projectId), token),
+
+  proofSavings: (token: string, projectId: string | undefined) =>
+    request<ProofSavings>(readPath("/proof/savings", projectId), token),
+
+  proofAttribution: (token: string, projectId: string | undefined) =>
+    request<ProofAttribution>(readPath("/proof/attribution", projectId), token),
+
+  proofDataQuality: (token: string, projectId: string | undefined) =>
+    request<ProofDataQuality>(readPath("/proof/data-quality", projectId), token),
+
+  guardrailsQuality: (token: string, projectId: string | undefined) =>
+    request<QualityGuardrail[]>(readPath("/guardrails/quality", projectId), token),
+
+  createQualityGuardrail: (
+    token: string,
+    projectId: string | undefined,
+    body: QualityGuardrailCreate,
+  ) =>
+    request<QualityGuardrail>(readPath("/guardrails/quality", projectId), token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  guardrailsBudgets: (token: string, projectId: string | undefined) =>
+    request<BudgetRule[]>(readPath("/guardrails/budgets", projectId), token),
+
+  createBudgetRule: (
+    token: string,
+    projectId: string | undefined,
+    body: BudgetRuleCreate,
+  ) =>
+    request<BudgetRule>(readPath("/guardrails/budgets", projectId), token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  guardrailsAlerts: (token: string, projectId: string | undefined) =>
+    request<AlertRule[]>(readPath("/guardrails/alerts", projectId), token),
+
+  createAlertRule: (
+    token: string,
+    projectId: string | undefined,
+    body: AlertRuleCreate,
+  ) =>
+    request<AlertRule>(readPath("/guardrails/alerts", projectId), token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  analysisSpend: (token: string, projectId: string | undefined) =>
+    request<AnalysisSpend>(readPath("/analysis/spend", projectId), token),
+
+  analysisCustomers: (token: string, projectId: string | undefined) =>
+    request<AnalysisCustomers>(readPath("/analysis/customers", projectId), token),
+
+  analysisModels: (token: string, projectId: string | undefined) =>
+    request<AnalysisModels>(readPath("/analysis/models", projectId), token),
+
+  adminConnections: (token: string, projectId: string | undefined) =>
+    request<AdminConnections>(readPath("/admin/connections", projectId), token),
+
+  adminTeam: (token: string, projectId: string | undefined) =>
+    request<AdminTeam>(readPath("/admin/team", projectId), token),
+
+  adminBillingSecurity: (token: string, projectId: string | undefined) =>
+    request<AdminBillingSecurity>(readPath("/admin/billing-security", projectId), token),
+
+  reports: (token: string, projectId: string | undefined) =>
+    request<MonthlyReport[]>(readPath("/reports", projectId), token),
+
+  createReport: (token: string, projectId: string | undefined) =>
+    request<MonthlyReport>(readPath("/reports", projectId), token, { method: "POST" }),
+
+  updateReport: (
+    token: string,
+    projectId: string | undefined,
+    id: string,
+    status: "draft" | "published",
+  ) =>
+    request<MonthlyReport>(readPath(`/reports/${id}`, projectId), token, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
+  publicReport: (shareToken: string) =>
+    publicRequest<MonthlyReport>(`/public/reports/${shareToken}`),
+
+  updateRecommendation: (
+    token: string,
+    id: string,
+    status: RecommendationStatus,
+  ) =>
+    request<Recommendation>(`/recommendations/${id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
 
   // --- API key management (for a project) ---
   listApiKeys: (token: string, projectId: string) =>

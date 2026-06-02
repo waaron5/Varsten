@@ -1,7 +1,6 @@
 from app.pricing.service import (
     COST_QUANTUM,
     ResolvedPrice,
-    UnpriceableEvent,
     compute_cost,
     price_usage_event,
     resolve_price,
@@ -10,7 +9,6 @@ from app.pricing.service import (
 __all__ = [
     "COST_QUANTUM",
     "ResolvedPrice",
-    "UnpriceableEvent",
     "compute_cost",
     "price_usage_event",
     "resolve_price",

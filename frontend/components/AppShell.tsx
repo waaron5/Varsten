@@ -5,13 +5,30 @@ import { usePathname } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0";
 import { useSession } from "./session";
 
-const NAV: { href: string; label: string; icon: string }[] = [
-  { href: "/", label: "Overview", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
-  { href: "/explorer", label: "Usage Explorer", icon: "M3 3v18h18 M7 14l3-4 3 3 4-6" },
-  { href: "/breakdowns", label: "Providers & Models", icon: "M12 2l9 4.5v11L12 22l-9-4.5v-11L12 2z M3 7l9 4.5 9-4.5 M12 11.5V22" },
-  { href: "/setup", label: "Setup", icon: "M14 7a4 4 0 1 1-3.9 5H6v3H3v-3l3.1-3.1A4 4 0 0 1 14 7z M15 8.5h.01" },
-  { href: "/settings", label: "Settings", icon: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 13.4H3a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 4.6 6.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4.6V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" },
+const NAV_GROUPS: {
+  label: string;
+  items: { href: string; match: string; label: string; icon: string; badge?: string }[];
+}[] = [
+  {
+    label: "Operate",
+    items: [
+      { href: "/command-center", match: "/command-center", label: "Command Center", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
+      { href: "/engine/recommendations", match: "/engine", label: "Engine", icon: "M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z M9 12l2 2 4-5", badge: "5" },
+      { href: "/guardrails/quality", match: "/guardrails", label: "Guardrails", icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M9 12l2 2 4-5" },
+      { href: "/proof/savings", match: "/proof", label: "Proof", icon: "M4 19.5V5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-1.5z M8 7h6 M8 11h8 M8 15h5" },
+    ],
+  },
+  {
+    label: "Explore",
+    items: [
+      { href: "/analysis/spend", match: "/analysis", label: "Analysis", icon: "M3 3v18h18 M7 14l3-4 3 3 4-6" },
+      { href: "/reports", match: "/reports", label: "Reports", icon: "M7 3h7l5 5v13H7V3z M14 3v6h5 M10 13h6 M10 17h6" },
+      { href: "/admin/connections", match: "/admin", label: "Admin", icon: "M14 7a4 4 0 1 1-3.9 5H6v3H3v-3l3.1-3.1A4 4 0 0 1 14 7z M15 8.5h.01" },
+    ],
+  },
 ];
+
+const ALL_NAV = NAV_GROUPS.flatMap((group) => group.items);
 
 function Icon({ path }: { path: string }) {
   return (
@@ -25,7 +42,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, isLoading } = useUser();
   const { projects, activeProjectId, setActiveProjectId } = useSession();
-  const current = NAV.find((n) => n.href === pathname) ?? NAV[0];
+  const current = ALL_NAV.find((n) => pathname.startsWith(n.match)) ?? ALL_NAV[0];
+  const currentTab = pathname
+    .split("/")
+    .filter(Boolean)
+    .slice(1)
+    .join(" ")
+    .replace("-", " ");
 
   return (
     <div className="app">
@@ -35,16 +58,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <img src="/varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
         </div>
         <nav className="nav">
-          <div className="nav-group-label">Workspace</div>
-          {NAV.map((n) => {
-            const active = n.href === pathname;
-            return (
-              <Link key={n.href} href={n.href} className={`nav-item${active ? " active" : ""}`}>
-                <Icon path={n.icon} />
-                {n.label}
-              </Link>
-            );
-          })}
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="nav-group">
+              <div className="nav-group-label">{group.label}</div>
+              {group.items.map((n) => {
+                const active = pathname.startsWith(n.match);
+                return (
+                  <Link key={n.href} href={n.href} className={`nav-item${active ? " active" : ""}`}>
+                    <Icon path={n.icon} />
+                    <span>{n.label}</span>
+                    {n.badge && <span className="nav-badge">{n.badge}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
       </aside>
       <div className="main">
@@ -53,6 +81,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span>Varsten</span>
             <span className="sep">/</span>
             <b>{current.label}</b>
+            {currentTab && (
+              <>
+                <span className="sep">/</span>
+                <span className="crumb-tab">{currentTab}</span>
+              </>
+            )}
           </div>
           <div className="topbar-actions">
             {user && projects.length > 0 && (

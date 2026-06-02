@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -26,6 +27,12 @@ API_KEY_PREFIX = "vk_"
 _UNAUTHENTICATED = {"WWW-Authenticate": "Bearer"}
 
 
+@dataclass(frozen=True)
+class ApiKeyContext:
+    project: Project
+    api_key: ApiKey
+
+
 def _bearer_token(credentials: HTTPAuthorizationCredentials | None) -> str:
     if credentials is None or not credentials.credentials:
         raise HTTPException(
@@ -39,7 +46,7 @@ def _bearer_token(credentials: HTTPAuthorizationCredentials | None) -> str:
 # --- API key auth (ingestion + backward-compatible reads) ---------------------
 
 
-def _project_from_api_key(token: str, db: Session) -> Project:
+def _api_key_context(token: str, db: Session) -> ApiKeyContext:
     key_hash = hash_api_key(token)
     api_key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
     if api_key is None or api_key.revoked_at is not None:
@@ -61,7 +68,7 @@ def _project_from_api_key(token: str, db: Session) -> Project:
             detail="invalid api key",
             headers=_UNAUTHENTICATED,
         )
-    return project
+    return ApiKeyContext(project=project, api_key=api_key)
 
 
 def require_api_key(
@@ -76,7 +83,22 @@ def require_api_key(
             detail="expected an api key",
             headers=_UNAUTHENTICATED,
         )
-    return _project_from_api_key(token, db)
+    return _api_key_context(token, db).project
+
+
+def require_api_key_context(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> ApiKeyContext:
+    """Resolve the project and API key for a Bearer API key."""
+    token = _bearer_token(credentials)
+    if not token.startswith(API_KEY_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="expected an api key",
+            headers=_UNAUTHENTICATED,
+        )
+    return _api_key_context(token, db)
 
 
 # --- Auth0 session auth (dashboard) -------------------------------------------
@@ -154,7 +176,7 @@ def resolve_project(
     """
     token = _bearer_token(credentials)
     if token.startswith(API_KEY_PREFIX):
-        return _project_from_api_key(token, db)
+        return _api_key_context(token, db).project
 
     user = _user_from_claims(_claims_from_token(token), db)
     if project_id is None:

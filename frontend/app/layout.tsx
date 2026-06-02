@@ -10,15 +10,15 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Varsten — AI Spend Intelligence",
-  description: "Measure, track, and analyze AI spending across providers and models.",
+  title: "Varsten — AI Savings Engine",
+  description: "Cut AI spend safely and prove the savings.",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" data-theme="dark" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
         <Auth0Provider>
           <SessionProvider>

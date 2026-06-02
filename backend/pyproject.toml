@@ -1,7 +1,7 @@
 [project]
 name = "varsten"
 version = "0.1.0"
-description = "AI spend visibility and optimization platform"
+description = "AI cost-optimization engine and savings control plane"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
