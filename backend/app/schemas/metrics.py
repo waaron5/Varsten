@@ -15,6 +15,11 @@ class MetricsOverview(BaseModel):
     input_tokens_today: int
     output_tokens_today: int
     avg_cost_per_request_today: Decimal | None
+    # Trust signal: share of this month's spend that Varsten priced itself
+    # (derived from the catalog or a per-org override) vs echoed from the client
+    # (reported). None when there is no spend yet.
+    authoritative_spend_month: Decimal
+    authoritative_spend_share_month: Decimal | None
 
 
 class SpendTrendPoint(BaseModel):

@@ -10,6 +10,8 @@ This is a portfolio / startup-style project. The goal is not to build a full AI 
 
 The core product philosophy is: if you cannot measure AI spending, you cannot optimize it. Varsten should become excellent at measuring, tracking, analyzing, and explaining AI costs before it tries to automate optimization.
 
+**Current phase: perfecting the base layer of cost calculation and savings estimation.** The visibility MVP (ingestion, multi-tenancy, dashboards) and the authoritative cost ledger (an owned, versioned pricing catalog that derives cost rather than trusting the client) are built. The work now is to make cost accuracy airtight and to lay the data foundation for savings estimation, before any automatic optimization gets built on top of it. Accuracy of measurement comes first; everything in Phase 2+ is only as trustworthy as this base.
+
 ## Why this project exists
 
 I am a CS student at BYU relocating to NYC and actively job hunting for junior / mid full-stack roles, with a backend lean. Varsten is my main portfolio piece for that search. It needs to demonstrate that I can handle:
@@ -51,8 +53,9 @@ The single most impressive moment is step 5 to 6: an external curl call lands in
   "external_user_id": "user_123",
   "workflow": "support_agent",
   "input_tokens": 1200,
+  "cached_input_tokens": 800,
   "output_tokens": 340,
-  "cost_usd": 0.0021,
+  "idempotency_key": "req_abc123",
   "metadata": {
     "team": "support",
     "environment": "production"
@@ -60,7 +63,7 @@ The single most impressive moment is step 5 to 6: an external curl call lands in
 }
 ```
 
-For v1, accepting an explicit `cost_usd` is reasonable because it keeps ingestion simple and still proves the architecture. A later iteration can calculate cost from a versioned provider pricing table when only token counts are provided.
+Varsten now derives cost itself rather than trusting the client. Ingestion takes authoritative token counts and computes `cost_usd` from a versioned pricing catalog Varsten owns: a per-org override first, then the synced public catalog, pinned to the price version that was live at the event's time. Client `cost_usd` is optional. When sent it is stored as `reported_cost_usd` and used only as the fallback when the model is not in the catalog. A `cost_source` field (`derived` | `override` | `reported`) records which path produced the number, and the dashboard surfaces the share of spend that was derived vs reported. Prices are never hard-coded: they live in data, refreshed by a loader (`make sync-prices`) from a maintained feed, overridable per org, and versioned by effective date so history never mutates. This is what makes Varsten authoritative on spend instead of a mirror of the customer's math.
 
 ### Metrics the dashboard surfaces
 
@@ -154,7 +157,7 @@ Phase 4: Optimization
 - Cost-aware agent execution
 - Automated spend reduction
 
-For the current build, stay in Phase 1 unless explicitly discussing roadmap.
+The current build sits at the Phase 1 / Phase 2 boundary: Phase 1 visibility is in place, and the focus now is hardening the cost-measurement base and building the data foundation Phase 2 savings estimation needs (catalog tier metadata, cheaper-substitute mapping, request status, cached/reasoning token capture). Do the measurement and estimation groundwork, but do not jump ahead to the recommendation engine, automatic routing, or any Phase 3/4 control or optimization work unless explicitly discussing roadmap.
 
 ## How I want Claude to work with me
 
@@ -226,9 +229,9 @@ This is a target, not a contract. Open to changes if there's a real reason.
 
 ## Database design notes (current thinking)
 
-Tables: `organizations`, `users`, `org_memberships`, `projects`, `api_keys`, `usage_events`.
+Tables: `organizations`, `users`, `org_memberships`, `projects`, `api_keys`, `usage_events`, plus the pricing layer: `model_catalog` (model identity, capabilities, tier, cheaper-substitute mapping), `model_prices` (versioned list prices by `effective_at`), `org_model_price_overrides` (per-org negotiated rates).
 
-The `usage_events` table is the hot one. Initial columns:
+The `usage_events` table is the hot one. Columns:
 
 - `project_id`
 - `provider`
@@ -237,14 +240,24 @@ The `usage_events` table is the hot one. Initial columns:
 - `external_user_id`
 - `workflow`
 - `input_tokens`
+- `cached_input_tokens` (subset of input served from a provider prompt cache, billed cheaper)
+- `reasoning_tokens` (stored for analytics; already inside output_tokens for billing)
 - `output_tokens`
 - `total_tokens`
-- `cost_usd`
-- `currency`
+- `cost_usd` (authoritative, from whichever source `cost_source` names)
+- `reported_cost_usd` (the client-sent number, kept for drift cross-check)
+- `cost_source` (`derived` | `override` | `reported`)
+- `price_version_id` (the `model_prices` row that produced a derived cost)
+- `currency` (USD only in v1; non-USD is rejected at ingestion)
+- `idempotency_key` (unique per project; retries do not double-count)
+- `status` (`success` | `error`)
 - `metadata` JSONB
+- `event_timestamp` (when the call happened on the client; distinct from receipt)
 - `received_at`
 
-Initial indexes:
+Cost is derived in `app/pricing/` (override then catalog, latest `effective_at <= event time`). Analytics still bucket on `received_at`; moving the axis to `event_timestamp` is a tracked follow-up that needs index changes.
+
+Indexes on `usage_events`:
 
 - `(project_id, received_at DESC)` for recent usage and time-windowed counts
 - `(project_id, provider, received_at DESC)` for provider breakdowns

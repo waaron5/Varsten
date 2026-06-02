@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     # require_user returns 503 if these are unset so the failure is explicit.
     auth0_domain: str = ""
     auth0_audience: str = ""
+    # Source for the price sync loader. A maintained public dataset, overridable
+    # via env so prices are never literals in code. Defaults to the LiteLLM feed.
+    pricing_feed_url: str = (
+        "https://raw.githubusercontent.com/BerriAI/litellm/main/"
+        "model_prices_and_context_window.json"
+    )
 
 
 settings = Settings()

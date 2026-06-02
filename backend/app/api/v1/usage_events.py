@@ -1,13 +1,15 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_api_key, resolve_project
 from app.db.session import get_db
 from app.models import Project, UsageEvent
+from app.pricing import UnpriceableEvent, price_usage_event
 from app.schemas import UsageEventCreate, UsageEventOut, UsageEventPage
 
 router = APIRouter(tags=["usage-events"])
@@ -20,9 +22,38 @@ router = APIRouter(tags=["usage-events"])
 )
 def create_usage_event(
     payload: UsageEventCreate,
+    response: Response,
     project: Project = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> UsageEvent:
+    # v1 prices in USD only. Blending currencies in SUM(cost_usd) would silently
+    # corrupt every total, so reject rather than guess an FX rate.
+    if payload.currency.upper() != "USD":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="only USD is supported in v1",
+        )
+
+    # event_timestamp picks the price version that was live when the call happened.
+    at = payload.event_timestamp or datetime.now(timezone.utc)
+    try:
+        cost_usd, cost_source, price_version_id = price_usage_event(
+            db,
+            organization_id=project.organization_id,
+            model_key=payload.model,
+            provider=payload.provider,
+            input_tokens=payload.input_tokens,
+            output_tokens=payload.output_tokens,
+            cached_input_tokens=payload.cached_input_tokens,
+            reported_cost_usd=payload.cost_usd,
+            at=at,
+        )
+    except UnpriceableEvent:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="cannot price event: send token counts for a known model, or include cost_usd",
+        )
+
     event = UsageEvent(
         project_id=project.id,
         provider=payload.provider,
@@ -32,13 +63,36 @@ def create_usage_event(
         workflow=payload.workflow,
         input_tokens=payload.input_tokens,
         output_tokens=payload.output_tokens,
+        cached_input_tokens=payload.cached_input_tokens,
+        reasoning_tokens=payload.reasoning_tokens,
         total_tokens=payload.input_tokens + payload.output_tokens,
-        cost_usd=payload.cost_usd,
-        currency=payload.currency,
+        cost_usd=cost_usd,
+        reported_cost_usd=payload.cost_usd,
+        cost_source=cost_source,
+        price_version_id=price_version_id,
+        currency=payload.currency.upper(),
+        status=payload.status,
+        idempotency_key=payload.idempotency_key,
+        event_timestamp=payload.event_timestamp,
         event_metadata=payload.metadata,
     )
     db.add(event)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # A retry with a previously seen idempotency_key. Return the stored event
+        # instead of double-counting spend.
+        db.rollback()
+        existing = db.scalar(
+            select(UsageEvent).where(
+                UsageEvent.project_id == project.id,
+                UsageEvent.idempotency_key == payload.idempotency_key,
+            )
+        )
+        if existing is None:
+            raise
+        response.status_code = status.HTTP_200_OK
+        return existing
     db.refresh(event)
     return event
 

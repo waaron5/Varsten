@@ -45,6 +45,7 @@ def overview(
     cost = UsageEvent.cost_usd
     recv = UsageEvent.received_at
     is_today = recv >= day_start
+    is_authoritative = UsageEvent.cost_source.in_(("derived", "override"))
 
     # One scan bounded by month_start, with FILTER for the today subset, instead
     # of separate today/month queries.
@@ -52,6 +53,9 @@ def overview(
         select(
             func.coalesce(func.sum(cost).filter(is_today), 0).label("spend_today"),
             func.coalesce(func.sum(cost), 0).label("spend_month"),
+            func.coalesce(
+                func.sum(cost).filter(is_authoritative), 0
+            ).label("authoritative_spend_month"),
             func.count().filter(is_today).label("requests_today"),
             func.count().label("requests_month"),
             func.coalesce(
@@ -66,6 +70,9 @@ def overview(
     row = db.execute(stmt).one()
 
     avg_today = row.spend_today / row.requests_today if row.requests_today else None
+    trust_share = (
+        row.authoritative_spend_month / row.spend_month if row.spend_month else None
+    )
     return MetricsOverview(
         spend_today=row.spend_today,
         spend_month=row.spend_month,
@@ -74,6 +81,8 @@ def overview(
         input_tokens_today=row.input_tokens_today,
         output_tokens_today=row.output_tokens_today,
         avg_cost_per_request_today=avg_today,
+        authoritative_spend_month=row.authoritative_spend_month,
+        authoritative_spend_share_month=trust_share,
     )
 
 
