@@ -209,7 +209,7 @@ def test_toggle_is_tenant_scoped(client, provision):
     ).status_code == 403
 
 
-def test_fail_open_when_cache_lookup_breaks(client, provision, mock_openai, monkeypatch):
+def test_fail_open_when_cache_lookup_breaks(client, provision, mock_openai, monkeypatch, caplog):
     ws = provision(sub="auth0|p", email="p@example.com")
     _configure_key(monkeypatch, ws["project_id"])
 
@@ -219,9 +219,12 @@ def test_fail_open_when_cache_lookup_breaks(client, provision, mock_openai, monk
     monkeypatch.setattr(proxy_cache, "get_cached", boom)
 
     body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
-    res = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+    with caplog.at_level("ERROR", logger="varsten.proxy"):
+        res = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
 
     # A broken cache must never break the client's call: it forwards anyway.
     assert res.status_code == 200
     assert res.json()["choices"][0]["message"]["content"] == "Hello world"
     assert mock_openai["n"] == 1
+    # And the failure is now visible, not silently swallowed.
+    assert any("cache lookup failed" in r.message for r in caplog.records)

@@ -38,5 +38,13 @@ class Settings(BaseSettings):
     # emergency lever; a per-project switch lives on the project row.
     proxy_kill_switch: bool = False
 
+    # --- Observability ---
+    log_level: str = "INFO"
+    # JSON logs in production; set false for plain human-readable logs locally.
+    log_json: bool = True
+    # Sentry error tracking. Empty DSN disables it entirely (no-op).
+    sentry_dsn: str = ""
+    sentry_environment: str = "development"
+
 
 settings = Settings()

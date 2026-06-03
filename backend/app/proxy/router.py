@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import ApiKeyContext, require_api_key_context
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models import Project
 from app.proxy import cache, openai
@@ -24,6 +25,7 @@ from app.proxy.keys import openai_key_for_project
 from app.proxy.ledger import record_proxy_usage
 
 router = APIRouter(tags=["proxy"])
+logger = get_logger("varsten.proxy")
 
 SSE_MEDIA_TYPE = "text/event-stream"
 
@@ -64,6 +66,8 @@ async def chat_completions(
         try:
             entry = cache.get_cached(db, project.id, cache_key)
         except Exception:
+            # Fail-open: a broken cache must never block forwarding.
+            logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
             entry = None
         if entry is not None:
             try:
@@ -79,7 +83,7 @@ async def chat_completions(
                     cache_hit=True,
                 )
             except Exception:
-                pass
+                logger.exception("cache-hit bookkeeping failed", extra={"project_id": str(project.id)})
             headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": "hit"}
             if stream:
                 return StreamingResponse(
@@ -137,7 +141,7 @@ def _capture(
         if store_cache and settings.semantic_cache_enabled and response_payload:
             cache.store(db, project.id, cache_key, model, response_payload, in_tok, out_tok)
     except Exception:
-        pass
+        logger.exception("proxy ledger/cache write failed", extra={"project_id": str(project.id)})
 
 
 async def _stream_through(db, project, api_key_id, client_key, body, model, cache_key, store_cache):
@@ -166,6 +170,9 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
     except httpx.RequestError as exc:
         # OpenAI unreachable. Cannot fabricate a completion, but emit a clean SSE
         # error instead of a stack trace.
+        logger.warning(
+            "upstream stream failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
+        )
         yield f'data: {{"error":{{"message":"upstream request failed: {exc.__class__.__name__}","type":"varsten_upstream_error"}}}}\n\n'.encode()
         yield b"data: [DONE]\n\n"
         return
@@ -198,7 +205,7 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
         )
     except Exception:
         # Never let post-stream bookkeeping break a delivered response.
-        pass
+        logger.exception("post-stream capture failed", extra={"project_id": str(project.id)})
 
 
 async def _forward_once(
@@ -213,6 +220,9 @@ async def _forward_once(
             )
     except httpx.RequestError as exc:
         # OpenAI unreachable: clean 502 rather than an unhandled 500.
+        logger.warning(
+            "upstream request failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
+        )
         return JSONResponse(
             {"error": {"message": f"upstream request failed: {exc.__class__.__name__}", "type": "varsten_upstream_error"}},
             status_code=status.HTTP_502_BAD_GATEWAY,
