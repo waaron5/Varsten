@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: varsten
+          POSTGRES_PASSWORD: varsten
+          POSTGRES_DB: varsten
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U varsten -d varsten"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://varsten:varsten@localhost:5432/varsten
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+      - name: Run tests
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    # Placeholder values: the build only needs these to exist, not to be real.
+    env:
+      NEXT_PUBLIC_API_BASE: http://localhost:8000
+      AUTH0_DOMAIN: example.us.auth0.com
+      AUTH0_CLIENT_ID: ci-client-id
+      AUTH0_CLIENT_SECRET: ci-client-secret
+      AUTH0_SECRET: ci-placeholder-secret-not-used-at-build-time-0000
+      AUTH0_AUDIENCE: https://api.varsten.local
+      APP_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build

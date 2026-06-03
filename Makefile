@@ -1,4 +1,17 @@
-.PHONY: sync-prices demo-seed migrate test
+.PHONY: up down logs sync-prices demo-seed migrate test
+
+# Bring up the full local stack (Postgres + API + frontend). The API container
+# applies migrations on boot. First run builds the API image.
+up:
+	docker compose up --build
+
+# Stop the stack. Add ARGS=-v to also drop the database volume.
+down:
+	docker compose down $(ARGS)
+
+# Tail logs for all services.
+logs:
+	docker compose logs -f
 
 # Refresh the pricing catalog from the public feed (manual for now; cron later).
 sync-prices:
