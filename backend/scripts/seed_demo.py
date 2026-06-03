@@ -718,6 +718,9 @@ def seed(db: Session, attach_email: str | None = None) -> dict[str, object]:
     refresh_recommendations(db, project)
     db.flush()
     applied = _apply_demo_recommendations(db, project, now)
+    # Stamp the refresh so dashboard reads serve this seeded state instead of
+    # immediately recomputing under the staleness gate.
+    project.recommendations_refreshed_at = now
     db.commit()
     open_recs = db.scalar(
         select(func.count()).select_from(Recommendation).where(

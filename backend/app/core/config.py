@@ -17,6 +17,10 @@ class Settings(BaseSettings):
         "https://raw.githubusercontent.com/BerriAI/litellm/main/"
         "model_prices_and_context_window.json"
     )
+    # How long a project's recommendations are served from storage before a read
+    # triggers a recompute. Keeps the month-scan off the hot read path; lower for
+    # fresher recommendations, higher for less recompute under load.
+    recommendations_max_age_seconds: int = 600
 
 
 settings = Settings()

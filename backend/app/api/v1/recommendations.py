@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
 from app.models import OrgMembership, Project, Recommendation, User
-from app.recommendations import refresh_recommendations
+from app.recommendations import ensure_recommendations_fresh
 from app.savings import record_applied_savings
 from app.schemas import RecommendationOut, RecommendationUpdate
 
@@ -24,8 +24,7 @@ def list_recommendations(
         default=None, alias="status"
     ),
 ) -> list[Recommendation]:
-    refresh_recommendations(db, project)
-    db.commit()
+    ensure_recommendations_fresh(db, project)
     stmt = select(Recommendation).where(Recommendation.project_id == project.id)
     if status_filter is not None:
         stmt = stmt.where(Recommendation.status == status_filter)

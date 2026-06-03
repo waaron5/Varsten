@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import resolve_project
 from app.db.session import get_db
 from app.models import Project, UsageEvent
-from app.recommendations import refresh_recommendations
+from app.recommendations import ensure_recommendations_fresh
 from app.schemas.metrics import (
     Breakdown,
     BreakdownRow,
@@ -48,8 +48,7 @@ def overview(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> MetricsOverview:
-    refresh_recommendations(db, project)
-    db.commit()
+    ensure_recommendations_fresh(db, project)
 
     now = datetime.now(timezone.utc)
     day_start = _utc_day_start(now)

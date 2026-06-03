@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +27,12 @@ class Project(Base, TimestampMixin):
         index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # When the recommendation engine last recomputed for this project. The read
+    # endpoints use this to serve stored recommendations and only recompute past a
+    # staleness window, keeping a month-scan off every dashboard load.
+    recommendations_refreshed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     organization: Mapped["Organization"] = relationship(back_populates="projects")
     api_keys: Mapped[list["ApiKey"]] = relationship(

@@ -1,12 +1,13 @@
 import calendar
 from dataclasses import dataclass
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import or_, func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import ModelCatalog, ModelPrice, Project, Recommendation, UsageEvent
 
 OPEN = "open"
@@ -650,3 +651,27 @@ def refresh_recommendations(db: Session, project: Project) -> None:
     _add_batching_recommendation(db, project, start, now)
     _add_cheaper_model_recommendation(db, project, start, now)
     _add_smart_routing_recommendation(db, project, start, now)
+
+
+def ensure_recommendations_fresh(
+    db: Session, project: Project, now: datetime | None = None
+) -> bool:
+    """Recompute recommendations only when the stored set is stale, so a read
+    endpoint serves existing rows instead of scanning a month of usage on every
+    request. Returns True if a recompute happened.
+
+    The recompute still writes (it upserts recommendation rows), but the staleness
+    gate bounds that to at most once per project per window. Concurrent stale reads
+    may both recompute; the upserts are idempotent, so the cost is a little
+    duplicate work, never duplicate or corrupt recommendations.
+    """
+    now = now or datetime.now(timezone.utc)
+    max_age = timedelta(seconds=settings.recommendations_max_age_seconds)
+    last = project.recommendations_refreshed_at
+    if last is not None and now - last < max_age:
+        return False
+    refresh_recommendations(db, project)
+    project.recommendations_refreshed_at = now
+    db.add(project)
+    db.commit()
+    return True

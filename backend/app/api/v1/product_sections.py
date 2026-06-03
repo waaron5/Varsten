@@ -28,7 +28,7 @@ from app.models import (
     UsageEvent,
     User,
 )
-from app.recommendations import refresh_recommendations
+from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
 
@@ -133,8 +133,7 @@ def _ensure_lever_configs(db: Session, project: Project) -> list[LeverConfig]:
 
 
 def _refresh_open_recommendations(db: Session, project: Project) -> list[Recommendation]:
-    refresh_recommendations(db, project)
-    db.commit()
+    ensure_recommendations_fresh(db, project)
     return list(
         db.scalars(
             select(Recommendation)
