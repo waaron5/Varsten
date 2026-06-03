@@ -11,13 +11,14 @@ and idempotency values prevent duplicate demo records.
 """
 from __future__ import annotations
 
+import os
 import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_api_key
@@ -201,6 +202,27 @@ def _get_or_create_user(db: Session, org: Organization) -> User:
     else:
         membership.role = "owner"
     return user
+
+
+def _attach_user_by_email(db: Session, org: Organization, email: str) -> bool:
+    """Add an existing real user (by email) to the demo org as owner, so a person
+    who has logged in via Auth0 can see the seeded demo workspace. The user must
+    already exist: they have to sign in once first so their account is provisioned.
+    Returns True if attached, False if no such user yet."""
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None:
+        return False
+    membership = db.scalar(
+        select(OrgMembership).where(
+            OrgMembership.organization_id == org.id,
+            OrgMembership.user_id == user.id,
+        )
+    )
+    if membership is None:
+        db.add(OrgMembership(organization_id=org.id, user_id=user.id, role="owner"))
+    else:
+        membership.role = "owner"
+    return True
 
 
 def _get_or_create_api_key(db: Session, project: Project) -> ApiKey:
@@ -620,6 +642,14 @@ def _apply_demo_recommendations(db: Session, project: Project, now: datetime) ->
     """
     start = month_start(now)
     end = month_end(now)
+    # Reset to a clean slate so re-seeding is deterministic and never accumulates
+    # or double-counts applied cuts across runs: reopen prior resolutions, drop
+    # this period's attributions and apply-actions, then re-apply from scratch.
+    db.execute(
+        update(Recommendation)
+        .where(Recommendation.project_id == project.id, Recommendation.status != "open")
+        .values(status="open", resolved_at=None)
+    )
     db.execute(
         delete(SavingsAttribution).where(
             SavingsAttribution.project_id == project.id,
@@ -669,10 +699,11 @@ def _apply_demo_recommendations(db: Session, project: Project, now: datetime) ->
     return applied
 
 
-def seed(db: Session) -> dict[str, object]:
+def seed(db: Session, attach_email: str | None = None) -> dict[str, object]:
     org = _get_or_create_org(db)
     project = _get_or_create_project(db, org)
     _get_or_create_user(db, org)
+    attached = _attach_user_by_email(db, org, attach_email) if attach_email else False
     api_key = _get_or_create_api_key(db, project)
     _seed_prices(db)
     inserted_events = _seed_usage(db, org, project, api_key)
@@ -700,13 +731,19 @@ def seed(db: Session) -> dict[str, object]:
         "inserted_usage_events": inserted_events,
         "applied_recommendations": applied,
         "open_recommendations": open_recs,
+        "attach_email": attach_email,
+        "attached": attached,
     }
 
 
 def main() -> int:
+    # Optionally attach a real, already-signed-in user to the demo org so they can
+    # see the workspace after an Auth0 login. Pass an email as an arg or via env:
+    #   uv run python -m scripts.seed_demo you@example.com
+    attach_email = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("VARSTEN_DEMO_ATTACH_EMAIL")
     db = SessionLocal()
     try:
-        result = seed(db)
+        result = seed(db, attach_email=attach_email)
     finally:
         db.close()
     print("Seeded Varsten demo workspace")
@@ -716,6 +753,11 @@ def main() -> int:
     print(f"inserted_usage_events={result['inserted_usage_events']}")
     print(f"applied_recommendations={result['applied_recommendations']}")
     print(f"open_recommendations={result['open_recommendations']}")
+    if attach_email:
+        if result["attached"]:
+            print(f"attached {attach_email} to the demo org (select 'Varsten Demo Co' after login)")
+        else:
+            print(f"could not attach {attach_email}: sign in once via Auth0 first, then re-run")
     return 0
 
 
