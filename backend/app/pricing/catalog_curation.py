@@ -16,47 +16,36 @@ from sqlalchemy.orm import Session
 
 from app.models import ModelCatalog
 
-# model_key -> coarse capability tier: frontier | mid | small.
+# model_key -> coarse capability tier: frontier | mid | small. Keys are the
+# clean direct-provider names confirmed present and priced in the feed.
 TIERS: dict[str, str] = {
     # OpenAI
     "gpt-4o": "frontier",
-    "gpt-4o-2024-11-20": "frontier",
-    "gpt-4o-2024-08-06": "frontier",
     "gpt-4o-mini": "small",
     "gpt-4-turbo": "frontier",
     "gpt-4": "frontier",
     "o1": "frontier",
-    "o1-mini": "mid",
     "o3-mini": "mid",
     # Anthropic
-    "claude-3-5-sonnet-latest": "frontier",
-    "claude-3-5-sonnet-20241022": "frontier",
-    "claude-3-opus-latest": "frontier",
-    "claude-3-5-haiku-latest": "small",
-    "claude-3-haiku-20240307": "small",
+    "claude-3-5-sonnet": "frontier",
+    "claude-3-opus-20240229": "frontier",
+    "claude-3-haiku": "small",
     # Google
-    "gemini-1.5-pro": "frontier",
-    "gemini-1.5-flash": "small",
-    "gemini-1.5-flash-8b": "small",
+    "gemini/gemini-1.5-flash": "small",
 }
 
-# model_key -> a cheaper substitute model_key on the same provider that is a
-# credible candidate for general traffic. The engine prices both and only
-# surfaces the swap when it actually costs less.
+# model_key -> a cheaper substitute model_key, a credible candidate for general
+# traffic. Both the key and its substitute are confirmed priced, so the engine
+# can compare them; it only surfaces the swap when it actually costs less.
 SUBSTITUTES: dict[str, str] = {
     # OpenAI
     "gpt-4o": "gpt-4o-mini",
-    "gpt-4o-2024-11-20": "gpt-4o-mini",
-    "gpt-4o-2024-08-06": "gpt-4o-mini",
     "gpt-4-turbo": "gpt-4o",
     "gpt-4": "gpt-4o",
-    "o1": "o1-mini",
+    "o1": "o3-mini",
     # Anthropic
-    "claude-3-5-sonnet-latest": "claude-3-5-haiku-latest",
-    "claude-3-5-sonnet-20241022": "claude-3-5-haiku-latest",
-    "claude-3-opus-latest": "claude-3-5-sonnet-latest",
-    # Google
-    "gemini-1.5-pro": "gemini-1.5-flash",
+    "claude-3-5-sonnet": "claude-3-haiku",
+    "claude-3-opus-20240229": "claude-3-5-sonnet",
 }
 
 
