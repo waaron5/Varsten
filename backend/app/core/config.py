@@ -22,5 +22,17 @@ class Settings(BaseSettings):
     # fresher recommendations, higher for less recompute under load.
     recommendations_max_age_seconds: int = 600
 
+    # --- Phase 1 inline proxy (OpenAI only) ---
+    # Upstream OpenAI base URL (overridable to point at a mock in tests).
+    openai_base_url: str = "https://api.openai.com"
+    # Temporary env-vaulted provider keys: project_id -> OpenAI API key. Supplied
+    # as JSON in PROXY_OPENAI_KEYS, e.g. {"<project-uuid>": "sk-..."}. A real
+    # per-tenant KMS-backed vault replaces this later.
+    proxy_openai_keys: dict[str, str] = {}
+    # The only active optimization lever in Phase 1. The other four are bypassed.
+    semantic_cache_enabled: bool = True
+    # Upstream request timeout (seconds) for the non-streaming path.
+    proxy_upstream_timeout_seconds: float = 60.0
+
 
 settings = Settings()
