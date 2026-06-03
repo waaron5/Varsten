@@ -1,29 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { AttributionTable } from "@/components/AttributionTable";
 import { RequireSession } from "@/components/RequireSession";
-import { useSession } from "@/components/session";
+import { useProjectResource } from "@/components/useProjectResource";
+import {
+  numberValue,
+  PageState,
+  percent,
+  titleize,
+  useDeferredLoad,
+} from "@/components/viewPrimitives";
 import { api } from "@/lib/api";
 import { compact, usd } from "@/lib/format";
 import type { MonthlyReport } from "@/lib/types";
-
-function titleize(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function numberValue(value: string | number | null | undefined): number {
-  if (value === null || value === undefined) return 0;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function percent(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "-";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "-";
-  return `${Math.round(n * 100)}%`;
-}
 
 function periodLabel(report: MonthlyReport): string {
   return new Date(report.period_start).toLocaleDateString("en-US", {
@@ -36,26 +27,6 @@ function periodLabel(report: MonthlyReport): string {
 function shareHref(report: MonthlyReport): string {
   if (typeof window === "undefined") return `/reports/${report.share_token}`;
   return `${window.location.origin}/reports/${report.share_token}`;
-}
-
-function PageState({ loading, error, empty, emptyDetail }: { loading?: boolean; error?: string | null; empty?: string; emptyDetail?: string }) {
-  if (loading) return <div className="empty"><div className="spinner" /></div>;
-  if (error) {
-    return <div className="empty"><div className="et">Could not load report data</div><div className="es">{error}</div></div>;
-  }
-  if (empty) {
-    return <div className="empty"><div className="et">{empty}</div>{emptyDetail ? <div className="es">{emptyDetail}</div> : null}</div>;
-  }
-  return null;
-}
-
-function useDeferredLoad(load: () => Promise<void>) {
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
 }
 
 function ReportSnapshot({ report }: { report: MonthlyReport }) {
@@ -90,23 +61,11 @@ function ReportSnapshot({ report }: { report: MonthlyReport }) {
       <div className="grid cols-2">
         <div className="card">
           <div className="card-head"><h3>Attribution</h3></div>
-          {report.attribution_rows.length === 0 ? (
-            <PageState empty="No attributed savings yet" emptyDetail="Apply engine actions to build lever-level proof." />
-          ) : (
-            <table className="tbl">
-              <thead><tr><th>Lever</th><th>Method</th><th className="r">Actions</th><th className="r">Net saved</th></tr></thead>
-              <tbody>
-                {report.attribution_rows.map((row) => (
-                  <tr key={`${row.lever}-${row.measurement_method}`}>
-                    <td>{row.lever ? titleize(row.lever) : "General"}</td>
-                    <td className="muted">{titleize(row.measurement_method)}</td>
-                    <td className="r">{row.actions}</td>
-                    <td className="r">{usd(row.net_savings_usd, 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <AttributionTable
+            empty="No attributed savings yet"
+            emptyDetail="Apply engine actions to build lever-level proof."
+            rows={report.attribution_rows}
+          />
         </div>
         <div className="card">
           <div className="card-head"><h3>Open opportunities</h3></div>
@@ -136,30 +95,23 @@ export function ReportsView() {
 }
 
 function ReportsBody() {
-  const { activeProjectId, getToken } = useSession();
-  const [reports, setReports] = useState<MonthlyReport[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    activeProjectId,
+    data: reports,
+    error,
+    getToken,
+    loading,
+    setData: setReports,
+    setError,
+  } = useProjectResource<MonthlyReport[]>(api.reports, []);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const latest = reports[0] ?? null;
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setReports(await api.reports(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-  useDeferredLoad(load);
+  const latest = reports?.[0] ?? null;
   const generate = async () => {
     setBusy(true);
     setError(null);
     try {
       const report = await api.createReport(await getToken(), activeProjectId ?? undefined);
-      setReports((current) => [report, ...current.filter((item) => item.id !== report.id)]);
+      setReports((current) => [report, ...(current ?? []).filter((item) => item.id !== report.id)]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -197,7 +149,7 @@ function ReportsBody() {
             </div>
           </div>
           <ReportSnapshot report={latest} />
-          {reports.length > 1 ? (
+          {reports && reports.length > 1 ? (
             <div className="card" style={{ marginTop: 16 }}>
               <div className="card-head"><h3>Previous reports</h3></div>
               <table className="tbl">

@@ -373,8 +373,6 @@ This is a target, not a contract. Open to changes if there's a real reason.
 
 In any of these, ask me why before going along with it.
 
-## Out-of-band context
+## run npx fallow to install fallow and see maintainability issues
 
-- I work professionally in Angular / tRPC / Prisma / Postgres, so I'm comfortable in TypeScript and relational DB land. FastAPI, Pydantic, Alembic, and Next.js are the parts I'm actively learning.
-- The NYC move and job hunt are the deadline pressure. I would rather have a smaller, polished, end-to-end-working version of Varsten than a half-built ambitious one. Bias toward done over complete.
-- I am treating Varsten as a product I want to build and sell, not only a portfolio piece. The vision in this file is real. The v1 scope is how I demonstrate it on a realistic timeline.
+- fix issues presented by fallow only when I explicitly say to do so

@@ -1,10 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RequireSession } from "@/components/RequireSession";
-import { useSession } from "@/components/session";
+import { useProjectResource } from "@/components/useProjectResource";
+import {
+  CollectionState,
+  numberValue,
+  PageHeader,
+  PageState,
+  Tabs,
+  titleize,
+} from "@/components/viewPrimitives";
 import { api } from "@/lib/api";
 import { compact, relativeTime, usd } from "@/lib/format";
 import type {
@@ -29,74 +36,10 @@ const ADMIN_TABS = [
   { href: "/admin/billing-security", label: "Billing & security" },
 ];
 
-function titleize(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function numberValue(value: string | number | null | undefined): number {
-  if (value === null || value === undefined) return 0;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
 function marginPct(revenue: string | number | null, margin: string | number | null): string {
   const rev = numberValue(revenue);
   if (!rev || margin === null) return "-";
   return `${Math.round((numberValue(margin) / rev) * 100)}%`;
-}
-
-function PageHeader({ section, title, description }: { section: string; title: string; description: string }) {
-  return (
-    <div className="page-head">
-      <div>
-        <div className="eyebrow">{section}</div>
-        <h1 className="page-title">{title}</h1>
-        <div className="page-sub">{description}</div>
-      </div>
-    </div>
-  );
-}
-
-function Tabs({ tabs, active }: { tabs: { href: string; label: string }[]; active: string }) {
-  return (
-    <div className="tabs">
-      {tabs.map((tab) => (
-        <Link key={tab.href} href={tab.href} className={`tab ${active === tab.href ? "active" : ""}`}>
-          {tab.label}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function PageState({ loading, error, empty, emptyDetail }: { loading?: boolean; error?: string | null; empty?: string; emptyDetail?: string }) {
-  if (loading) return <div className="empty"><div className="spinner" /></div>;
-  if (error) {
-    return (
-      <div className="empty">
-        <div className="et">Could not load this view</div>
-        <div className="es">{error}</div>
-      </div>
-    );
-  }
-  if (empty) {
-    return (
-      <div className="empty">
-        <div className="et">{empty}</div>
-        {emptyDetail ? <div className="es">{emptyDetail}</div> : null}
-      </div>
-    );
-  }
-  return null;
-}
-
-function useDeferredLoad(load: () => Promise<void>) {
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
 }
 
 export function AnalysisSpendView() {
@@ -104,22 +47,7 @@ export function AnalysisSpendView() {
 }
 
 function AnalysisSpendBody() {
-  const { activeProjectId, getToken } = useSession();
-  const [data, setData] = useState<AnalysisSpend | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await api.analysisSpend(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-  useDeferredLoad(load);
+  const { data, loading, error } = useProjectResource<AnalysisSpend>(api.analysisSpend);
   const total = useMemo(() => data?.rows.reduce((sum, row) => sum + numberValue(row.spend_usd), 0) ?? 0, [data]);
   return (
     <div className="view">
@@ -127,15 +55,18 @@ function AnalysisSpendBody() {
       <Tabs tabs={ANALYSIS_TABS} active="/analysis/spend" />
       <div className="card">
         <div className="card-head"><h3>Spend drivers</h3><div className="right"><span className="pill neutral">{usd(total, 0)} total</span></div></div>
-        {loading || error || !data ? (
-          <PageState loading={loading} error={error} empty={!data && !loading ? "No spend rows yet" : undefined} />
-        ) : data.rows.length === 0 ? (
-          <PageState empty="No spend rows yet" emptyDetail="Ingest usage with team, feature, and provider metadata to populate this view." />
-        ) : (
-          <table className="tbl">
+        <CollectionState
+          loading={loading}
+          error={error}
+          items={data?.rows}
+          empty="No spend rows yet"
+          emptyDetail="Ingest usage with team, feature, and provider metadata to populate this view."
+        >
+          {(rows) => (
+            <table className="tbl">
             <thead><tr><th>Team</th><th>Feature</th><th>Provider</th><th className="r">Requests</th><th className="r">Spend</th></tr></thead>
             <tbody>
-              {data.rows.map((row, index) => (
+              {rows.map((row, index) => (
                 <tr key={`${row.team}-${row.feature}-${row.provider}-${index}`}>
                   <td>{row.team ?? "Unknown"}</td>
                   <td className="muted">{row.feature ?? "Unlabeled"}</td>
@@ -145,8 +76,9 @@ function AnalysisSpendBody() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        )}
+            </table>
+          )}
+        </CollectionState>
       </div>
     </div>
   );
@@ -157,22 +89,7 @@ export function AnalysisCustomersView() {
 }
 
 function AnalysisCustomersBody() {
-  const { activeProjectId, getToken } = useSession();
-  const [data, setData] = useState<AnalysisCustomers | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await api.analysisCustomers(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-  useDeferredLoad(load);
+  const { data, loading, error } = useProjectResource<AnalysisCustomers>(api.analysisCustomers);
   return (
     <div className="view">
       <PageHeader section="Analysis" title="Customers" description="Customer-level AI economics for margin and value decisions." />
@@ -210,22 +127,7 @@ export function AnalysisModelsView() {
 }
 
 function AnalysisModelsBody() {
-  const { activeProjectId, getToken } = useSession();
-  const [data, setData] = useState<AnalysisModels | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await api.analysisModels(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-  useDeferredLoad(load);
+  const { data, loading, error } = useProjectResource<AnalysisModels>(api.analysisModels);
   return (
     <div className="view">
       <PageHeader section="Analysis" title="Models" description="Model cost, request volume, and average cost per request." />
@@ -262,25 +164,11 @@ export function AdminConnectionsView() {
 }
 
 function AdminConnectionsBody() {
-  const { activeProjectId, getToken } = useSession();
-  const [data, setData] = useState<AdminConnections | null>(null);
+  const { activeProjectId, data, error, getToken, loading, reload, setError } =
+    useProjectResource<AdminConnections>(api.adminConnections);
   const [name, setName] = useState("Production ingestion");
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await api.adminConnections(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-  useDeferredLoad(load);
   const createKey = async (event: FormEvent) => {
     event.preventDefault();
     if (!activeProjectId || !name.trim()) return;
@@ -290,7 +178,7 @@ function AdminConnectionsBody() {
       const key = await api.createApiKey(await getToken(), activeProjectId, name.trim());
       setCreated(key);
       setName("Production ingestion");
-      await load();
+      await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -343,22 +231,7 @@ export function AdminTeamView() {
 }
 
 function AdminTeamBody() {
-  const { activeProjectId, getToken } = useSession();
-  const [data, setData] = useState<AdminTeam | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await api.adminTeam(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-  useDeferredLoad(load);
+  const { data, loading, error } = useProjectResource<AdminTeam>(api.adminTeam);
   return (
     <div className="view">
       <PageHeader section="Admin" title="Team" description="Organization members and roles, including finance-friendly Proof access." />
@@ -386,22 +259,7 @@ export function AdminBillingSecurityView() {
 }
 
 function AdminBillingSecurityBody() {
-  const { activeProjectId, getToken } = useSession();
-  const [data, setData] = useState<AdminBillingSecurity | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await api.adminBillingSecurity(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-  useDeferredLoad(load);
+  const { data, loading, error } = useProjectResource<AdminBillingSecurity>(api.adminBillingSecurity);
   return (
     <div className="view">
       <PageHeader section="Admin" title="Billing & Security" description="Verified-savings commercial model and deployment security posture." />

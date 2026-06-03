@@ -36,7 +36,7 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
-export class ApiError extends Error {
+class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
     super(message);
@@ -44,20 +44,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
-  path: string,
-  token: string,
-  init?: RequestInit,
-): Promise<T> {
-  const res = await fetch(`${BASE}/v1${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -71,22 +58,27 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
+async function request<T>(
+  path: string,
+  token: string,
+  init?: RequestInit,
+): Promise<T> {
+  return jsonOrThrow<T>(await fetch(`${BASE}/v1${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  }));
+}
+
 async function publicRequest<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}/v1${path}`, {
+  return jsonOrThrow<T>(await fetch(`${BASE}/v1${path}`, {
     headers: { "content-type": "application/json" },
     cache: "no-store",
-  });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // non-JSON error body; keep statusText
-    }
-    throw new ApiError(res.status, detail);
-  }
-  return res.json() as Promise<T>;
+  }));
 }
 
 function qs(params: Record<string, string | number | undefined>): string {

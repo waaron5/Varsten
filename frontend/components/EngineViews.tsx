@@ -2,9 +2,21 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { RequireSession } from "@/components/RequireSession";
 import { useSession } from "@/components/session";
+import { useProjectResource } from "@/components/useProjectResource";
+import {
+  CollectionState,
+  leverLabel,
+  PageHeader,
+  PageState,
+  percent,
+  riskClass,
+  signedPercent,
+  Tabs,
+  titleize,
+} from "@/components/viewPrimitives";
 import { api } from "@/lib/api";
 import { compact, relativeTime, usd } from "@/lib/format";
 import type {
@@ -23,114 +35,38 @@ const ENGINE_TABS = [
   { href: "/engine/automation", label: "Automation" },
 ];
 
-const LEVER_LABELS: Record<string, string> = {
-  token_trim: "Token trim",
-  semantic_cache: "Semantic cache",
-  batching: "Batching",
-  cheaper_model: "Cheaper model",
-  smart_routing: "Smart routing",
-};
-
-function leverLabel(lever: string | null | undefined): string {
-  if (!lever) return "General";
-  return LEVER_LABELS[lever] ?? titleize(lever);
+function EngineTabs({ active }: { active: string }) {
+  return <Tabs tabs={ENGINE_TABS} active={active} />;
 }
 
-function titleize(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function pct(value: string | number | null | undefined, scale = 100): string {
-  if (value === null || value === undefined) return "-";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "-";
-  return `${Math.round(n * scale)}%`;
-}
-
-function signedPct(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "-";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "-";
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(1)}%`;
-}
-
-function riskClass(risk: string): string {
-  const normalized = risk.toLowerCase();
-  if (normalized.includes("high")) return "amber";
-  if (normalized.includes("medium")) return "accent";
-  return "green";
-}
-
-function PageState({
-  loading,
-  error,
+function EngineDataCard<T>({
+  children,
+  countLabel,
   empty,
   emptyDetail,
-}: {
-  loading?: boolean;
-  error?: string | null;
-  empty?: string;
-  emptyDetail?: string;
-}) {
-  if (loading) {
-    return (
-      <div className="empty">
-        <div className="spinner" />
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="empty">
-        <div className="et">Could not load this view</div>
-        <div className="es">{error}</div>
-      </div>
-    );
-  }
-  if (empty) {
-    return (
-      <div className="empty">
-        <div className="et">{empty}</div>
-        {emptyDetail ? <div className="es">{emptyDetail}</div> : null}
-      </div>
-    );
-  }
-  return null;
-}
-
-function PageHeader({
-  section,
+  error,
+  items,
+  loading,
   title,
-  description,
-  action,
 }: {
-  section: string;
+  children: (items: readonly T[]) => ReactNode;
+  countLabel: string;
+  empty: string;
+  emptyDetail: string;
+  error: string | null;
+  items: readonly T[] | null | undefined;
+  loading: boolean;
   title: string;
-  description: string;
-  action?: ReactNode;
 }) {
   return (
-    <div className="page-head">
-      <div>
-        <div className="eyebrow">{section}</div>
-        <h1 className="page-title">{title}</h1>
-        <div className="page-sub">{description}</div>
+    <div className="card">
+      <div className="card-head">
+        <h3>{title}</h3>
+        <div className="right"><span className="pill neutral">{items?.length ?? 0} {countLabel}</span></div>
       </div>
-      <div className="spacer" />
-      {action}
-    </div>
-  );
-}
-
-function EngineTabs({ active }: { active: string }) {
-  return (
-    <div className="tabs">
-      {ENGINE_TABS.map((tab) => (
-        <Link key={tab.href} href={tab.href} className={`tab ${active === tab.href ? "active" : ""}`}>
-          {tab.label}
-        </Link>
-      ))}
+      <CollectionState loading={loading} error={error} items={items} empty={empty} emptyDetail={emptyDetail}>
+        {children}
+      </CollectionState>
     </div>
   );
 }
@@ -153,7 +89,7 @@ function RecommendationCard({
           <span className={`pill ${riskClass(recommendation.risk_level)}`}>
             {titleize(recommendation.risk_level)} risk
           </span>
-          <span className="pill neutral">{pct(recommendation.confidence)} confidence</span>
+          <span className="pill neutral">{percent(recommendation.confidence)} confidence</span>
         </div>
         <h3>{recommendation.title}</h3>
         <p>{recommendation.rationale ?? recommendation.description}</p>
@@ -257,35 +193,13 @@ export function CommandCenterView() {
 }
 
 function CommandCenterBody() {
-  const { activeProjectId, getToken } = useSession();
   const { busyId, updateRecommendation } = useEngineMutation();
-  const [data, setData] = useState<CommandCenter | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await api.commandCenter(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const { data, loading, error, reload, setError } = useProjectResource<CommandCenter>(api.commandCenter);
 
   const act = async (id: string, status: RecommendationStatus) => {
     try {
       await updateRecommendation(id, status);
-      await load();
+      await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -304,7 +218,7 @@ function CommandCenterBody() {
     );
   }
 
-  const trust = data.live_savings.trust_score === null ? "-" : pct(data.live_savings.trust_score);
+  const trust = data.live_savings.trust_score === null ? "-" : percent(data.live_savings.trust_score);
 
   return (
     <div className="view">
@@ -407,35 +321,19 @@ export function EngineRecommendationsView() {
 }
 
 function EngineRecommendationsBody() {
-  const { activeProjectId, getToken } = useSession();
   const { busyId, updateRecommendation } = useEngineMutation();
-  const [items, setItems] = useState<Recommendation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setItems(await api.engineRecommendations(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const {
+    data: items,
+    loading,
+    error,
+    setData: setItems,
+    setError,
+  } = useProjectResource<Recommendation[]>(api.engineRecommendations, []);
 
   const act = async (id: string, status: RecommendationStatus) => {
     try {
       await updateRecommendation(id, status);
-      setItems((current) => current.filter((item) => item.id !== id));
+      setItems((current) => (current ?? []).filter((item) => item.id !== id));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -449,18 +347,18 @@ function EngineRecommendationsBody() {
         description="Ranked savings decisions mapped to Varsten's optimization levers."
       />
       <EngineTabs active="/engine/recommendations" />
-      <div className="card">
-        <div className="card-head">
-          <h3>Open recommendations</h3>
-          <div className="right"><span className="pill neutral">{items.length} open</span></div>
-        </div>
-        {loading || error ? (
-          <PageState loading={loading} error={error} />
-        ) : items.length === 0 ? (
-          <PageState empty="No open recommendations" emptyDetail="The engine will add new opportunities as it detects savings patterns." />
-        ) : (
+      <EngineDataCard
+        title="Open recommendations"
+        countLabel="open"
+        loading={loading}
+        error={error}
+        items={items}
+        empty="No open recommendations"
+        emptyDetail="The engine will add new opportunities as it detects savings patterns."
+      >
+        {(rows) => (
           <div className="rec-list">
-            {items.map((rec) => (
+            {rows.map((rec) => (
               <RecommendationCard
                 key={rec.id}
                 recommendation={rec}
@@ -470,7 +368,7 @@ function EngineRecommendationsBody() {
             ))}
           </div>
         )}
-      </div>
+      </EngineDataCard>
     </div>
   );
 }
@@ -484,35 +382,19 @@ export function EngineLeversView() {
 }
 
 function EngineLeversBody() {
-  const { activeProjectId, getToken } = useSession();
   const { busyId, updateLever } = useEngineMutation();
-  const [items, setItems] = useState<LeverConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setItems(await api.engineLevers(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const {
+    data: items,
+    loading,
+    error,
+    setData: setItems,
+    setError,
+  } = useProjectResource<LeverConfig[]>(api.engineLevers, []);
 
   const totals = useMemo(
     () => ({
-      savings: items.reduce((sum, item) => sum + Number(item.savings_to_date_usd ?? 0), 0),
-      enabled: items.filter((item) => item.enabled).length,
+      savings: (items ?? []).reduce((sum, item) => sum + Number(item.savings_to_date_usd ?? 0), 0),
+      enabled: (items ?? []).filter((item) => item.enabled).length,
     }),
     [items],
   );
@@ -520,7 +402,7 @@ function EngineLeversBody() {
   const toggle = async (item: LeverConfig) => {
     try {
       const updated = await updateLever(item.lever, { enabled: !item.enabled });
-      setItems((current) => current.map((row) => (row.lever === updated.lever ? updated : row)));
+      setItems((current) => (current ?? []).map((row) => (row.lever === updated.lever ? updated : row)));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -537,7 +419,7 @@ function EngineLeversBody() {
       <div className="grid kpi-row">
         <div className="card kpi">
           <div className="label">Enabled levers</div>
-          <div className="value">{totals.enabled}/{items.length || 5}</div>
+          <div className="value">{totals.enabled}/{items?.length || 5}</div>
           <div className="foot">active optimization mechanisms</div>
         </div>
         <div className="card kpi">
@@ -547,18 +429,18 @@ function EngineLeversBody() {
         </div>
         <div className="card kpi">
           <div className="label">Auto mode</div>
-          <div className="value">{items.filter((item) => item.automation_mode === "auto").length}</div>
+          <div className="value">{(items ?? []).filter((item) => item.automation_mode === "auto").length}</div>
           <div className="foot">levers allowed to act without review</div>
         </div>
         <div className="card kpi">
           <div className="label">Approval mode</div>
-          <div className="value">{items.filter((item) => item.automation_mode === "approve").length}</div>
+          <div className="value">{(items ?? []).filter((item) => item.automation_mode === "approve").length}</div>
           <div className="foot">human-reviewed optimization paths</div>
         </div>
       </div>
       {loading || error ? (
         <div className="card"><PageState loading={loading} error={error} /></div>
-      ) : items.length === 0 ? (
+      ) : !items || items.length === 0 ? (
         <div className="card"><PageState empty="No lever configuration" emptyDetail="Seed or ingest usage to initialize engine levers." /></div>
       ) : (
         <div className="lever-grid">
@@ -578,7 +460,7 @@ function EngineLeversBody() {
                 </div>
                 <div>
                   <span>Quality delta</span>
-                  <b>{signedPct(item.quality_delta_percent)}</b>
+                  <b>{signedPercent(item.quality_delta_percent)}</b>
                 </div>
               </div>
               <button
@@ -606,37 +488,21 @@ export function EngineAutomationView() {
 }
 
 function EngineAutomationBody() {
-  const { activeProjectId, getToken } = useSession();
   const { busyId, updateLever } = useEngineMutation();
-  const [items, setItems] = useState<AutomationLever[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setItems(await api.engineAutomation(await getToken(), activeProjectId ?? undefined));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId, getToken]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const {
+    data: items,
+    loading,
+    error,
+    setData: setItems,
+    setError,
+  } = useProjectResource<AutomationLever[]>(api.engineAutomation, []);
 
   const setMode = async (item: AutomationLever, mode: AutomationMode) => {
     if (item.automation_mode === mode) return;
     try {
       await updateLever(item.lever, { automation_mode: mode });
       setItems((current) =>
-        current.map((row) => (row.lever === item.lever ? { ...row, automation_mode: mode } : row)),
+        (current ?? []).map((row) => (row.lever === item.lever ? { ...row, automation_mode: mode } : row)),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -651,16 +517,16 @@ function EngineAutomationBody() {
         description="Control which levers can act automatically and which require approval."
       />
       <EngineTabs active="/engine/automation" />
-      <div className="card">
-        <div className="card-head">
-          <h3>Automation policy</h3>
-          <div className="right"><span className="pill neutral">{items.length} levers</span></div>
-        </div>
-        {loading || error ? (
-          <PageState loading={loading} error={error} />
-        ) : items.length === 0 ? (
-          <PageState empty="No automation policy" emptyDetail="Engine levers will appear here after project setup." />
-        ) : (
+      <EngineDataCard
+        title="Automation policy"
+        countLabel="levers"
+        loading={loading}
+        error={error}
+        items={items}
+        empty="No automation policy"
+        emptyDetail="Engine levers will appear here after project setup."
+      >
+        {(rows) => (
           <table className="tbl">
             <thead>
               <tr>
@@ -671,7 +537,7 @@ function EngineAutomationBody() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {rows.map((item) => (
                 <tr key={item.lever}>
                   <td>
                     <div className="name">
@@ -706,7 +572,7 @@ function EngineAutomationBody() {
             </tbody>
           </table>
         )}
-      </div>
+      </EngineDataCard>
     </div>
   );
 }
