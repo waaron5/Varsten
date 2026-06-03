@@ -9,12 +9,18 @@ from app.models import ModelCatalog, ModelPrice
 
 
 def _key(client) -> str:
-    org = client.post("/v1/organizations", json={"name": "C"}).json()
+    # Provision through the authenticated endpoints: sync a user (bootstrapping
+    # their personal org), then create a project and an ingestion key in it.
+    sub = "auth0|ingest"
+    user = client.post(
+        "/v1/auth/sync", headers=_bearer(sub), json={"email": "ingest@example.com", "name": None}
+    ).json()
+    org_id = user["organizations"][0]["id"]
     proj = client.post(
-        f"/v1/organizations/{org['id']}/projects", json={"name": "p"}
+        f"/v1/organizations/{org_id}/projects", headers=_bearer(sub), json={"name": "p"}
     ).json()
     key = client.post(
-        f"/v1/projects/{proj['id']}/api-keys", json={"name": "k"}
+        f"/v1/projects/{proj['id']}/api-keys", headers=_bearer(sub), json={"name": "k"}
     ).json()
     return key["plaintext_key"]
 

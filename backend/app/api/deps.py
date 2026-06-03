@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.auth.auth0 import Auth0NotConfigured, verify_access_token
 from app.core.security import hash_api_key
 from app.db.session import get_db
-from app.models import ApiKey, OrgMembership, Project, User
+from app.models import ApiKey, Organization, OrgMembership, Project, User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -191,3 +191,59 @@ def resolve_project(
         )
     _assert_member(user, project.organization_id, db)
     return project
+
+
+# --- Management-endpoint authorization (session-only, org-scoped) -------------
+# These gate the org/project/api-key management routes. Each resolves the
+# resource named in the path and asserts the signed-in user belongs to its
+# organization, so no tenant can touch another tenant's resources.
+
+
+def require_org_member(
+    organization_id: uuid.UUID,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> Organization:
+    """The organization in the path, authorized by membership."""
+    org = db.get(Organization, organization_id)
+    if org is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="organization not found"
+        )
+    _assert_member(user, organization_id, db)
+    return org
+
+
+def require_project_member(
+    project_id: uuid.UUID,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> Project:
+    """The project in the path, authorized through its organization."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="project not found"
+        )
+    _assert_member(user, project.organization_id, db)
+    return project
+
+
+def require_api_key_member(
+    api_key_id: uuid.UUID,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> ApiKey:
+    """The API key in the path, authorized through its project's organization."""
+    api_key = db.get(ApiKey, api_key_id)
+    if api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="api key not found"
+        )
+    project = db.get(Project, api_key.project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="api key not found"
+        )
+    _assert_member(user, project.organization_id, db)
+    return api_key

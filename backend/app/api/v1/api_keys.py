@@ -1,10 +1,10 @@
-import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import require_api_key_member, require_project_member
 from app.core.security import generate_api_key
 from app.db.session import get_db
 from app.models import ApiKey, Project
@@ -19,16 +19,13 @@ router = APIRouter(tags=["api-keys"])
     status_code=status.HTTP_201_CREATED,
 )
 def create_api_key(
-    project_id: uuid.UUID,
     payload: ApiKeyCreate,
+    project: Project = Depends(require_project_member),
     db: Session = Depends(get_db),
 ) -> ApiKeyCreated:
-    if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
-
     plaintext, prefix, key_hash = generate_api_key()
     api_key = ApiKey(
-        project_id=project_id,
+        project_id=project.id,
         name=payload.name,
         key_prefix=prefix,
         key_hash=key_hash,
@@ -54,14 +51,12 @@ def create_api_key(
     response_model=list[ApiKeyOut],
 )
 def list_api_keys(
-    project_id: uuid.UUID,
+    project: Project = Depends(require_project_member),
     db: Session = Depends(get_db),
 ) -> list[ApiKey]:
-    if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
     stmt = (
         select(ApiKey)
-        .where(ApiKey.project_id == project_id)
+        .where(ApiKey.project_id == project.id)
         .order_by(ApiKey.created_at.desc())
     )
     return list(db.scalars(stmt))
@@ -71,10 +66,10 @@ def list_api_keys(
     "/api-keys/{api_key_id}",
     response_model=ApiKeyOut,
 )
-def revoke_api_key(api_key_id: uuid.UUID, db: Session = Depends(get_db)) -> ApiKey:
-    api_key = db.get(ApiKey, api_key_id)
-    if api_key is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
+def revoke_api_key(
+    api_key: ApiKey = Depends(require_api_key_member),
+    db: Session = Depends(get_db),
+) -> ApiKey:
     if api_key.revoked_at is None:
         api_key.revoked_at = datetime.now(timezone.utc)
         db.commit()

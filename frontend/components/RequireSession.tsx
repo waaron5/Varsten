@@ -49,7 +49,7 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
 }
 
 function FirstProject({ orgId }: { orgId: string | undefined }) {
-  const { refreshProjects } = useSession();
+  const { refreshProjects, getToken } = useSession();
   const [name, setName] = useState("Production");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -59,7 +59,7 @@ function FirstProject({ orgId }: { orgId: string | undefined }) {
     setBusy(true);
     setErr(null);
     try {
-      await api.createProject(orgId, name.trim());
+      await api.createProject(await getToken(), orgId, name.trim());
       await refreshProjects();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

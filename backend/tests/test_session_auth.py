@@ -49,7 +49,11 @@ def test_sync_is_idempotent(client):
 def test_list_my_projects(client):
     user = sync(client, "auth0|carol", "carol@example.com").json()
     org_id = user["organizations"][0]["id"]
-    proj = client.post(f"/v1/organizations/{org_id}/projects", json={"name": "prod"}).json()
+    proj = client.post(
+        f"/v1/organizations/{org_id}/projects",
+        headers=bearer("auth0|carol"),
+        json={"name": "prod"},
+    ).json()
 
     res = client.get("/v1/projects", headers=bearer("auth0|carol"))
     assert res.status_code == 200
@@ -65,7 +69,11 @@ def test_session_read_requires_project_id(client):
 def test_session_read_authorized_for_own_project(client):
     user = sync(client, "auth0|erin", "erin@example.com").json()
     org_id = user["organizations"][0]["id"]
-    proj = client.post(f"/v1/organizations/{org_id}/projects", json={"name": "prod"}).json()
+    proj = client.post(
+        f"/v1/organizations/{org_id}/projects",
+        headers=bearer("auth0|erin"),
+        json={"name": "prod"},
+    ).json()
 
     res = client.get(
         "/v1/metrics/overview",
@@ -78,10 +86,13 @@ def test_session_read_authorized_for_own_project(client):
 
 def test_session_read_forbidden_for_other_org_project(client):
     sync(client, "auth0|frank", "frank@example.com")
-    # A project in an organization frank is not a member of.
-    other_org = client.post("/v1/organizations", json={"name": "Acme"}).json()
+    # A project in an organization frank is not a member of, owned by another user.
+    other = sync(client, "auth0|other", "other@example.com").json()
+    other_org_id = other["organizations"][0]["id"]
     other_proj = client.post(
-        f"/v1/organizations/{other_org['id']}/projects", json={"name": "secret"}
+        f"/v1/organizations/{other_org_id}/projects",
+        headers=bearer("auth0|other"),
+        json={"name": "secret"},
     ).json()
 
     res = client.get(
@@ -98,9 +109,18 @@ def test_unsynced_user_rejected(client):
 
 
 def test_api_key_read_path_still_works(client):
-    org = client.post("/v1/organizations", json={"name": "KeyCo"}).json()
-    proj = client.post(f"/v1/organizations/{org['id']}/projects", json={"name": "prod"}).json()
-    key = client.post(f"/v1/projects/{proj['id']}/api-keys", json={"name": "ingest"}).json()
+    user = sync(client, "auth0|keyco", "keyco@example.com").json()
+    org_id = user["organizations"][0]["id"]
+    proj = client.post(
+        f"/v1/organizations/{org_id}/projects",
+        headers=bearer("auth0|keyco"),
+        json={"name": "prod"},
+    ).json()
+    key = client.post(
+        f"/v1/projects/{proj['id']}/api-keys",
+        headers=bearer("auth0|keyco"),
+        json={"name": "ingest"},
+    ).json()
 
     # API key path: no project_id needed, project derived from the key.
     res = client.get("/v1/metrics/overview", headers=bearer(key["plaintext_key"]))

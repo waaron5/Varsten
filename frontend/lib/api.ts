@@ -110,15 +110,11 @@ export const api = {
 
   projects: (token: string) => request<Project[]>("/projects", token),
 
-  createProject: async (orgId: string, name: string): Promise<Project> => {
-    const res = await fetch(`${BASE}/v1/organizations/${orgId}/projects`, {
+  createProject: (token: string, orgId: string, name: string) =>
+    request<Project>(`/organizations/${orgId}/projects`, token, {
       method: "POST",
-      headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
-    });
-    if (!res.ok) throw new ApiError(res.status, "could not create project");
-    return res.json() as Promise<Project>;
-  },
+    }),
 
   // --- reads (Auth0 session + projectId, or an API key) ---
   overview: (token: string, projectId?: string) =>
