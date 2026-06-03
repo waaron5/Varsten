@@ -70,9 +70,6 @@ export function useDeferredLoad(load: () => Promise<void>) {
 }
 
 export function PageHeader({
-  section,
-  title,
-  description,
   action,
 }: {
   section: string;
@@ -80,13 +77,9 @@ export function PageHeader({
   description: string;
   action?: ReactNode;
 }) {
+  if (!action) return null;
   return (
     <div className="page-head">
-      <div>
-        <div className="eyebrow">{section}</div>
-        <h1 className="page-title">{title}</h1>
-        <div className="page-sub">{description}</div>
-      </div>
       <div className="spacer" />
       {action}
     </div>

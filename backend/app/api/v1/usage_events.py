@@ -10,7 +10,6 @@ from app.api.deps import ApiKeyContext, require_api_key_context, resolve_project
 from app.db.session import get_db
 from app.models import Project, UsageEvent
 from app.pricing import price_usage_event
-from app.recommendations import refresh_recommendations
 from app.schemas import UsageEventCreate, UsageEventOut, UsageEventPage
 
 router = APIRouter(tags=["usage-events"])
@@ -104,9 +103,9 @@ def create_usage_event(
         response.status_code = status.HTTP_200_OK
         return existing
     db.refresh(event)
-    refresh_recommendations(db, project)
-    db.commit()
-    db.refresh(event)
+    # Recommendations are recomputed on read (overview / command center / engine),
+    # never on the write path: a full month-scan per ingested event would cap
+    # ingestion throughput, which is the endpoint that has to stay fast at volume.
     return event
 
 

@@ -121,12 +121,7 @@ function ReportsBody() {
   const shareUrl = useMemo(() => (latest ? shareHref(latest) : ""), [latest]);
   return (
     <div className="view">
-      <div className="page-head">
-        <div>
-          <div className="eyebrow">Reports</div>
-          <h1 className="page-title">Executive Report</h1>
-          <div className="page-sub">A stable, shareable monthly view of savings, trust, and open opportunities.</div>
-        </div>
+      <div className="page-head page-head-actions">
         <div className="spacer" />
         <button className="btn primary" disabled={busy} onClick={generate} type="button">{busy ? "Generating..." : "Generate current month"}</button>
       </div>

@@ -11,6 +11,11 @@ from app.models import ModelCatalog, ModelPrice, Project, Recommendation, UsageE
 
 OPEN = "open"
 
+# Not all of a route's traffic clears a cheaper model's quality gate, so model
+# swaps and routing only claim savings on an eligible share of traffic. A
+# documented assumption, refined per route by the eval harness later.
+ELIGIBLE_SHARE = Decimal("0.70")
+
 
 @dataclass(frozen=True)
 class RecommendationSeed:
@@ -203,6 +208,82 @@ def _add_token_trim_recommendation(
         return
 
 
+def _add_prompt_cache_recommendation(
+    db: Session, project: Project, start: datetime, now: datetime
+) -> None:
+    """Prompt caching from real token data. A route that repeatedly sends a large
+    input prompt at a low cache hit rate is paying full input price for tokens a
+    provider prompt cache would bill at the cheaper cache-read rate. Savings use
+    the catalog's real cache-read rate delta, not a flat percentage."""
+    rows = db.execute(
+        select(
+            UsageEvent.provider,
+            UsageEvent.model,
+            UsageEvent.request_type,
+            UsageEvent.feature,
+            func.count().label("requests"),
+            func.coalesce(func.sum(UsageEvent.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(UsageEvent.cached_input_tokens), 0).label("cached_input_tokens"),
+        )
+        .where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+        .group_by(
+            UsageEvent.provider,
+            UsageEvent.model,
+            UsageEvent.request_type,
+            UsageEvent.feature,
+        )
+        .order_by(func.coalesce(func.sum(UsageEvent.input_tokens), 0).desc())
+        .limit(20)
+    )
+    for row in rows:
+        requests = int(row.requests or 0)
+        input_tokens = int(row.input_tokens or 0)
+        cached = int(row.cached_input_tokens or 0)
+        # Caching only pays off on repeated, large-prompt routes that are not
+        # already mostly cached.
+        if requests < 20 or input_tokens <= 0:
+            continue
+        avg_input = input_tokens / requests
+        hit_rate = cached / input_tokens if input_tokens else 0.0
+        if avg_input < 1500 or hit_rate >= 0.5:
+            continue
+        price = _latest_price(db, row.model, row.provider)
+        if price is None or price.cache_read_input_token_cost is None:
+            continue
+        rate_delta = price.input_cost_per_token - price.cache_read_input_token_cost
+        if rate_delta <= 0:
+            continue
+        # Conservatively assume half of the currently-uncached input is a stable,
+        # cacheable prefix (system prompt + shared context). The rate delta is real.
+        cacheable_tokens = Decimal(input_tokens - cached) * Decimal("0.5")
+        monthly_savings = _run_rate(cacheable_tokens * rate_delta, now)
+        if monthly_savings <= 0:
+            continue
+        target = _target_name(row.request_type, row.feature)
+        _upsert(
+            db,
+            project,
+            RecommendationSeed(
+                dedupe_key=f"prompt_cache:{_route_key(row.request_type, row.feature)}:{row.model}:{now:%Y-%m}",
+                type="prompt_cache",
+                lever="semantic_cache",
+                title=f"Enable prompt caching for {target}",
+                description=f"{target} sends ~{avg_input:,.0f} input tokens per call across {requests} calls at a {hit_rate * 100:.0f}% cache hit rate. Cache the stable prompt prefix so it bills at {row.model}'s cache-read rate.",
+                rationale="Large, repeated input prompts with a low cache hit rate are billed at full input price; the cache-read rate is materially cheaper.",
+                estimated_monthly_savings_usd=monthly_savings,
+                monthly_request_volume=requests,
+                risk_level="low",
+                confidence="high",
+                target_type="route",
+                target_key=_route_key(row.request_type, row.feature),
+                related_provider=row.provider,
+                related_model=row.model,
+                related_feature=row.feature,
+            ),
+        )
+        return
+
+
 def _add_semantic_cache_recommendation(
     db: Session, project: Project, start: datetime, now: datetime
 ) -> None:
@@ -358,7 +439,7 @@ def _add_cheaper_model_recommendation(
             continue
         current = _priced_cost(current_price, int(row.input_tokens or 0), int(row.output_tokens or 0))
         cheaper = _priced_cost(cheaper_price, int(row.input_tokens or 0), int(row.output_tokens or 0))
-        savings = current - cheaper
+        savings = (current - cheaper) * ELIGIBLE_SHARE
         if savings <= 0:
             continue
         feature = row.feature or row.model
@@ -427,7 +508,7 @@ def _add_smart_routing_recommendation(
         expensive_avg = _money(expensive.spend) / Decimal(expensive.requests)
         if expensive_avg <= cheapest_avg:
             continue
-        candidate_savings = (expensive_avg - cheapest_avg) * Decimal(expensive.requests)
+        candidate_savings = (expensive_avg - cheapest_avg) * Decimal(expensive.requests) * ELIGIBLE_SHARE
         if candidate_savings <= best_savings:
             continue
         target = _target_name(expensive.request_type, expensive.feature)
@@ -564,6 +645,7 @@ def refresh_recommendations(db: Session, project: Project) -> None:
         )
 
     _add_token_trim_recommendation(db, project, start, now, spend)
+    _add_prompt_cache_recommendation(db, project, start, now)
     _add_semantic_cache_recommendation(db, project, start, now)
     _add_batching_recommendation(db, project, start, now)
     _add_cheaper_model_recommendation(db, project, start, now)

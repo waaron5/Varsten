@@ -241,7 +241,7 @@ function CommandCenterBody() {
           <div className="foot">gross savings attributed to levers</div>
         </div>
         <div className="card kpi">
-          <div className="label">Annual run-rate</div>
+          <div className="label">Annualized savings</div>
           <div className="value">{usd(data.live_savings.annual_run_rate, 0)}</div>
           <div className="foot">based on current monthly savings pace</div>
         </div>

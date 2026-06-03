@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import ModelCatalog, ModelPrice
+from app.pricing.catalog_curation import apply_curation
 
 # model_prices stores TOKEN_COST as Numeric(20, 12). Quantize parsed values to the
 # same 12-dp scale so a stored price round-trips equal and re-runs stay no-ops; a
@@ -165,11 +166,17 @@ def sync(db: Session, raw: dict) -> dict[str, int]:
             )
             price_inserts += 1
 
+    # Layer curated tier + cheaper-substitute judgment onto the freshly synced
+    # catalog so the cheaper-model lever has candidates in production, not just
+    # in the demo seed.
+    curation_updates = apply_curation(db)
+
     db.commit()
     return {
         "models": len(parsed),
         "catalog_upserts": catalog_upserts,
         "price_inserts": price_inserts,
+        "curation_updates": curation_updates,
     }
 
 
@@ -189,7 +196,8 @@ def main() -> int:
     print(
         f"synced {counts['models']} models | "
         f"catalog upserts: {counts['catalog_upserts']} | "
-        f"new price versions: {counts['price_inserts']}"
+        f"new price versions: {counts['price_inserts']} | "
+        f"curation updates: {counts['curation_updates']}"
     )
     return 0
 

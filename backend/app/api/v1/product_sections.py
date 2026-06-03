@@ -29,6 +29,7 @@ from app.models import (
     User,
 )
 from app.recommendations import refresh_recommendations
+from app.savings import compute_savings_summary, record_applied_savings
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
 
 router = APIRouter(tags=["product-sections"])
@@ -316,19 +317,7 @@ def _report_snapshot(db: Session, project: Project) -> dict:
     start = _month_start(now)
     end = _next_month_start(start)
     quality = _data_quality(db, project)
-    savings = db.execute(
-        select(
-            func.coalesce(func.sum(SavingsAttribution.counterfactual_spend_usd), 0).label("counterfactual"),
-            func.coalesce(func.sum(SavingsAttribution.actual_spend_usd), 0).label("actual"),
-            func.coalesce(func.sum(SavingsAttribution.gross_savings_usd), 0).label("gross"),
-            func.coalesce(func.sum(SavingsAttribution.varsten_fee_usd), 0).label("fee"),
-            func.coalesce(func.sum(SavingsAttribution.net_savings_usd), 0).label("net"),
-        ).where(
-            SavingsAttribution.project_id == project.id,
-            SavingsAttribution.period_start >= start,
-            SavingsAttribution.period_start < end,
-        )
-    ).one()
+    savings = compute_savings_summary(db, project, now)
     attribution_rows = [
         {
             "lever": row.lever,
@@ -374,8 +363,8 @@ def _report_snapshot(db: Session, project: Project) -> dict:
         )
     ]
     summary = (
-        f"Varsten saved {_money(savings.gross):,.2f} gross this month, "
-        f"{_money(savings.net):,.2f} net after fee, across "
+        f"Varsten saved {_money(savings['gross_savings_usd']):,.2f} gross this month, "
+        f"{_money(savings['net_savings_usd']):,.2f} net after fee, across "
         f"{quality['requests_month']} measured requests."
     )
     return {
@@ -383,11 +372,11 @@ def _report_snapshot(db: Session, project: Project) -> dict:
         "period_end": end,
         "title": f"Varsten Executive Report - {start:%B %Y}",
         "executive_summary": summary,
-        "counterfactual_spend_usd": _money(savings.counterfactual),
-        "actual_spend_usd": _money(savings.actual),
-        "gross_savings_usd": _money(savings.gross),
-        "varsten_fee_usd": _money(savings.fee),
-        "net_savings_usd": _money(savings.net),
+        "counterfactual_spend_usd": _money(savings["counterfactual_spend_usd"]),
+        "actual_spend_usd": _money(savings["actual_spend_usd"]),
+        "gross_savings_usd": _money(savings["gross_savings_usd"]),
+        "varsten_fee_usd": _money(savings["varsten_fee_usd"]),
+        "net_savings_usd": _money(savings["net_savings_usd"]),
         "trust_score": quality["trust_score"],
         "priced_event_count": quality["priced_event_count"],
         "unpriced_event_count": quality["unpriced_event_count"],
@@ -428,15 +417,7 @@ def command_center(
             func.count().label("requests_month"),
         ).where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
     ).one()
-    savings = db.execute(
-        select(
-            func.coalesce(func.sum(SavingsAttribution.gross_savings_usd), 0).label("gross"),
-            func.coalesce(func.sum(SavingsAttribution.net_savings_usd), 0).label("net"),
-        ).where(
-            SavingsAttribution.project_id == project.id,
-            SavingsAttribution.period_start >= start,
-        )
-    ).one()
+    summary = compute_savings_summary(db, project, now)
     actions = list(
         db.scalars(
             select(RecommendationAction)
@@ -449,9 +430,9 @@ def command_center(
     return {
         "live_savings": {
             "spend_month": spend_row.spend_month,
-            "saved_month": savings.gross,
-            "net_saved_month": savings.net,
-            "annual_run_rate": _money(savings.gross) * Decimal("12"),
+            "saved_month": summary["gross_savings_usd"],
+            "net_saved_month": summary["net_savings_usd"],
+            "annual_run_rate": _money(summary["gross_savings_usd"]) * Decimal("12"),
             "trust_score": quality["trust_score"],
         },
         "decision_queue": [_recommendation_payload(rec) for rec in recommendations[:5]],
@@ -485,7 +466,13 @@ def engine_update_recommendation(
     recommendation.status = payload.status
     recommendation.updated_at = now
     recommendation.resolved_at = now if payload.status != "open" else None
-    if payload.status != "open":
+    if payload.status == "applied":
+        # Applying writes the action, the derived savings attribution, and the
+        # refreshed lever total in one place, so Proof reflects real applied cuts.
+        record_applied_savings(
+            db, project, recommendation, actor_user_id=user.id, source="user", now=now
+        )
+    elif payload.status != "open":
         db.add(
             RecommendationAction(
                 organization_id=project.organization_id,
@@ -651,29 +638,12 @@ def proof_savings(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    now = datetime.now(timezone.utc)
-    start = _month_start(now)
-    row = db.execute(
-        select(
-            func.coalesce(func.sum(SavingsAttribution.counterfactual_spend_usd), 0).label("counterfactual"),
-            func.coalesce(func.sum(SavingsAttribution.actual_spend_usd), 0).label("actual"),
-            func.coalesce(func.sum(SavingsAttribution.gross_savings_usd), 0).label("gross"),
-            func.coalesce(func.sum(SavingsAttribution.varsten_fee_usd), 0).label("fee"),
-            func.coalesce(func.sum(SavingsAttribution.net_savings_usd), 0).label("net"),
-        ).where(
-            SavingsAttribution.project_id == project.id,
-            SavingsAttribution.period_start >= start,
-        )
-    ).one()
+    # actual = real month-to-date spend run-rated; counterfactual = actual plus the
+    # savings attributed to applied recommendations. Every number is derived.
+    summary = compute_savings_summary(db, project)
     return {
-        "period_start": start,
-        "period_end": now,
-        "counterfactual_spend_usd": row.counterfactual,
-        "actual_spend_usd": row.actual,
-        "gross_savings_usd": row.gross,
-        "varsten_fee_usd": row.fee,
-        "net_savings_usd": row.net,
-        "measurement_note": "Estimated/backtested in v1 unless savings attribution rows are measured.",
+        **summary,
+        "measurement_note": "v1 savings are the applied recommendations' run-rate estimates, labelled by measurement method. Randomized-holdback measurement is the production upgrade.",
     }
 
 

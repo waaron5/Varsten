@@ -10,6 +10,7 @@ from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
 from app.models import OrgMembership, Project, Recommendation, User
 from app.recommendations import refresh_recommendations
+from app.savings import record_applied_savings
 from app.schemas import RecommendationOut, RecommendationUpdate
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -61,11 +62,16 @@ def update_recommendation(
             status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found"
         )
     _assert_can_update(user, recommendation, db)
+    now = datetime.now(timezone.utc)
     recommendation.status = payload.status
-    recommendation.updated_at = datetime.now(timezone.utc)
-    recommendation.resolved_at = (
-        recommendation.updated_at if payload.status != "open" else None
-    )
+    recommendation.updated_at = now
+    recommendation.resolved_at = now if payload.status != "open" else None
+    if payload.status == "applied":
+        project = db.get(Project, recommendation.project_id)
+        if project is not None:
+            record_applied_savings(
+                db, project, recommendation, actor_user_id=user.id, source="user", now=now
+            )
     db.commit()
     db.refresh(recommendation)
     return recommendation

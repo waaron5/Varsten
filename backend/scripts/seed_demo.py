@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_api_key
@@ -35,6 +35,7 @@ from app.models import (
     Project,
     ProviderConnection,
     QualityGuardrail,
+    Recommendation,
     RecommendationAction,
     SavingsAttribution,
     UsageEvent,
@@ -42,19 +43,26 @@ from app.models import (
 )
 from app.pricing.service import price_usage_event
 from app.recommendations import refresh_recommendations
+from app.savings import month_end, month_start, record_applied_savings
 
 DEMO_ORG_NAME = "Varsten Demo Co"
 DEMO_PROJECT_NAME = "Production AI"
 DEMO_USER_EMAIL = "demo@varsten.local"
 DEMO_API_KEY = "vk_demo_varsten_local_key"
 
-LEVER_DEFAULTS = {
-    "smart_routing": ("approve", Decimal("0")),
-    "semantic_cache": ("auto", Decimal("1820.00")),
-    "token_trim": ("auto", Decimal("940.00")),
-    "cheaper_model": ("approve", Decimal("0")),
-    "batching": ("auto", Decimal("410.00")),
+# Lever automation modes only. Savings-to-date is NOT seeded; it is derived from
+# the recommendations the seed applies, just like in the running product.
+LEVER_MODES = {
+    "smart_routing": "approve",
+    "semantic_cache": "auto",
+    "token_trim": "auto",
+    "cheaper_model": "approve",
+    "batching": "auto",
 }
+
+# How many of the highest-value open recommendations to "apply" so the demo shows
+# realized savings and Proof while leaving the rest in the decision queue.
+DEMO_APPLY_LIMIT = 3
 
 
 @dataclass(frozen=True)
@@ -65,42 +73,71 @@ class PriceSeed:
     output_cost: Decimal
     tier: str
     cheaper_substitute_key: str | None = None
+    cache_read_cost: Decimal | None = None
     batch_input_cost: Decimal | None = None
     batch_output_cost: Decimal | None = None
 
 
+@dataclass(frozen=True)
+class UsageSeed:
+    key: str
+    provider: str
+    model: str
+    request_type: str
+    feature: str
+    customer_id: str
+    user_id: str
+    team: str
+    department: str
+    environment: str
+    count: int
+    input_tokens: int
+    output_tokens: int
+    latency_ms: int
+    success: bool = True
+    error_code: str | None = None
+    metadata: dict | None = None
+
+
+# Public list prices (per token) as of mid-2026, mirrored as reference data so the
+# demo is deterministic and offline. In production these come from `make
+# sync-prices` against the live feed; the math is identical either way.
 PRICES = [
     PriceSeed(
         model_key="gpt-4o",
         provider="openai",
-        input_cost=Decimal("0.000005"),
-        output_cost=Decimal("0.000015"),
+        input_cost=Decimal("0.0000025"),   # $2.50 / 1M
+        output_cost=Decimal("0.00001"),    # $10.00 / 1M
         tier="frontier",
         cheaper_substitute_key="gpt-4o-mini",
+        cache_read_cost=Decimal("0.00000125"),  # $1.25 / 1M
     ),
     PriceSeed(
         model_key="gpt-4o-mini",
         provider="openai",
-        input_cost=Decimal("0.0000006"),
-        output_cost=Decimal("0.0000024"),
+        input_cost=Decimal("0.00000015"),  # $0.15 / 1M
+        output_cost=Decimal("0.0000006"),  # $0.60 / 1M
         tier="small",
-        batch_input_cost=Decimal("0.0000003"),
-        batch_output_cost=Decimal("0.0000012"),
+        cache_read_cost=Decimal("0.000000075"),  # $0.075 / 1M
+        batch_input_cost=Decimal("0.000000075"),
+        batch_output_cost=Decimal("0.0000003"),
     ),
     PriceSeed(
         model_key="claude-3-5-sonnet",
         provider="anthropic",
-        input_cost=Decimal("0.000003"),
-        output_cost=Decimal("0.000015"),
+        input_cost=Decimal("0.000003"),    # $3.00 / 1M
+        output_cost=Decimal("0.000015"),   # $15.00 / 1M
         tier="frontier",
         cheaper_substitute_key="claude-3-haiku",
+        cache_read_cost=Decimal("0.0000003"),  # $0.30 / 1M
     ),
     PriceSeed(
         model_key="claude-3-haiku",
         provider="anthropic",
-        input_cost=Decimal("0.00000025"),
-        output_cost=Decimal("0.00000125"),
+        input_cost=Decimal("0.00000025"),  # $0.25 / 1M
+        output_cost=Decimal("0.00000125"), # $1.25 / 1M
         tier="small",
+        cache_read_cost=Decimal("0.00000003"),  # $0.03 / 1M
         batch_input_cost=Decimal("0.000000125"),
         batch_output_cost=Decimal("0.000000625"),
     ),
@@ -120,12 +157,12 @@ def _get_or_create_org(db: Session) -> Organization:
     if org is None:
         org = Organization(
             name=DEMO_ORG_NAME,
-            monthly_spend_budget_usd=Decimal("14500.00"),
+            monthly_spend_budget_usd=Decimal("95000.00"),
         )
         db.add(org)
         db.flush()
     else:
-        org.monthly_spend_budget_usd = Decimal("14500.00")
+        org.monthly_spend_budget_usd = Decimal("95000.00")
     return org
 
 
@@ -182,6 +219,7 @@ def _get_or_create_api_key(db: Session, project: Project) -> ApiKey:
 
 
 def _seed_prices(db: Session) -> None:
+    demo_effective_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
     for price in PRICES:
         catalog = db.scalar(
             select(ModelCatalog).where(
@@ -220,6 +258,7 @@ def _seed_prices(db: Session) -> None:
             latest is None
             or latest.input_cost_per_token != price.input_cost
             or latest.output_cost_per_token != price.output_cost
+            or latest.cache_read_input_token_cost != price.cache_read_cost
             or latest.input_cost_per_token_batch != price.batch_input_cost
             or latest.output_cost_per_token_batch != price.batch_output_cost
         ):
@@ -229,11 +268,15 @@ def _seed_prices(db: Session) -> None:
                     provider=price.provider,
                     input_cost_per_token=price.input_cost,
                     output_cost_per_token=price.output_cost,
+                    cache_read_input_token_cost=price.cache_read_cost,
                     input_cost_per_token_batch=price.batch_input_cost,
                     output_cost_per_token_batch=price.batch_output_cost,
                     source="demo",
+                    effective_at=demo_effective_at,
                 )
             )
+        elif latest.source == "demo" and latest.effective_at > demo_effective_at:
+            latest.effective_at = demo_effective_at
     db.flush()
 
 
@@ -261,13 +304,12 @@ def _event(
     error_code: str | None = None,
     metadata: dict | None = None,
 ) -> bool:
-    if db.scalar(
-        select(UsageEvent.id).where(
+    existing = db.scalar(
+        select(UsageEvent).where(
             UsageEvent.project_id == project.id,
             UsageEvent.idempotency_key == key,
         )
-    ):
-        return False
+    )
 
     cost, cost_source, pricing_status, price_version_id = price_usage_event(
         db,
@@ -280,40 +322,47 @@ def _event(
         reported_cost_usd=None,
         at=occurred_at,
     )
+    values = {
+        "organization_id": org.id,
+        "project_id": project.id,
+        "api_key_id": api_key.id,
+        "provider": provider,
+        "model": model,
+        "operation": request_type,
+        "request_type": request_type,
+        "workflow": feature,
+        "feature": feature,
+        "external_user_id": user_id,
+        "user_id": user_id,
+        "customer_id": customer_id,
+        "team": team,
+        "department": department,
+        "environment": environment,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        "cost_usd": cost,
+        "cost_source": cost_source,
+        "pricing_status": pricing_status,
+        "price_version_id": price_version_id,
+        "currency": "USD",
+        "idempotency_key": key,
+        "status": "success" if success else "error",
+        "success": success,
+        "error_code": error_code,
+        "latency_ms": latency_ms,
+        "occurred_at": occurred_at,
+        "event_timestamp": occurred_at,
+        "received_at": occurred_at,
+        "event_metadata": metadata or {},
+    }
+    if existing is not None:
+        for field, value in values.items():
+            setattr(existing, field, value)
+        return False
     db.add(
         UsageEvent(
-            organization_id=org.id,
-            project_id=project.id,
-            api_key_id=api_key.id,
-            provider=provider,
-            model=model,
-            operation=request_type,
-            request_type=request_type,
-            workflow=feature,
-            feature=feature,
-            external_user_id=user_id,
-            user_id=user_id,
-            customer_id=customer_id,
-            team=team,
-            department=department,
-            environment=environment,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=input_tokens + output_tokens,
-            cost_usd=cost,
-            cost_source=cost_source,
-            pricing_status=pricing_status,
-            price_version_id=price_version_id,
-            currency="USD",
-            idempotency_key=key,
-            status="success" if success else "error",
-            success=success,
-            error_code=error_code,
-            latency_ms=latency_ms,
-            occurred_at=occurred_at,
-            event_timestamp=occurred_at,
-            received_at=occurred_at,
-            event_metadata=metadata or {},
+            **values,
         )
     )
     return True
@@ -322,74 +371,77 @@ def _event(
 def _seed_usage(db: Session, org: Organization, project: Project, api_key: ApiKey) -> int:
     now = datetime.now(timezone.utc)
     inserted = 0
-    rows = [
-        # Same route on expensive and cheap models, producing smart-routing signal.
-        ("sr-expensive", "openai", "gpt-4o", "support_chat", "support_bot", "cust_acme", "user_1", "support", "cx", "production", 1, 3200, 700, 1280, True, None, {}),
-        ("sr-cheap", "openai", "gpt-4o-mini", "support_chat", "support_bot", "cust_acme", "user_2", "support", "cx", "production", 2, 3000, 680, 940, True, None, {}),
-        # High input/output ratio for token trim.
-        ("trim-1", "openai", "gpt-4o-mini", "summarize_research", "research_agent", "cust_nova", "user_3", "product", "r_and_d", "production", 3, 12000, 900, 1610, True, None, {}),
-        # Repeated semantic cache keys.
-        ("cache-1", "openai", "gpt-4o-mini", "answer_faq", "support_bot", "cust_acme", "user_4", "support", "cx", "production", 4, 1500, 500, 720, True, None, {"semantic_cache_key": "faq:reset-password"}),
-        ("cache-2", "openai", "gpt-4o-mini", "answer_faq", "support_bot", "cust_acme", "user_5", "support", "cx", "production", 5, 1480, 510, 735, True, None, {"semantic_cache_key": "faq:reset-password"}),
-        ("cache-3", "openai", "gpt-4o-mini", "answer_faq", "support_bot", "cust_acme", "user_6", "support", "cx", "production", 6, 1510, 505, 710, True, None, {"semantic_cache_key": "faq:reset-password"}),
-        # Batchable background work.
-        ("batch-1", "openai", "gpt-4o-mini", "nightly_export", "analytics_exports", "cust_zenith", "system", "data", "analytics", "production", 7, 6200, 1400, 5800, True, None, {"batchable": "true"}),
-        # Cheaper-model signal via catalog substitute.
-        ("cheap-model-1", "anthropic", "claude-3-5-sonnet", "classify_ticket", "ticket_triage", "cust_nova", "user_7", "support", "cx", "production", 8, 2200, 300, 1120, True, None, {}),
-        # Non-prod and failed spend keep trust/guardrail panels interesting.
-        ("nonprod-1", "openai", "gpt-4o", "load_test", "eval_harness", "cust_internal", "engineer_1", "platform", "engineering", "staging", 9, 5000, 1200, 1330, True, None, {}),
-        ("failed-1", "openai", "gpt-4o-mini", "support_chat", "support_bot", "cust_zenith", "user_8", "support", "cx", "production", 10, 1800, 100, 2100, False, "provider_timeout", {}),
-        # Unknown model accepted as unpriced trust issue.
-        ("unpriced-1", "openai", "unknown-frontier-demo", "prototype", "labs_agent", "cust_internal", "engineer_2", "labs", "r_and_d", "development", 11, 2000, 400, 1800, True, None, {}),
+    legacy_keys = [
+        "demo:sr-expensive",
+        "demo:sr-cheap",
+        "demo:trim-1",
+        "demo:cache-1",
+        "demo:cache-2",
+        "demo:cache-3",
+        "demo:batch-1",
+        "demo:cheap-model-1",
+        "demo:nonprod-1",
+        "demo:failed-1",
+        "demo:unpriced-1",
     ]
-    for (
-        key,
-        provider,
-        model,
-        request_type,
-        feature,
-        customer_id,
-        user_id,
-        team,
-        department,
-        environment,
-        hours_ago,
-        input_tokens,
-        output_tokens,
-        latency_ms,
-        success,
-        error_code,
-        metadata,
-    ) in rows:
-        if _event(
-            db,
-            org,
-            project,
-            api_key,
-            key=f"demo:{key}",
-            provider=provider,
-            model=model,
-            request_type=request_type,
-            feature=feature,
-            customer_id=customer_id,
-            user_id=user_id,
-            team=team,
-            department=department,
-            environment=environment,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            occurred_at=now - timedelta(hours=hours_ago),
-            latency_ms=latency_ms,
-            success=success,
-            error_code=error_code,
-            metadata=metadata,
-        ):
-            inserted += 1
+    db.execute(
+        delete(UsageEvent).where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.idempotency_key.in_(legacy_keys),
+        )
+    )
+    db.flush()
+
+    rows = [
+        # High-volume monthly traffic, not one-off toy calls. These rows make
+        # spend, forecast, proof savings, and budget posture live on the same
+        # enterprise scale while still keeping the seed deterministic.
+        UsageSeed("sr-expensive", "openai", "gpt-4o", "support_chat", "support_bot", "cust_acme", "user", "support", "cx", "production", 110, 3_200_000, 700_000, 1280),
+        UsageSeed("sr-cheap", "openai", "gpt-4o-mini", "support_chat", "support_bot", "cust_acme", "user", "support", "cx", "production", 160, 3_000_000, 680_000, 940),
+        UsageSeed("trim", "openai", "gpt-4o-mini", "summarize_research", "research_agent", "cust_nova", "user", "product", "r_and_d", "production", 95, 12_000_000, 900_000, 1610),
+        UsageSeed("cache", "openai", "gpt-4o-mini", "answer_faq", "support_bot", "cust_acme", "user", "support", "cx", "production", 240, 1_500_000, 500_000, 720, metadata={"semantic_cache_key": "faq:reset-password"}),
+        UsageSeed("batch", "openai", "gpt-4o-mini", "nightly_export", "analytics_exports", "cust_zenith", "system", "data", "analytics", "production", 40, 62_000_000, 14_000_000, 5800, metadata={"batchable": "true"}),
+        UsageSeed("cheap-model", "anthropic", "claude-3-5-sonnet", "classify_ticket", "ticket_triage", "cust_nova", "user", "support", "cx", "production", 75, 2_200_000, 300_000, 1120),
+        UsageSeed("nonprod", "openai", "gpt-4o", "load_test", "eval_harness", "cust_internal", "engineer", "platform", "engineering", "staging", 20, 5_000_000, 1_200_000, 1330),
+        UsageSeed("failed", "openai", "gpt-4o-mini", "support_chat", "support_bot", "cust_zenith", "user", "support", "cx", "production", 35, 1_800_000, 100_000, 2100, success=False, error_code="provider_timeout"),
+        UsageSeed("unpriced", "openai", "unknown-frontier-demo", "prototype", "labs_agent", "cust_internal", "engineer", "labs", "r_and_d", "development", 12, 2_000_000, 400_000, 1800),
+    ]
+    window_minutes = 60 * 24 * max(now.day, 1)
+    for row in rows:
+        for index in range(row.count):
+            minutes_ago = 5 + ((index * 37) % window_minutes)
+            if _event(
+                db,
+                org,
+                project,
+                api_key,
+                key=f"demo:{row.key}:{index + 1:04d}",
+                provider=row.provider,
+                model=row.model,
+                request_type=row.request_type,
+                feature=row.feature,
+                customer_id=row.customer_id,
+                user_id=f"{row.user_id}_{(index % 24) + 1}",
+                team=row.team,
+                department=row.department,
+                environment=row.environment,
+                input_tokens=row.input_tokens,
+                output_tokens=row.output_tokens,
+                occurred_at=now - timedelta(minutes=minutes_ago),
+                latency_ms=row.latency_ms,
+                success=row.success,
+                error_code=row.error_code,
+                metadata=row.metadata,
+            ):
+                inserted += 1
     return inserted
 
 
 def _upsert_levers(db: Session, org: Organization, project: Project) -> None:
-    for lever, (mode, savings) in LEVER_DEFAULTS.items():
+    # Create the lever configs with their automation modes. savings_to_date is
+    # left at 0 here and filled in by record_applied_savings when the seed applies
+    # recommendations, so the Levers screen shows derived totals, not constants.
+    for lever, mode in LEVER_MODES.items():
         config = db.scalar(
             select(LeverConfig).where(
                 LeverConfig.project_id == project.id,
@@ -403,13 +455,14 @@ def _upsert_levers(db: Session, org: Organization, project: Project) -> None:
                     project_id=project.id,
                     lever=lever,
                     automation_mode=mode,
-                    savings_to_date_usd=savings,
                 )
             )
         else:
             config.enabled = True
             config.automation_mode = mode
-            config.savings_to_date_usd = savings
+            # Reset so the total is re-derived from this run's applied
+            # recommendations, never carried over from a prior seed.
+            config.savings_to_date_usd = Decimal("0")
 
 
 def _upsert_guardrails(db: Session, org: Organization, project: Project) -> None:
@@ -498,9 +551,9 @@ def _upsert_customer_economics(db: Session, org: Organization, project: Project)
     start = _month_start(now)
     end = _month_end(now)
     rows = [
-        ("cust_acme", "Acme Support", Decimal("12000.00")),
-        ("cust_nova", "Nova Labs", Decimal("900.00")),
-        ("cust_zenith", "Zenith Analytics", Decimal("4200.00")),
+        ("cust_acme", "Acme Support", Decimal("180000.00")),
+        ("cust_nova", "Nova Labs", Decimal("96000.00")),
+        ("cust_zenith", "Zenith Analytics", Decimal("72000.00")),
     ]
     for customer_id, name, revenue in rows:
         econ = db.scalar(
@@ -557,70 +610,63 @@ def _upsert_connections(db: Session, org: Organization, project: Project) -> Non
             conn.last_sync_at = datetime.now(timezone.utc) if status == "connected" else None
 
 
-def _upsert_proof_rows(db: Session, org: Organization, project: Project) -> None:
-    now = datetime.now(timezone.utc)
-    start = _month_start(now)
-    end = _month_end(now)
-    rows = [
-        ("semantic_cache", Decimal("3100.00"), Decimal("1280.00"), "direct_avoidance"),
-        ("token_trim", Decimal("4200.00"), Decimal("3260.00"), "backtested"),
-        ("batching", Decimal("1850.00"), Decimal("1440.00"), "direct_rate_delta"),
-    ]
-    for lever, counterfactual, actual, method in rows:
-        gross = counterfactual - actual
-        fee = gross * Decimal("0.20")
-        net = gross - fee
-        attribution = db.scalar(
-            select(SavingsAttribution).where(
-                SavingsAttribution.project_id == project.id,
-                SavingsAttribution.lever == lever,
-                SavingsAttribution.period_start == start,
-                SavingsAttribution.period_end == end,
-            )
-        )
-        if attribution is None:
-            attribution = SavingsAttribution(
-                organization_id=org.id,
-                project_id=project.id,
-                lever=lever,
-                measurement_method=method,
-                status="estimated",
-                period_start=start,
-                period_end=end,
-            )
-            db.add(attribution)
-        attribution.counterfactual_spend_usd = counterfactual
-        attribution.actual_spend_usd = actual
-        attribution.gross_savings_usd = gross
-        attribution.varsten_fee_usd = fee
-        attribution.net_savings_usd = net
-        attribution.confidence_low_usd = gross * Decimal("0.80")
-        attribution.confidence_high_usd = gross * Decimal("1.15")
-        attribution.notes = "Demo proof row for the v1 estimated/backtested savings view."
+def _apply_demo_recommendations(db: Session, project: Project, now: datetime) -> int:
+    """Apply the highest-value open recommendations through the real apply path so
+    Proof, lever savings-to-date, and Command Center activity are all computed from
+    the engine's own output. Leaves the rest open for the decision queue.
 
-        action = db.scalar(
-            select(RecommendationAction).where(
-                RecommendationAction.project_id == project.id,
-                RecommendationAction.lever == lever,
-                RecommendationAction.title == f"Demo {lever} action",
-            )
+    Idempotent: re-seeding clears prior demo attributions/actions first, then
+    re-applies against the freshly recomputed recommendations.
+    """
+    start = month_start(now)
+    end = month_end(now)
+    db.execute(
+        delete(SavingsAttribution).where(
+            SavingsAttribution.project_id == project.id,
+            SavingsAttribution.period_start == start,
+            SavingsAttribution.period_end == end,
         )
-        if action is None:
-            db.add(
-                RecommendationAction(
-                    organization_id=org.id,
-                    project_id=project.id,
-                    lever=lever,
-                    action_type="auto_applied",
-                    status="completed",
-                    source="system",
-                    title=f"Demo {lever} action",
-                    detail="Seeded auto-action for Command Center activity.",
-                    estimated_savings_usd=gross,
-                    realized_savings_usd=net,
-                    occurred_at=now - timedelta(days=1),
-                )
+    )
+    db.execute(
+        delete(RecommendationAction).where(
+            RecommendationAction.project_id == project.id,
+            RecommendationAction.action_type == "applied",
+        )
+    )
+    db.flush()
+
+    candidates = list(
+        db.scalars(
+            select(Recommendation)
+            .where(
+                Recommendation.project_id == project.id,
+                Recommendation.status == "open",
+                Recommendation.lever.is_not(None),
+                Recommendation.estimated_monthly_savings_usd.is_not(None),
             )
+            .order_by(Recommendation.estimated_monthly_savings_usd.desc())
+        )
+    )
+
+    applied = 0
+    applied_levers: set[str] = set()
+    applied_targets: set[str] = set()
+    for rec in candidates:
+        if applied >= DEMO_APPLY_LIMIT:
+            break
+        # One cut per lever and per route/feature, so overlapping levers on the
+        # same traffic (e.g. cheaper-model and routing on one route) are not
+        # double-counted in Proof.
+        target = rec.related_feature or rec.target_key or str(rec.id)
+        if rec.lever in applied_levers or target in applied_targets:
+            continue
+        rec.status = "applied"
+        rec.resolved_at = now
+        record_applied_savings(db, project, rec, source="system", now=now)
+        applied_levers.add(rec.lever)
+        applied_targets.add(target)
+        applied += 1
+    return applied
 
 
 def seed(db: Session) -> dict[str, object]:
@@ -634,12 +680,17 @@ def seed(db: Session) -> dict[str, object]:
     _upsert_guardrails(db, org, project)
     _upsert_customer_economics(db, org, project)
     _upsert_connections(db, org, project)
-    _upsert_proof_rows(db, org, project)
+    # Generate recommendations from the seeded usage, then apply the top few so
+    # realized savings and Proof are computed by the same code path the product
+    # uses. Nothing about the savings is hard-coded.
+    now = datetime.now(timezone.utc)
     refresh_recommendations(db, project)
+    db.flush()
+    applied = _apply_demo_recommendations(db, project, now)
     db.commit()
-    rec_count = db.scalar(
-        select(func.count()).select_from(RecommendationAction).where(
-            RecommendationAction.project_id == project.id
+    open_recs = db.scalar(
+        select(func.count()).select_from(Recommendation).where(
+            Recommendation.project_id == project.id, Recommendation.status == "open"
         )
     )
     return {
@@ -647,7 +698,8 @@ def seed(db: Session) -> dict[str, object]:
         "project_id": str(project.id),
         "api_key": DEMO_API_KEY,
         "inserted_usage_events": inserted_events,
-        "recommendation_actions": rec_count,
+        "applied_recommendations": applied,
+        "open_recommendations": open_recs,
     }
 
 
@@ -662,6 +714,8 @@ def main() -> int:
     print(f"project_id={result['project_id']}")
     print(f"api_key={result['api_key']}")
     print(f"inserted_usage_events={result['inserted_usage_events']}")
+    print(f"applied_recommendations={result['applied_recommendations']}")
+    print(f"open_recommendations={result['open_recommendations']}")
     return 0
 
 

@@ -5,11 +5,13 @@ from sqlalchemy import func, select
 from app.models import (
     CustomerEconomics,
     LeverConfig,
+    Project,
     ProviderConnection,
     Recommendation,
     SavingsAttribution,
     UsageEvent,
 )
+from app.savings import compute_savings_summary
 from scripts.seed_demo import seed
 
 
@@ -44,6 +46,11 @@ def test_seed_demo_creates_product_story_data_idempotently(db_session):
         .select_from(SavingsAttribution)
         .where(SavingsAttribution.project_id == project_id)
     )
+    gross_savings = db_session.scalar(
+        select(func.coalesce(func.sum(SavingsAttribution.gross_savings_usd), 0)).where(
+            SavingsAttribution.project_id == project_id
+        )
+    )
     recommendation_levers = set(
         db_session.scalars(
             select(Recommendation.lever).where(
@@ -53,11 +60,21 @@ def test_seed_demo_creates_product_story_data_idempotently(db_session):
         )
     )
 
-    assert events == 11
+    project = db_session.get(Project, project_id)
+    summary = compute_savings_summary(db_session, project)
+
+    assert events >= 750
+    # Savings are derived from applied recommendations, never seeded constants.
+    assert gross_savings > 0
+    # Coherent proof on a consistent (run-rated) basis: a cut never saves more
+    # than the counterfactual spend, and net is below gross after the fee.
+    assert summary["counterfactual_spend_usd"] > summary["actual_spend_usd"]
+    assert summary["gross_savings_usd"] < summary["counterfactual_spend_usd"]
+    assert summary["net_savings_usd"] < summary["gross_savings_usd"]
     assert levers == 5
     assert connections == 3
     assert customers == 3
-    assert proof_rows == 3
+    assert 1 <= proof_rows <= 3
     assert {
         "smart_routing",
         "semantic_cache",
