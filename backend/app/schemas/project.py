@@ -14,5 +14,10 @@ class ProjectOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     name: str
+    proxy_bypass_enabled: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectProxyConfigUpdate(BaseModel):
+    bypass_enabled: bool

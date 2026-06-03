@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     semantic_cache_enabled: bool = True
     # Upstream request timeout (seconds) for the non-streaming path.
     proxy_upstream_timeout_seconds: float = 60.0
+    # Global kill switch. When true, every project's traffic bypasses all Varsten
+    # optimization and forwards straight to OpenAI (still metered). The operator's
+    # emergency lever; a per-project switch lives on the project row.
+    proxy_kill_switch: bool = False
 
 
 settings = Settings()

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,12 @@ class Project(Base, TimestampMixin):
     # staleness window, keeping a month-scan off every dashboard load.
     recommendations_refreshed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # Per-project kill switch. When true, this project's proxy traffic bypasses
+    # all Varsten optimization (no cache serve or store) and forwards straight to
+    # OpenAI, still metered. The customer-facing "turn Varsten off" toggle.
+    proxy_bypass_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
     )
 
     organization: Mapped["Organization"] = relationship(back_populates="projects")

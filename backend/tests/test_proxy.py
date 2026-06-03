@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.models import ProxyCacheEntry, UsageEvent
+from app.proxy import cache as proxy_cache
 from app.proxy import router as proxy_router
 
 CHAT = "gpt-4o-mini"
@@ -149,3 +150,78 @@ def test_cache_hit_served_without_upstream(client, db_session, provision, mock_o
     assert sources == {"miss", "hit"}
     hit = next(e for e in events if e.event_metadata["cache"] == "hit")
     assert hit.cost_usd == 0
+
+
+def test_global_kill_switch_bypasses_optimization(client, db_session, provision, mock_openai, monkeypatch):
+    ws = provision(sub="auth0|p", email="p@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "proxy_kill_switch", True)
+    body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
+
+    first = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+    second = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.headers["x-varsten-mode"] == "bypass"
+    # Both forwarded: no cache serve, no cache store.
+    assert mock_openai["n"] == 2
+    cached = db_session.scalar(
+        select(func.count()).select_from(ProxyCacheEntry).where(
+            ProxyCacheEntry.project_id == ws["project_id"]
+        )
+    )
+    assert cached == 0
+
+
+def test_per_project_kill_switch_via_toggle(client, db_session, provision, mock_openai, monkeypatch):
+    ws = provision(sub="auth0|p", email="p@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+
+    # Flip the project's kill switch through the authenticated toggle endpoint.
+    toggled = client.patch(
+        f"/v1/projects/{ws['project_id']}/proxy-config",
+        headers=_b(ws["sub"]),
+        json={"bypass_enabled": True},
+    )
+    assert toggled.status_code == 200
+    assert toggled.json()["proxy_bypass_enabled"] is True
+
+    body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
+    first = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+    second = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+
+    assert first.headers["x-varsten-mode"] == "bypass"
+    assert mock_openai["n"] == 2  # bypassed, never served from cache
+
+
+def test_toggle_is_tenant_scoped(client, provision):
+    ws = provision(sub="auth0|a", email="a@example.com")
+    provision(sub="auth0|b", email="b@example.com")
+
+    # Unauthenticated and cross-tenant are both refused.
+    assert client.patch(
+        f"/v1/projects/{ws['project_id']}/proxy-config", json={"bypass_enabled": True}
+    ).status_code == 401
+    assert client.patch(
+        f"/v1/projects/{ws['project_id']}/proxy-config",
+        headers=_b("auth0|b"),
+        json={"bypass_enabled": True},
+    ).status_code == 403
+
+
+def test_fail_open_when_cache_lookup_breaks(client, provision, mock_openai, monkeypatch):
+    ws = provision(sub="auth0|p", email="p@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("cache backend down")
+
+    monkeypatch.setattr(proxy_cache, "get_cached", boom)
+
+    body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
+    res = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+
+    # A broken cache must never break the client's call: it forwards anyway.
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == "Hello world"
+    assert mock_openai["n"] == 1

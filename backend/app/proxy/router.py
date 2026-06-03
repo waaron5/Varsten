@@ -28,6 +28,12 @@ router = APIRouter(tags=["proxy"])
 SSE_MEDIA_TYPE = "text/event-stream"
 
 
+def _is_bypassed(project: Project) -> bool:
+    """The kill switch: global (operator) OR per-project (customer). When engaged,
+    Varsten forwards straight through with no optimization, still metered."""
+    return settings.proxy_kill_switch or project.proxy_bypass_enabled
+
+
 @router.post("/chat/completions")
 async def chat_completions(
     request: Request,
@@ -47,37 +53,56 @@ async def chat_completions(
     body = await request.json()
     stream = bool(body.get("stream", False))
     model = body.get("model", "")
+    bypass = _is_bypassed(project)
     cache_key = cache.compute_cache_key(body)
 
-    # --- cache hit: serve without touching OpenAI ---
-    if settings.semantic_cache_enabled:
-        entry = cache.get_cached(db, project.id, cache_key)
+    # --- cache hit: serve without touching OpenAI (skipped when bypassed) ---
+    # Fail-open: a cache-lookup failure must never block forwarding. The worst case
+    # is we miss a cache hit, never that we break the client's request.
+    if not bypass and settings.semantic_cache_enabled:
+        entry = None
+        try:
+            entry = cache.get_cached(db, project.id, cache_key)
+        except Exception:
+            entry = None
         if entry is not None:
-            cache.record_hit(db, entry)
-            record_proxy_usage(
-                db,
-                project,
-                api_key_id,
-                model=entry.model,
-                input_tokens=entry.input_tokens,
-                output_tokens=entry.output_tokens,
-                cached_input_tokens=0,
-                cache_hit=True,
-            )
+            try:
+                cache.record_hit(db, entry)
+                record_proxy_usage(
+                    db,
+                    project,
+                    api_key_id,
+                    model=entry.model,
+                    input_tokens=entry.input_tokens,
+                    output_tokens=entry.output_tokens,
+                    cached_input_tokens=0,
+                    cache_hit=True,
+                )
+            except Exception:
+                pass
+            headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": "hit"}
             if stream:
                 return StreamingResponse(
                     iter(list(openai.completion_to_sse(entry.response_payload))),
                     media_type=SSE_MEDIA_TYPE,
+                    headers=headers,
                 )
-            return JSONResponse(entry.response_payload)
+            return JSONResponse(entry.response_payload, headers=headers)
 
-    # --- cache miss: forward to OpenAI ---
+    # --- forward to OpenAI (cache miss, or bypassed). store_cache off when bypassed ---
+    mode = "bypass" if bypass else "optimize"
+    headers = {"X-Varsten-Mode": mode, "X-Varsten-Cache": "bypass" if bypass else "miss"}
     if stream:
         return StreamingResponse(
-            _stream_through(db, project, api_key_id, client_key, body, model, cache_key),
+            _stream_through(
+                db, project, api_key_id, client_key, body, model, cache_key, store_cache=not bypass
+            ),
             media_type=SSE_MEDIA_TYPE,
+            headers=headers,
         )
-    return await _forward_once(db, project, api_key_id, client_key, body, model, cache_key)
+    return await _forward_once(
+        db, project, api_key_id, client_key, body, model, cache_key, store_cache=not bypass, headers=headers
+    )
 
 
 def _capture(
@@ -91,44 +116,59 @@ def _capture(
     in_tok: int,
     out_tok: int,
     cached_tok: int,
+    store_cache: bool,
 ) -> None:
-    """Write the ledger row and store the cache entry for a miss."""
-    record_proxy_usage(
-        db,
-        project,
-        api_key_id,
-        model=model,
-        input_tokens=in_tok,
-        output_tokens=out_tok,
-        cached_input_tokens=cached_tok,
-        cache_hit=False,
-    )
-    if settings.semantic_cache_enabled and response_payload:
-        cache.store(db, project.id, cache_key, model, response_payload, in_tok, out_tok)
+    """Write the ledger row and (unless bypassed) store the cache entry for a miss.
+
+    Best-effort: the response has already been obtained from OpenAI, so bookkeeping
+    must never raise and fail the client's request. A failure here should be made
+    visible by observability later, never by a 500."""
+    try:
+        record_proxy_usage(
+            db,
+            project,
+            api_key_id,
+            model=model,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            cached_input_tokens=cached_tok,
+            cache_hit=False,
+        )
+        if store_cache and settings.semantic_cache_enabled and response_payload:
+            cache.store(db, project.id, cache_key, model, response_payload, in_tok, out_tok)
+    except Exception:
+        pass
 
 
-async def _stream_through(db, project, api_key_id, client_key, body, model, cache_key):
+async def _stream_through(db, project, api_key_id, client_key, body, model, cache_key, store_cache):
     """Pass the OpenAI SSE stream through verbatim, buffering a copy in memory to
-    bill and cache after the client has its bytes."""
+    bill and (unless bypassed) cache after the client has its bytes."""
     upstream_body = {**body, "stream": True, "stream_options": {"include_usage": True}}
     buffer = bytearray()
     ok = False
 
-    async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream(
-            "POST",
-            openai.upstream_url(),
-            headers=openai.upstream_headers(client_key),
-            json=upstream_body,
-        ) as resp:
-            ok = resp.status_code == 200
-            if not ok:
-                # Surface the upstream error to the client; do not bill or cache.
-                yield await resp.aread()
-                return
-            async for chunk in resp.aiter_bytes():
-                buffer.extend(chunk)
-                yield chunk
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "POST",
+                openai.upstream_url(),
+                headers=openai.upstream_headers(client_key),
+                json=upstream_body,
+            ) as resp:
+                ok = resp.status_code == 200
+                if not ok:
+                    # Surface the upstream error to the client; do not bill or cache.
+                    yield await resp.aread()
+                    return
+                async for chunk in resp.aiter_bytes():
+                    buffer.extend(chunk)
+                    yield chunk
+    except httpx.RequestError as exc:
+        # OpenAI unreachable. Cannot fabricate a completion, but emit a clean SSE
+        # error instead of a stack trace.
+        yield f'data: {{"error":{{"message":"upstream request failed: {exc.__class__.__name__}","type":"varsten_upstream_error"}}}}\n\n'.encode()
+        yield b"data: [DONE]\n\n"
+        return
 
     # Stream finished and the client has every byte. Best-effort bookkeeping.
     try:
@@ -154,18 +194,29 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
             in_tok=in_tok,
             out_tok=out_tok,
             cached_tok=cached_tok,
+            store_cache=store_cache,
         )
     except Exception:
         # Never let post-stream bookkeeping break a delivered response.
         pass
 
 
-async def _forward_once(db, project, api_key_id, client_key, body, model, cache_key) -> JSONResponse:
-    async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
-        resp = await client.post(
-            openai.upstream_url(),
-            headers=openai.upstream_headers(client_key),
-            json=body,
+async def _forward_once(
+    db, project, api_key_id, client_key, body, model, cache_key, store_cache, headers
+) -> JSONResponse:
+    try:
+        async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
+            resp = await client.post(
+                openai.upstream_url(),
+                headers=openai.upstream_headers(client_key),
+                json=body,
+            )
+    except httpx.RequestError as exc:
+        # OpenAI unreachable: clean 502 rather than an unhandled 500.
+        return JSONResponse(
+            {"error": {"message": f"upstream request failed: {exc.__class__.__name__}", "type": "varsten_upstream_error"}},
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            headers=headers,
         )
 
     if resp.status_code != 200:
@@ -173,7 +224,7 @@ async def _forward_once(db, project, api_key_id, client_key, body, model, cache_
             detail = resp.json()
         except ValueError:
             detail = {"error": resp.text}
-        return JSONResponse(detail, status_code=resp.status_code)
+        return JSONResponse(detail, status_code=resp.status_code, headers=headers)
 
     data = resp.json()
     in_tok, out_tok, cached_tok = openai.usage_tokens(data.get("usage") or {})
@@ -188,5 +239,6 @@ async def _forward_once(db, project, api_key_id, client_key, body, model, cache_
         in_tok=in_tok,
         out_tok=out_tok,
         cached_tok=cached_tok,
+        store_cache=store_cache,
     )
-    return JSONResponse(data)
+    return JSONResponse(data, headers=headers)

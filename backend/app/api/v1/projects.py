@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_org_member, require_project_member, require_user
 from app.db.session import get_db
 from app.models import Organization, OrgMembership, Project, User
-from app.schemas import ProjectCreate, ProjectOut
+from app.schemas import ProjectCreate, ProjectOut, ProjectProxyConfigUpdate
 
 router = APIRouter(tags=["projects"])
 
@@ -60,4 +60,18 @@ def list_projects(
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)
 def get_project(project: Project = Depends(require_project_member)) -> Project:
+    return project
+
+
+@router.patch("/projects/{project_id}/proxy-config", response_model=ProjectOut)
+def update_proxy_config(
+    payload: ProjectProxyConfigUpdate,
+    project: Project = Depends(require_project_member),
+    db: Session = Depends(get_db),
+) -> Project:
+    """Flip the per-project proxy kill switch. bypass_enabled=true forwards the
+    project's traffic straight to OpenAI with no Varsten optimization."""
+    project.proxy_bypass_enabled = payload.bypass_enabled
+    db.commit()
+    db.refresh(project)
     return project
