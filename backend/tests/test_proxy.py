@@ -2,6 +2,7 @@
 hit/miss, and metadata-only ledger capture. OpenAI is mocked via an httpx
 MockTransport so no real key or network is needed."""
 import json
+import time
 
 import httpx
 import pytest
@@ -10,7 +11,15 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.models import ProxyCacheEntry, UsageEvent
 from app.proxy import cache as proxy_cache
+from app.proxy import circuit
 from app.proxy import router as proxy_router
+
+
+@pytest.fixture(autouse=True)
+def reset_circuit():
+    circuit.reset_all()
+    yield
+    circuit.reset_all()
 
 CHAT = "gpt-4o-mini"
 
@@ -53,6 +62,36 @@ def mock_openai(monkeypatch):
 
     monkeypatch.setattr(proxy_router.httpx, "AsyncClient", factory)
     return calls
+
+
+@pytest.fixture
+def controllable_openai(monkeypatch):
+    """A mock upstream whose behavior can be flipped mid-test: ok | fail_503 |
+    fail_400 | raise. Counts calls so tests can assert short-circuiting."""
+    state = {"calls": 0, "mode": "ok"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["calls"] += 1
+        if state["mode"] == "raise":
+            raise httpx.ConnectError("upstream unreachable")
+        if state["mode"] == "fail_503":
+            return httpx.Response(503, json={"error": "overloaded"})
+        if state["mode"] == "fail_400":
+            return httpx.Response(400, json={"error": "bad request"})
+        payload = json.loads(request.content)
+        if payload.get("stream"):
+            return httpx.Response(
+                200, content=STREAM_BODY.encode(), headers={"content-type": "text/event-stream"}
+            )
+        return httpx.Response(200, json=NONSTREAM_RESPONSE)
+
+    real_async_client = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        return real_async_client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", factory)
+    return state
 
 
 def _configure_key(monkeypatch, project_id: str):
@@ -228,3 +267,80 @@ def test_fail_open_when_cache_lookup_breaks(client, provision, mock_openai, monk
     assert mock_openai["n"] == 1
     # And the failure is now visible, not silently swallowed.
     assert any("cache lookup failed" in r.message for r in caplog.records)
+
+
+def _msg(content="hi"):
+    return {"model": CHAT, "messages": [{"role": "user", "content": content}]}
+
+
+def test_circuit_opens_and_fails_fast(client, provision, controllable_openai, monkeypatch):
+    ws = provision(sub="auth0|cb", email="cb@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "circuit_breaker_fail_threshold", 2)
+    controllable_openai["mode"] = "fail_503"
+    hdr = _b(ws["api_key"])
+
+    # Two upstream failures are forwarded (and trip the breaker).
+    assert client.post("/v1/chat/completions", headers=hdr, json=_msg()).status_code == 503
+    assert client.post("/v1/chat/completions", headers=hdr, json=_msg("b")).status_code == 503
+    assert controllable_openai["calls"] == 2
+
+    # Breaker now open: the next request short-circuits without touching upstream.
+    res = client.post("/v1/chat/completions", headers=hdr, json=_msg("c"))
+    assert res.status_code == 503
+    assert res.headers.get("x-varsten-circuit") == "open"
+    assert res.json()["error"]["type"] == "varsten_circuit_open"
+    assert controllable_openai["calls"] == 2  # not called
+
+
+def test_circuit_recovers_via_half_open(client, provision, controllable_openai, monkeypatch):
+    ws = provision(sub="auth0|cb", email="cb@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "circuit_breaker_fail_threshold", 1)
+    monkeypatch.setattr(settings, "circuit_breaker_reset_seconds", 0.0)
+    hdr = _b(ws["api_key"])
+
+    controllable_openai["mode"] = "fail_503"
+    client.post("/v1/chat/completions", headers=hdr, json=_msg())  # opens
+
+    # Reset window is zero, so the next request half-opens and probes. Upstream is
+    # healthy again, so the probe succeeds and the breaker closes.
+    controllable_openai["mode"] = "ok"
+    res = client.post("/v1/chat/completions", headers=hdr, json=_msg("again"))
+    assert res.status_code == 200
+    assert res.json()["choices"][0]["message"]["content"] == "Hello world"
+
+
+def test_client_error_does_not_trip_circuit(client, provision, controllable_openai, monkeypatch):
+    ws = provision(sub="auth0|cb", email="cb@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "circuit_breaker_fail_threshold", 1)
+    controllable_openai["mode"] = "fail_400"
+    hdr = _b(ws["api_key"])
+
+    # A 4xx is the client's mistake; every call reaches upstream, breaker stays shut.
+    for _ in range(3):
+        assert client.post("/v1/chat/completions", headers=hdr, json=_msg()).status_code == 400
+    assert controllable_openai["calls"] == 3
+
+
+def test_cache_hit_served_while_circuit_open(client, provision, controllable_openai, monkeypatch):
+    ws = provision(sub="auth0|cb", email="cb@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    hdr = _b(ws["api_key"])
+    body = _msg()
+
+    # Prime the cache with a successful call.
+    assert client.post("/v1/chat/completions", headers=hdr, json=body).status_code == 200
+    primed_calls = controllable_openai["calls"]
+
+    # Force the breaker open.
+    breaker = circuit.get_breaker(ws["project_id"])
+    breaker.state = "open"
+    breaker.opened_at = time.monotonic()
+
+    # The identical request is a cache hit, served even though the circuit is open.
+    res = client.post("/v1/chat/completions", headers=hdr, json=body)
+    assert res.status_code == 200
+    assert res.headers["x-varsten-cache"] == "hit"
+    assert controllable_openai["calls"] == primed_calls  # upstream never touched

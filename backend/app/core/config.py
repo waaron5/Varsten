@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # emergency lever; a per-project switch lives on the project row.
     proxy_kill_switch: bool = False
 
+    # Per-project circuit breaker for the upstream provider. After this many
+    # consecutive upstream failures the breaker opens and the proxy fails fast
+    # (503) instead of making every request wait the full timeout. It probes for
+    # recovery after reset_seconds. Cache hits are unaffected and still served.
+    circuit_breaker_enabled: bool = True
+    circuit_breaker_fail_threshold: int = 5
+    circuit_breaker_reset_seconds: float = 30.0
+
     # --- Observability ---
     log_level: str = "INFO"
     # JSON logs in production; set false for plain human-readable logs locally.
