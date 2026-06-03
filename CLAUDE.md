@@ -26,9 +26,20 @@ Spend comes in. The engine cuts it. Guardrails keep the cuts safe. The savings g
 
 ## Why this project exists
 
-I am a CS student at BYU relocating to NYC and job hunting for junior / mid full-stack roles with a backend lean. Varsten is my main portfolio piece. It needs to demonstrate that I can architect and ship real multi-tenant SaaS backend software.
+I am a CS student at BYU relocating to NYC. Varsten started as my portfolio piece and still demonstrates that I can architect and ship real multi-tenant SaaS. But the goal has changed: I am taking Varsten to market and onboarding my first paying client as soon as possible. The product has to be solid and production-ready, not a demo that only survives a happy-path click-through.
 
-I am now treating Varsten as a product I actually want to build and sell, not only a portfolio artifact. That raises the bar on the vision but does not change the deadline reality. I would rather ship a smaller, polished, end-to-end version that tells the engine-first story than a half-built version of the full production engine. Bias toward done over complete. The vision in this file is the real product. The MVP scope below is what I build first to demonstrate it credibly without pretending I can build a production inline LLM gateway solo on a job-hunt timeline.
+This raises the bar on execution, not on surface area. "Done over complete" still holds: ship a focused, coherent slice rather than a sprawling half-built one. But "done" now means production-done for the slice in scope. A real client pushes real traffic, trusts real numbers, and expects the thing to stay up, stay secure, and never leak across tenants. The engine-first vision below is the destination; the near-term job is to make the control plane and decision loop genuinely deployable, secure, and reliable for one real customer.
+
+### Current phase: production hardening for the first client
+
+The control plane, measurement, recommendation engine, and decision-loop UI exist and work on seeded data. The work now is to close the gap between "works on my machine for a demo" and "a paying client can rely on it." Treat anything that blocks a real onboarding as higher priority than new product surface:
+
+- **Tenancy and auth are airtight.** Every client-facing endpoint is authenticated and scoped to the caller's organization. No unauthenticated management routes, no endpoint that can read or mutate across tenants. This is the first gate; nothing ships to a client until it is closed.
+- **It deploys.** Containerized backend, managed Postgres, real secrets handling, and a deploy path that is not "run uvicorn on my laptop."
+- **It stays fast under real volume.** Ingestion is sub-50ms, and the recommendation recompute is off the synchronous read path (cached or scheduled), not run live on every dashboard load.
+- **Prices stay fresh automatically.** The pricing catalog syncs on a schedule, not by a manual command, because stale prices mean wrong cost and broken trust.
+- **It is observable.** Structured logs, error tracking, and health checks good enough to know when a client's ingestion breaks before they tell me.
+- **Proof is honest.** Estimated savings are clearly labelled as estimated. The first client's trust is the whole company.
 
 ## The product, top to bottom
 
@@ -180,9 +191,13 @@ Backend:
 - uv for Python dependency management
 - OAuth for sign-in (likely Auth0 or Clerk, not rolling my own)
 
-Infra:
-- Docker + Docker Compose for local dev
-- Terraform + AWS later, not in the initial MVP
+Infra (production posture, now that a real client is coming):
+- Docker + Docker Compose for local dev. A backend Dockerfile and a compose that actually runs API + frontend + Postgres is a near-term requirement, not a someday.
+- Managed Postgres for production (Neon, Supabase, RDS, or Cloud SQL). Add connection pooling (PgBouncer or the platform pooler) once there is more than one app instance.
+- A managed container host for the API (Cloud Run, Fly.io, or Railway) over hand-rolled ECS at this stage. Revisit heavier AWS / Terraform when scale or compliance (SOC 2) actually demands it, not before.
+- Frontend on Vercel (Next.js), CORS locked to the known frontend origin.
+- CI on GitHub Actions: run the test suite on every PR, because the cost and pricing math is the thing a client stakes money on.
+- Secrets in the platform's secret store, never committed. The repo currently has live values in `.env` files; those must not reach a public remote.
 
 Frontend:
 - Next.js or React with TypeScript
@@ -192,7 +207,7 @@ The production inline data plane, if it is ever built, is a separate thin servic
 
 ## What we build first
 
-The vision above is the real product. This is what I build first to demonstrate it end to end without building a production inline LLM gateway. The goal of v1 is to make the engine-first story real and the demo land: not "here is your spend," but "here is a specific cut worth $X per month at Y risk, apply it, and here is the proven savings."
+The vision above is the real product. This is the slice I ship first, to production, for the first client, without building a production inline LLM gateway. The goal of v1 is to make the engine-first loop real and reliable for a paying customer: not "here is your spend," but "here is a specific cut worth $X per month at Y risk, apply it, and here is the proven savings" - running on infrastructure they can trust with their data. v1 is not done when the demo clicks through; it is done when a client can sign in, send real traffic, and depend on it.
 
 **v1 builds the control plane and the decision layer:**
 - OAuth sign-in, organizations, multi-tenancy, API key ingestion
@@ -305,18 +320,17 @@ If I propose a schema change, evaluate it against these access patterns and the 
 
 **This is the most important section. Read it carefully.**
 
-I am building this to learn, not to ship the fastest possible version. I am preparing for a job where I will need to architect and debug this kind of system myself. If Claude does the thinking for me, the project fails at its actual purpose even if the code works.
+I am shipping this to a real client, so default to execution. When a task is clear, build it end to end: write the code, run it, test it, verify it against the real app, and report what you did and what you found. Do not stop between every step to ask permission. I will redirect if you go the wrong way.
 
 Specifically:
 
-- **Do not write code unless I explicitly ask for it.** "Help me think through X," "what are the tradeoffs of Y," "review this approach" are not requests for code. Default to prose explanations.
-- **When I do ask for code, prefer the smallest useful snippet.** Not a full file. Not a refactor. The piece I asked about.
-- **Explain tradeoffs honestly.** If there are two reasonable approaches, say so and tell me when each is right. Don't pretend there's one obvious answer when there isn't.
-- **Push back when I'm wrong.** If I'm about to make a bad architectural choice, say so directly. Don't soften it. I would rather hear "that will hurt you at 100k usage records/day because..." than a polite hedge.
-- **Don't take over.** If I'm halfway through reasoning about something, let me finish. Ask what I'm thinking before jumping in with the answer.
-- **Skip the pep talk.** No "great question," no "you're on the right track." Just engage with the substance.
+- **Default to doing, not just discussing.** If I describe a problem or a goal, implement the fix and verify it works. Reserve prose-only answers for when I explicitly ask to think through tradeoffs, review an approach, or plan before building.
+- **Hold a production bar.** Prefer correct, secure, tested code over the fastest patch. When you build something client-facing, call out its security, tenancy, reliability, and failure-mode implications without being asked.
+- **Push back when I'm wrong, harder now.** If I'm about to make a bad architectural or security call, say so directly and explain the cost in concrete terms ("that lets one tenant read another's keys because..."). A real client is on the line, so a wrong call is more expensive than it was at demo stage. Do not soften it.
+- **Explain tradeoffs honestly.** If there are two reasonable approaches, say so and tell me when each is right. Don't manufacture certainty where there isn't any.
+- **Skip the pep talk.** No "great question," no "you're on the right track." Engage with the substance.
 
-When I want code written, I will say so plainly ("write the migration for X," "give me the SQL for daily spend by model"). Otherwise assume I want to discuss, not delegate.
+When I want discussion instead of code, I will say so plainly ("help me think through X," "what are the tradeoffs of Y," "review this approach"). Otherwise assume I want it built and verified.
 
 ## Communication preferences
 
@@ -366,10 +380,12 @@ This is a target, not a contract. Open to changes if there's a real reason.
 - If I propose showing a savings number without an attribution method behind it. No painted-on savings. Every dollar ties to a method, and the UI says whether it is estimated or measured.
 - If I propose putting anything expensive (a model call, an LLM judge, an eval) in a request hot path, even hypothetically.
 - If I propose adding a feature outside the current v1 scope.
-- If I propose a third-party service that costs money for a portfolio-stage project.
+- If I propose exposing a client-facing endpoint without authentication and organization scoping, or a query that could read or mutate across tenants. This is a hard stop now that a real client is coming.
+- If I propose a third-party service with meaningful recurring cost or vendor lock-in. Paid infrastructure is justified now, but still flag the cost, the lock-in, and whether a simpler or cheaper option covers the need.
 - If I propose denormalizing or pre-aggregating before I have a real query problem.
 - If I propose skipping tests on the ingestion endpoint.
 - If I propose hand-rolling auth instead of using a provider.
+- If I propose deploying with secrets in the repo, or pushing `.env` files to a public remote.
 
 In any of these, ask me why before going along with it.
 
