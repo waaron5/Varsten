@@ -692,19 +692,70 @@ function LeverRow({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; 
   );
 }
 
+function holdbackLabel(percent: string | null): string {
+  if (percent === null) return "-";
+  return `${Math.round(Number(percent) * 100)}%`;
+}
+
+function RouteSavings({ route }: { route: ActiveRoute }) {
+  if (route.measured_savings_usd === null) {
+    return <span className="eval-note">gathering arms…</span>;
+  }
+  const band =
+    route.measured_savings_ci_low_usd !== null && route.measured_savings_ci_high_usd !== null
+      ? ` (CI ${usd(route.measured_savings_ci_low_usd, 2)}–${usd(route.measured_savings_ci_high_usd, 2)})`
+      : "";
+  return (
+    <span>
+      {usd(route.measured_savings_usd, 2)}
+      <span className="eval-note">{band}{route.has_signal ? "" : " · provisional"}</span>
+    </span>
+  );
+}
+
 function ActiveRoutesCard() {
-  const { data: routes, loading, error } = useProjectResource<ActiveRoute[]>(api.engineRoutes, []);
+  const {
+    activeProjectId,
+    data: routes,
+    error,
+    getToken,
+    loading,
+    setData: setRoutes,
+    setError,
+  } = useProjectResource<ActiveRoute[]>(api.engineRoutes, []);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const pause = async (route: ActiveRoute) => {
+    setBusyId(route.id);
+    setError(null);
+    try {
+      await api.updateEngineRoute(await getToken(), activeProjectId ?? undefined, route.id, { enabled: false });
+      setRoutes((current) => (current ?? []).filter((r) => r.id !== route.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   // Only meaningful once at least one cheaper-model swap is live; stay quiet otherwise.
   if (loading || error || !routes || routes.length === 0) return null;
   return (
     <div className="card">
       <div className="card-head">
         <h3>Active routes</h3>
-        <span className="sub">cheaper-model swaps the proxy is executing now</span>
+        <span className="sub">live cheaper-model swaps, savings measured against a concurrent holdback</span>
       </div>
       <table className="tbl">
         <thead>
-          <tr><th>Route</th><th>From eval</th><th className="r">Requests (mo)</th><th className="r">Measured savings</th></tr>
+          <tr>
+            <th>Route</th>
+            <th className="r">Holdback</th>
+            <th className="r">Control / Treatment</th>
+            <th className="r">Cost / req</th>
+            <th className="r">Measured savings (mo)</th>
+            <th />
+          </tr>
         </thead>
         <tbody>
           {routes.map((route) => (
@@ -713,9 +764,19 @@ function ActiveRoutesCard() {
                 <b>{route.incumbent_model}</b> &rarr; {route.candidate_model}
                 {route.activated_at ? <span className="eval-note"> live {relativeTime(route.activated_at)}</span> : null}
               </td>
-              <td>{route.source_title ?? "manual"}</td>
-              <td className="r">{compact(route.routed_requests)}</td>
-              <td className="r">{usd(route.measured_savings_usd, 2)}</td>
+              <td className="r">{holdbackLabel(route.holdback_percent)}</td>
+              <td className="r">{compact(route.control_requests)} / {compact(route.treatment_requests)}</td>
+              <td className="r">
+                {route.control_avg_cost_usd !== null && route.treatment_avg_cost_usd !== null
+                  ? `${usd(route.control_avg_cost_usd, 4)} → ${usd(route.treatment_avg_cost_usd, 4)}`
+                  : "-"}
+              </td>
+              <td className="r"><RouteSavings route={route} /></td>
+              <td className="r">
+                <button className="btn" disabled={busyId === route.id} onClick={() => pause(route)} type="button">
+                  Pause
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>

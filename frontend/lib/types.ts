@@ -196,11 +196,19 @@ export interface ActiveRoute {
   incumbent_model: string;
   candidate_model: string;
   enabled: boolean;
+  holdback_percent: string | null;
   activated_at: string | null;
   source_recommendation_id: string | null;
   source_title: string | null;
-  routed_requests: number;
-  measured_savings_usd: string;
+  control_requests: number;
+  treatment_requests: number;
+  control_avg_cost_usd: string | null;
+  treatment_avg_cost_usd: string | null;
+  savings_per_request_usd: string | null;
+  measured_savings_usd: string | null;
+  measured_savings_ci_low_usd: string | null;
+  measured_savings_ci_high_usd: string | null;
+  has_signal: boolean;
 }
 
 export interface EvalRouteCorpus {

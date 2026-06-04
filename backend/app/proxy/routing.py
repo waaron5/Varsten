@@ -9,8 +9,11 @@ mirrors the existing cache lookup.)
 `activate_rule` / `deactivate_rules` run on the control plane when a recommendation
 is applied or dismissed.
 """
+import random
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
+from typing import NamedTuple
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -19,6 +22,44 @@ from app.core.logging import get_logger
 from app.models import Project, ProxyRoutingRule, Recommendation
 
 logger = get_logger("varsten.proxy.routing")
+
+# Ledger metadata arm tags for the live holdback A/B.
+ARM_CONTROL = "control"
+ARM_TREATMENT = "treatment"
+
+
+class RouteDecision(NamedTuple):
+    candidate_model: str
+    holdback_percent: Decimal
+
+
+def resolve_route(db: Session, project_id: uuid.UUID, requested_model: str) -> RouteDecision | None:
+    """The candidate model and holdback fraction for an enabled rule on this route,
+    or None when no rule applies. Fail-open: any error returns None (forward the
+    original model)."""
+    if not requested_model:
+        return None
+    try:
+        row = db.execute(
+            select(ProxyRoutingRule.candidate_model, ProxyRoutingRule.holdback_percent).where(
+                ProxyRoutingRule.project_id == project_id,
+                ProxyRoutingRule.incumbent_model == requested_model,
+                ProxyRoutingRule.enabled.is_(True),
+            )
+        ).first()
+        if row is None:
+            return None
+        return RouteDecision(row.candidate_model, row.holdback_percent or Decimal("0"))
+    except Exception:
+        logger.exception("routing lookup failed; forwarding original model", extra={"project_id": str(project_id)})
+        return None
+
+
+def assign_arm(holdback_percent: Decimal) -> str:
+    """Randomly assign this request to the control (held back on the incumbent) or
+    treatment (routed to the candidate) arm. Concurrent and per-request, so any
+    app-level or price change lands on both arms and cancels."""
+    return ARM_CONTROL if random.random() < float(holdback_percent or 0) else ARM_TREATMENT
 
 
 def resolve_effective_model(db: Session, project_id: uuid.UUID, requested_model: str) -> str | None:

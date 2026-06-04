@@ -11,12 +11,14 @@ switch / per-project bypass) returns traffic to the incumbent immediately.
 """
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
     Index,
+    Numeric,
     String,
     UniqueConstraint,
     text,
@@ -51,6 +53,13 @@ class ProxyRoutingRule(Base, TimestampMixin):
     candidate_model: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
+    )
+    # Fraction of this route's traffic held back on the incumbent as the control
+    # arm of the live A/B. The rest is routed to the candidate (treatment). Small
+    # by default: the holdback costs money (control stays at the dearer price), so
+    # it buys a rigorous, concurrently-measured savings number, not a modelled one.
+    holdback_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, server_default=text("0.05")
     )
     # The applied recommendation whose eval cleared this swap, for provenance.
     source_recommendation_id: Mapped[uuid.UUID | None] = mapped_column(

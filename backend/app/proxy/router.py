@@ -87,22 +87,32 @@ async def chat_completions(
         if sem is not None:
             return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
 
-    # --- cheaper-model routing: if an applied+eval-passed rule maps this model to
-    # a cheaper candidate, send the candidate upstream. Skipped when bypassed.
-    # Fail-open: resolve returns None on any issue and we forward the original. ---
+    # --- cheaper-model routing with a live holdback A/B. If an applied+eval-passed
+    # rule maps this model to a cheaper candidate, randomly assign the request to
+    # the control arm (held back on the incumbent) or treatment (routed to the
+    # candidate). Both arms are metered so savings are a measured A/B, not modelled.
+    # Skipped when bypassed. Fail-open: resolve returns None and we forward. ---
     routed_from: str | None = None
     upstream_model = model
+    arm: str | None = None
+    exp_from: str | None = None
+    exp_to: str | None = None
     if not bypass:
-        candidate = routing.resolve_effective_model(db, project.id, model)
-        if candidate and candidate != model:
-            routed_from = model
-            upstream_model = candidate
+        decision = routing.resolve_route(db, project.id, model)
+        if decision and decision.candidate_model and decision.candidate_model != model:
+            exp_from, exp_to = model, decision.candidate_model
+            arm = routing.assign_arm(decision.holdback_percent)
+            if arm == routing.ARM_TREATMENT:
+                routed_from = model
+                upstream_model = decision.candidate_model
 
     # --- forward to OpenAI (cache miss, or bypassed). store_cache off when bypassed ---
     mode = "bypass" if bypass else "optimize"
     headers = {"X-Varsten-Mode": mode, "X-Varsten-Cache": "bypass" if bypass else "miss"}
     if routed_from:
         headers["X-Varsten-Routed"] = f"{routed_from}->{upstream_model}"
+    if arm:
+        headers["X-Varsten-Arm"] = arm
 
     # Circuit breaker: if the upstream has been failing, fail fast instead of
     # making this request wait the full timeout. Cache hits above are unaffected.
@@ -119,6 +129,7 @@ async def chat_completions(
             _stream_through(
                 db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding,
                 store_cache=not bypass, upstream_model=upstream_model, routed_from=routed_from,
+                arm=arm, exp_from=exp_from, exp_to=exp_to,
             ),
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
@@ -126,6 +137,7 @@ async def chat_completions(
     return await _forward_once(
         db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding,
         store_cache=not bypass, headers=headers, upstream_model=upstream_model, routed_from=routed_from,
+        arm=arm, exp_from=exp_from, exp_to=exp_to,
     )
 
 
@@ -171,6 +183,9 @@ def _capture(
     embedding: list[float] | None,
     body: dict | None = None,
     routed_from: str | None = None,
+    arm: str | None = None,
+    exp_from: str | None = None,
+    exp_to: str | None = None,
 ) -> None:
     """Write the ledger row and (unless bypassed) store the cache entry, with its
     prompt embedding, for a miss.
@@ -193,6 +208,9 @@ def _capture(
             cached_input_tokens=cached_tok,
             cache_hit=False,
             naive_model=routed_from,
+            arm=arm,
+            experiment_from=exp_from,
+            experiment_to=exp_to,
         )
         if store_cache and settings.semantic_cache_enabled and response_payload:
             cache.store(
@@ -219,7 +237,7 @@ def _capture(
 
 async def _stream_through(
     db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache,
-    upstream_model=None, routed_from=None,
+    upstream_model=None, routed_from=None, arm=None, exp_from=None, exp_to=None,
 ):
     """Pass the OpenAI SSE stream through verbatim, buffering a copy in memory to
     bill and (unless bypassed) cache after the client has its bytes."""
@@ -289,6 +307,9 @@ async def _stream_through(
             embedding=embedding,
             body=body,
             routed_from=routed_from,
+            arm=arm,
+            exp_from=exp_from,
+            exp_to=exp_to,
         )
     except Exception:
         # Never let post-stream bookkeeping break a delivered response.
@@ -297,7 +318,7 @@ async def _stream_through(
 
 async def _forward_once(
     db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache, headers,
-    upstream_model=None, routed_from=None,
+    upstream_model=None, routed_from=None, arm=None, exp_from=None, exp_to=None,
 ) -> JSONResponse:
     try:
         async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
@@ -350,5 +371,8 @@ async def _forward_once(
         embedding=embedding,
         body=body,
         routed_from=routed_from,
+        arm=arm,
+        exp_from=exp_from,
+        exp_to=exp_to,
     )
     return JSONResponse(data, headers=headers)

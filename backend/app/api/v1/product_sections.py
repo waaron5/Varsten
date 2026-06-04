@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import Numeric, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
@@ -36,6 +36,7 @@ from app.eval.gate import (
     is_gated,
     latest_run,
 )
+from app.proxy.experiment import compute_experiment
 from app.proxy.routing import activate_rule, deactivate_rules_for_recommendation
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
@@ -537,14 +538,19 @@ def engine_levers(
     return [_lever_payload(config) for config in _ensure_lever_configs(db, project)]
 
 
+def _route_str(value) -> str | None:
+    return str(value) if value is not None else None
+
+
 @router.get("/engine/routes", response_model=None)
 def engine_routes(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    """Active cheaper-model routes: what the proxy is rewriting right now, with the
-    measured savings each has produced this month. This is the operational view of
-    the executed lever, so a user can see the engine is actually saving money."""
+    """Active cheaper-model routes the proxy is executing now, each with its live
+    holdback A/B: the control vs treatment arm costs and the rigorous measured
+    savings with a confidence interval. The operational view that proves the
+    engine is actually saving money, measured not modelled."""
     now = datetime.now(timezone.utc)
     start = _month_start(now)
     rules = list(
@@ -554,27 +560,6 @@ def engine_routes(
             .order_by(ProxyRoutingRule.activated_at.desc())
         )
     )
-    # Routed usage this month, grouped by the from/to pair carried in metadata, so
-    # we can attach measured savings and request counts to each rule.
-    saved_expr = func.coalesce(
-        func.sum(cast(UsageEvent.event_metadata["saved_usd"].astext, Numeric(20, 12))), 0
-    )
-    rows = db.execute(
-        select(
-            UsageEvent.event_metadata["routed_from"].astext.label("frm"),
-            UsageEvent.event_metadata["routed_to"].astext.label("to"),
-            func.count().label("requests"),
-            saved_expr.label("saved"),
-        )
-        .where(
-            UsageEvent.project_id == project.id,
-            UsageEvent.received_at >= start,
-            UsageEvent.event_metadata["routed"].astext == "true",
-        )
-        .group_by("frm", "to")
-    ).all()
-    stats = {(r.frm, r.to): (int(r.requests), r.saved) for r in rows}
-
     titles = {
         rid: title
         for rid, title in db.execute(
@@ -586,21 +571,57 @@ def engine_routes(
 
     out = []
     for rule in rules:
-        requests, saved = stats.get((rule.incumbent_model, rule.candidate_model), (0, Decimal("0")))
+        ab = compute_experiment(db, project.id, rule.incumbent_model, rule.candidate_model, start)
         out.append({
             "id": rule.id,
             "incumbent_model": rule.incumbent_model,
             "candidate_model": rule.candidate_model,
             "enabled": rule.enabled,
+            "holdback_percent": _route_str(rule.holdback_percent),
             "activated_at": rule.activated_at,
             "source_recommendation_id": rule.source_recommendation_id,
             "source_title": titles.get(rule.source_recommendation_id),
-            "routed_requests": requests,
-            # Money as a string, consistent with the rest of the API, to avoid
-            # float imprecision on the wire.
-            "measured_savings_usd": str(saved),
+            "control_requests": ab["control_requests"],
+            "treatment_requests": ab["treatment_requests"],
+            "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
+            "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
+            "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
+            "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
+            "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
+            "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
+            "has_signal": ab["has_signal"],
         })
     return out
+
+
+class RouteConfigUpdate(BaseModel):
+    enabled: bool | None = None
+    holdback_percent: Decimal | None = Field(default=None, ge=0, le=Decimal("0.5"))
+
+
+@router.patch("/engine/routes/{rule_id}", response_model=None)
+def engine_update_route(
+    rule_id: uuid.UUID,
+    payload: RouteConfigUpdate,
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Adjust a live route: pause it (traffic returns to the incumbent) or change
+    the holdback fraction. Holdback is capped at 50% so a route can never send the
+    majority of traffic to the unproven arm by mistake."""
+    rule = db.get(ProxyRoutingRule, rule_id)
+    if rule is None or rule.project_id != project.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
+    if payload.enabled is not None:
+        rule.enabled = payload.enabled
+    if payload.holdback_percent is not None:
+        rule.holdback_percent = payload.holdback_percent
+    db.commit()
+    return {
+        "id": rule.id,
+        "enabled": rule.enabled,
+        "holdback_percent": _route_str(rule.holdback_percent),
+    }
 
 
 @router.patch("/engine/levers/{lever}", response_model=None)

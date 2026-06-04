@@ -26,6 +26,9 @@ def record_proxy_usage(
     cached_input_tokens: int,
     cache_hit: bool,
     naive_model: str | None = None,
+    arm: str | None = None,
+    experiment_from: str | None = None,
+    experiment_to: str | None = None,
     latency_ms: int | None = None,
     now: datetime | None = None,
 ) -> UsageEvent:
@@ -81,6 +84,15 @@ def record_proxy_usage(
     else:
         cost_usd = used_cost
         metadata = {"proxy": True, "cache": "miss"}
+
+    # Live holdback A/B tags. The control arm carries no savings (it is the
+    # baseline); both arms carry the experiment pair so the rigorous A/B can group
+    # them straight from the ledger, with no separate experiment table.
+    if arm:
+        metadata["holdback"] = True
+        metadata["arm"] = arm
+        metadata["experiment_from"] = experiment_from
+        metadata["experiment_to"] = experiment_to
 
     event = UsageEvent(
         project_id=project.id,

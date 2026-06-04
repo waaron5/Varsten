@@ -191,6 +191,18 @@ export const api = {
   engineRoutes: (token: string, projectId: string | undefined) =>
     request<ActiveRoute[]>(readPath("/engine/routes", projectId), token),
 
+  updateEngineRoute: (
+    token: string,
+    projectId: string | undefined,
+    ruleId: string,
+    body: { enabled?: boolean; holdback_percent?: string },
+  ) =>
+    request<{ id: string; enabled: boolean; holdback_percent: string | null }>(
+      readPath(`/engine/routes/${ruleId}`, projectId),
+      token,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
   updateLever: (
     token: string,
     projectId: string | undefined,
