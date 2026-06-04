@@ -22,6 +22,7 @@ import type {
   AutomationLever,
   AutomationMode,
   CommandCenter,
+  EvalRunSummary,
   LeverConfig,
   Recommendation,
   RecommendationAction,
@@ -112,16 +113,86 @@ function EngineDataCard<T>({
   );
 }
 
+// Eval verdict -> badge label + pill class. Drives whether Apply is allowed.
+const EVAL_VERDICT: Record<string, { label: string; cls: string }> = {
+  safe: { label: "Eval passed", cls: "green" },
+  needs_human: { label: "Approve manually", cls: "accent" },
+  unsafe: { label: "Eval failed", cls: "amber" },
+  insufficient_data: { label: "More samples needed", cls: "neutral" },
+};
+
+function evalIsRunning(run: EvalRunSummary | null | undefined): boolean {
+  return run?.status === "pending" || run?.status === "running";
+}
+
+// A gated recommendation may be applied only after a completed run cleared as
+// safe or needs_human. The server enforces this too; this keeps the UI honest.
+function canApplyRecommendation(rec: Recommendation): boolean {
+  if (!rec.gated) return true;
+  const run = rec.latest_eval;
+  return run?.status === "completed" && (run.verdict === "safe" || run.verdict === "needs_human");
+}
+
+function EvalEvidence({ run }: { run: EvalRunSummary }) {
+  const verdict = run.verdict ? EVAL_VERDICT[run.verdict] ?? { label: titleize(run.verdict), cls: "neutral" } : null;
+  return (
+    <div className="eval-evidence">
+      <div className="meta-row">
+        {verdict ? <span className={`pill ${verdict.cls}`}>{verdict.label}</span> : null}
+        <span className="pill neutral">candidate {run.candidate_model}</span>
+        {run.scorer_type ? <span className="pill neutral">{titleize(run.scorer_type)} scoring</span> : null}
+      </div>
+      <div className="rec-meta">
+        <span>Samples</span>
+        <b>{run.sample_count}</b>
+        {run.objective_pass_rate !== null ? (
+          <>
+            <span>Objective parity</span>
+            <b>{percent(run.objective_pass_rate, 100)}</b>
+          </>
+        ) : null}
+        {run.score_delta !== null ? (
+          <>
+            <span>Quality delta</span>
+            <b>
+              {run.score_delta}
+              {run.score_delta_ci_low !== null && run.score_delta_ci_high !== null
+                ? ` (CI ${run.score_delta_ci_low}, ${run.score_delta_ci_high})`
+                : ""}
+            </b>
+          </>
+        ) : null}
+        {run.cost_delta_usd !== null ? (
+          <>
+            <span>Measured savings</span>
+            <b>{usd(run.cost_delta_usd, 0)}/mo</b>
+          </>
+        ) : null}
+      </div>
+      {run.notes ? <p className="eval-note">{run.notes}</p> : null}
+    </div>
+  );
+}
+
 function RecommendationCard({
   recommendation,
   busy,
+  evaluating,
   onStatus,
+  onEvaluate,
 }: {
   recommendation: Recommendation;
   busy?: boolean;
+  evaluating?: boolean;
   onStatus?: (id: string, status: RecommendationStatus) => void;
+  onEvaluate?: (id: string) => void;
 }) {
   const savings = recommendation.estimated_monthly_savings_usd;
+  const run = recommendation.latest_eval;
+  const running = evaluating || evalIsRunning(run);
+  const gatedBlocked = recommendation.gated && !canApplyRecommendation(recommendation);
+  // Measured savings replace the estimate once an eval has produced them.
+  const measured = recommendation.measurement_method === "replay_measured";
   return (
     <div className="rec-card">
       <div className="rec-main">
@@ -131,6 +202,7 @@ function RecommendationCard({
             {titleize(recommendation.risk_level)} risk
           </span>
           <span className="pill neutral">{percent(recommendation.confidence)} confidence</span>
+          {recommendation.gated ? <span className="pill neutral">Eval gated</span> : null}
         </div>
         <h3>{recommendation.title}</h3>
         <p>{recommendation.rationale ?? recommendation.description}</p>
@@ -146,15 +218,31 @@ function RecommendationCard({
             </>
           ) : null}
         </div>
+        {run ? <EvalEvidence run={run} /> : null}
+        {running ? <p className="eval-note">Replaying real traffic through the candidate model…</p> : null}
+        {recommendation.gated && !run && !running ? (
+          <p className="eval-note">This model swap must clear a shadow eval on real traffic before it can be applied.</p>
+        ) : null}
       </div>
       <div className="rec-side">
         <div className="rec-money">{savings === null ? "Needs pricing" : usd(savings, 0)}</div>
-        <div className="rec-sub">estimated monthly savings</div>
+        <div className="rec-sub">{measured ? "measured monthly savings" : "estimated monthly savings"}</div>
         {onStatus ? (
           <div className="rec-actions">
+            {recommendation.gated && onEvaluate ? (
+              <button
+                className="btn"
+                disabled={busy || running}
+                onClick={() => onEvaluate(recommendation.id)}
+                type="button"
+              >
+                {running ? "Evaluating…" : run ? "Re-evaluate" : "Evaluate"}
+              </button>
+            ) : null}
             <button
               className="btn primary"
-              disabled={busy}
+              disabled={busy || running || gatedBlocked}
+              title={gatedBlocked ? "Run a shadow eval that clears before applying" : undefined}
               onClick={() => onStatus(recommendation.id, "applied")}
               type="button"
             >
@@ -162,7 +250,7 @@ function RecommendationCard({
             </button>
             <button
               className="btn"
-              disabled={busy}
+              disabled={busy || running}
               onClick={() => onStatus(recommendation.id, "dismissed")}
               type="button"
             >
@@ -346,6 +434,36 @@ function useEngineMutation() {
   return { busyId, updateRecommendation, updateLever };
 }
 
+// Trigger a shadow eval and poll the recommendations list until the run finishes,
+// since it executes off-path in a background worker.
+function useEvaluateRecommendation(
+  refresh: () => Promise<Recommendation[]>,
+) {
+  const { getToken } = useSession();
+  const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
+
+  const evaluate = useCallback(
+    async (id: string) => {
+      setEvaluatingId(id);
+      try {
+        await api.evaluateRecommendation(await getToken(), id);
+        for (let i = 0; i < 12; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          const fresh = await refresh();
+          const rec = fresh.find((r) => r.id === id);
+          const status = rec?.latest_eval?.status;
+          if (status === "completed" || status === "failed") break;
+        }
+      } finally {
+        setEvaluatingId(null);
+      }
+    },
+    [getToken, refresh],
+  );
+
+  return { evaluatingId, evaluate };
+}
+
 export function CommandCenterView() {
   return (
     <RequireSession>
@@ -403,12 +521,30 @@ export function EngineRecommendationsView() {
 function EngineRecommendationsBody() {
   const { busyId, updateRecommendation } = useEngineMutation();
   const {
+    activeProjectId,
     data: items,
-    loading,
     error,
+    getToken,
+    loading,
     setData: setItems,
     setError,
   } = useProjectResource<Recommendation[]>(api.engineRecommendations, []);
+
+  const refresh = useCallback(async () => {
+    const fresh = await api.engineRecommendations(await getToken(), activeProjectId ?? undefined);
+    setItems(fresh);
+    return fresh;
+  }, [activeProjectId, getToken, setItems]);
+
+  const { evaluatingId, evaluate } = useEvaluateRecommendation(refresh);
+
+  const runEvaluate = async (id: string) => {
+    try {
+      await evaluate(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const act = async (id: string, status: RecommendationStatus) => {
     try {
@@ -443,7 +579,9 @@ function EngineRecommendationsBody() {
                 key={rec.id}
                 recommendation={rec}
                 busy={busyId === rec.id}
+                evaluating={evaluatingId === rec.id}
                 onStatus={act}
+                onEvaluate={runEvaluate}
               />
             ))}
           </div>

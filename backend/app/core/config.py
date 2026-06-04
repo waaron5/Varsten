@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # Max cosine distance for a semantic hit (0 = identical). Lower is stricter;
     # 0.08 ~ 0.92 cosine similarity, conservative to avoid serving wrong answers.
     semantic_cache_threshold: float = 0.08
+    # Latency budget for the semantic-lookup embedding. It sits on the cache-miss
+    # hot path (the lookup needs the query vector before it can match), so it must
+    # be tightly bounded and fail open. A slow embedding skips semantic matching
+    # and forwards rather than stalling the request. The proper fix in-VPC is an
+    # in-process embedding model with no network hop; this bound holds until then.
+    embedding_timeout_seconds: float = 2.0
     # Upstream request timeout (seconds) for the non-streaming path.
     proxy_upstream_timeout_seconds: float = 60.0
     # Global kill switch. When true, every project's traffic bypasses all Varsten
@@ -51,6 +57,30 @@ class Settings(BaseSettings):
     circuit_breaker_enabled: bool = True
     circuit_breaker_fail_threshold: int = 5
     circuit_breaker_reset_seconds: float = 30.0
+
+    # --- Eval / replay harness (Track B) ---
+    # The shadow-evaluation loop that proves a cheaper-model swap is safe on a
+    # route's real traffic BEFORE it can be applied. Everything here runs async,
+    # off the request hot path. Capture is opt-in per project (Project.eval_capture
+    # _enabled) and globally gated here so it is off by default.
+    eval_capture_enabled: bool = False
+    # Fraction of cache-miss proxy traffic sampled into the replay corpus.
+    eval_sample_rate: float = 0.1
+    # Hard cap on stored traffic samples per route, so the content store stays
+    # bounded. Oldest are evicted past this.
+    eval_max_samples_per_route: int = 200
+    # Retention for captured real-traffic samples. Golden samples never expire.
+    eval_sample_ttl_days: int = 14
+    # Minimum samples a route needs before a run yields a verdict instead of
+    # "insufficient_data". Below this the recommendation stays approve-only.
+    eval_min_samples: int = 20
+    # How many samples a single run replays through the candidate. Caps run cost.
+    eval_replay_max_samples: int = 50
+    # Objective pass rate a run must clear to mark a recommendation auto-eligible.
+    eval_objective_pass_threshold: float = 0.95
+    # Judge model for the subjective (pairwise) tier. Runs off-path only; its
+    # verdict drives approve-mode and never triggers auto-rollback.
+    eval_judge_model: str = "gpt-4o-mini"
 
     # --- Observability ---
     log_level: str = "INFO"

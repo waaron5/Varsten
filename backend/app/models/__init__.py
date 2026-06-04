@@ -11,6 +11,7 @@ from app.models.engine import (
     RecommendationAction,
     SavingsAttribution,
 )
+from app.models.eval import EvalRun, EvalSampleResult, ReplaySample
 from app.models.pricing import ModelCatalog, ModelPrice, OrgModelPriceOverride
 from app.models.project import Project
 from app.models.proxy_cache import ProxyCacheEntry
@@ -24,6 +25,8 @@ __all__ = [
     "Base",
     "BudgetRule",
     "CustomerEconomics",
+    "EvalRun",
+    "EvalSampleResult",
     "LeverConfig",
     "ModelCatalog",
     "ModelPrice",
@@ -37,6 +40,7 @@ __all__ = [
     "QualityGuardrail",
     "Recommendation",
     "RecommendationAction",
+    "ReplaySample",
     "SavingsAttribution",
     "UsageEvent",
     "User",

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
+from app.eval.gate import EvalGateError, apply_measured_savings, assert_appliable
 from app.models import OrgMembership, Project, Recommendation, User
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import record_applied_savings
@@ -62,15 +63,25 @@ def update_recommendation(
         )
     _assert_can_update(user, recommendation, db)
     now = datetime.now(timezone.utc)
-    recommendation.status = payload.status
-    recommendation.updated_at = now
-    recommendation.resolved_at = now if payload.status != "open" else None
     if payload.status == "applied":
+        # Medium-risk model-swap levers must clear a shadow eval first. The gate
+        # raises if the route has not been proven safe; on a passing run it returns
+        # the run so we attribute the MEASURED savings instead of the estimate.
+        try:
+            gating_run = assert_appliable(db, recommendation, automated=False)
+        except EvalGateError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
+        apply_measured_savings(recommendation, gating_run)
         project = db.get(Project, recommendation.project_id)
         if project is not None:
             record_applied_savings(
                 db, project, recommendation, actor_user_id=user.id, source="user", now=now
             )
+    recommendation.status = payload.status
+    recommendation.updated_at = now
+    recommendation.resolved_at = now if payload.status != "open" else None
     db.commit()
     db.refresh(recommendation)
     return recommendation

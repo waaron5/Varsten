@@ -1,0 +1,93 @@
+"""Off-path OpenAI calls for the eval harness: replay a prompt through a candidate
+model, and run a pairwise judge.
+
+These run ONLY in the worker, never in the request hot path. They use httpx the
+same way the proxy does, so tests mock them via MockTransport. Both are
+best-effort from the runner's view: a None / "tie" on failure degrades the run
+rather than crashing it.
+"""
+import json
+
+import httpx
+
+from app.core.config import settings
+from app.core.logging import get_logger
+from app.proxy import openai
+
+logger = get_logger("varsten.eval.ops")
+
+# Pairwise judge. Position-swapping is handled by the runner (it calls twice with
+# the answers swapped), so the judge only ever names "first" or "second".
+_JUDGE_SYSTEM = (
+    "You are a strict evaluator. Two assistant answers, FIRST and SECOND, respond "
+    "to the same user prompt. Decide which answer is better on correctness, "
+    "completeness, and helpfulness. If they are equivalent, say tie. Reply with "
+    'only JSON: {"winner": "first" | "second" | "tie"}.'
+)
+
+
+async def replay_candidate(
+    messages: list[dict], params: dict, model: str, key: str
+) -> dict | None:
+    """Run the prompt through the candidate model (non-stream). Returns the
+    completion payload, or None on failure so the runner can skip the sample."""
+    body = {**(params or {}), "model": model, "messages": messages, "stream": False}
+    try:
+        async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
+            resp = await client.post(
+                openai.upstream_url(), headers=openai.upstream_headers(key), json=body
+            )
+        if resp.status_code != 200:
+            logger.warning("replay candidate non-200", extra={"status": resp.status_code, "model": model})
+            return None
+        return resp.json()
+    except Exception:
+        logger.exception("replay candidate failed", extra={"model": model})
+        return None
+
+
+async def _judge_once(prompt: str, first: str, second: str, key: str) -> str:
+    body = {
+        "model": settings.eval_judge_model,
+        "messages": [
+            {"role": "system", "content": _JUDGE_SYSTEM},
+            {
+                "role": "user",
+                "content": f"USER PROMPT:\n{prompt}\n\nFIRST:\n{first}\n\nSECOND:\n{second}",
+            },
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "stream": False,
+    }
+    async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
+        resp = await client.post(
+            openai.upstream_url(), headers=openai.upstream_headers(key), json=body
+        )
+    resp.raise_for_status()
+    content = resp.json()["choices"][0]["message"]["content"]
+    return (json.loads(content).get("winner") or "tie").lower()
+
+
+async def judge_pairwise(
+    prompt: str, incumbent: str, candidate: str, key: str
+) -> str:
+    """Position-swapped pairwise judge. Calls twice (incumbent-first, then
+    candidate-first) and resolves to incumbent | candidate | tie. Disagreement
+    between the two orderings is a tie, which is the conservative outcome (no
+    false win for the candidate). Any failure resolves to tie."""
+    try:
+        # Round 1: incumbent is FIRST, candidate is SECOND.
+        r1 = await _judge_once(prompt, incumbent, candidate, key)
+        # Round 2: candidate is FIRST, incumbent is SECOND (positions swapped).
+        r2 = await _judge_once(prompt, candidate, incumbent, key)
+    except Exception:
+        logger.exception("judge failed; recording tie")
+        return "tie"
+
+    # Translate each round to who won, accounting for the swap.
+    win1 = {"first": "incumbent", "second": "candidate"}.get(r1, "tie")
+    win2 = {"first": "candidate", "second": "incumbent"}.get(r2, "tie")
+    if win1 == win2:
+        return win1
+    return "tie"

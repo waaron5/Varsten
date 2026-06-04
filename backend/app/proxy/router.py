@@ -19,6 +19,7 @@ from app.api.deps import ApiKeyContext, require_api_key_context
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import get_db
+from app.eval import capture as eval_capture
 from app.models import Project
 from app.proxy import cache, openai
 from app.proxy.circuit import get_breaker, is_upstream_failure
@@ -153,6 +154,7 @@ def _capture(
     cached_tok: int,
     store_cache: bool,
     embedding: list[float] | None,
+    body: dict | None = None,
 ) -> None:
     """Write the ledger row and (unless bypassed) store the cache entry, with its
     prompt embedding, for a miss.
@@ -181,6 +183,21 @@ def _capture(
             )
     except Exception:
         logger.exception("proxy ledger/cache write failed", extra={"project_id": str(project.id)})
+
+    # Eval harness tap: sample this real (prompt, incumbent response) into the
+    # replay corpus, only when the project opted in and we are optimizing (not
+    # bypassed). Keyed on the requested model so a cheaper-model recommendation on
+    # that route can later replay it. Best-effort and off the response path.
+    if store_cache and body is not None and response_payload:
+        eval_capture.capture_sample(
+            db,
+            project,
+            body=body,
+            response_payload=response_payload,
+            model=cache_model,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+        )
 
 
 async def _stream_through(db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache):
@@ -250,6 +267,7 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
             cached_tok=cached_tok,
             store_cache=store_cache,
             embedding=embedding,
+            body=body,
         )
     except Exception:
         # Never let post-stream bookkeeping break a delivered response.
@@ -308,5 +326,6 @@ async def _forward_once(
         cached_tok=cached_tok,
         store_cache=store_cache,
         embedding=embedding,
+        body=body,
     )
     return JSONResponse(data, headers=headers)

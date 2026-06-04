@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     api_keys,
     auth,
+    evals,
     metrics,
     organizations,
     product_sections,
@@ -20,6 +21,7 @@ api_router.include_router(api_keys.router)
 api_router.include_router(usage_events.router)
 api_router.include_router(metrics.router)
 api_router.include_router(recommendations.router)
+api_router.include_router(evals.router)
 api_router.include_router(product_sections.router)
 # Phase 1 inline proxy: POST /v1/chat/completions (OpenAI mirror).
 api_router.include_router(proxy_router)

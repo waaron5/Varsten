@@ -28,8 +28,16 @@ from app.models import (
     UsageEvent,
     User,
 )
+from app.eval.gate import (
+    EvalGateError,
+    apply_measured_savings,
+    assert_appliable,
+    is_gated,
+    latest_run,
+)
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
+from app.schemas.eval import EvalRunSummary
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
 
 router = APIRouter(tags=["product-sections"])
@@ -441,12 +449,24 @@ def command_center(
     }
 
 
+def _engine_recommendation_out(db: Session, rec: Recommendation) -> RecommendationOut:
+    """Recommendation plus its eval-gate state, so the Engine card can show the
+    verdict and decide between Evaluate and Apply without another request."""
+    out = RecommendationOut.model_validate(rec)
+    if is_gated(rec):
+        out.gated = True
+        run = latest_run(db, rec.id)
+        if run is not None:
+            out.latest_eval = EvalRunSummary.model_validate(run)
+    return out
+
+
 @router.get("/engine/recommendations", response_model=list[RecommendationOut])
 def engine_recommendations(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
-) -> list[Recommendation]:
-    return _refresh_open_recommendations(db, project)
+) -> list[RecommendationOut]:
+    return [_engine_recommendation_out(db, r) for r in _refresh_open_recommendations(db, project)]
 
 
 @router.patch("/engine/recommendations/{recommendation_id}", response_model=RecommendationOut)
@@ -462,6 +482,15 @@ def engine_update_recommendation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found")
     _assert_member(user, project, db)
     now = datetime.now(timezone.utc)
+    if payload.status == "applied":
+        # Medium-risk model-swap levers must clear a shadow eval before applying.
+        # The gate raises if the route is unproven; a passing run lets us attribute
+        # the MEASURED savings instead of the estimate.
+        try:
+            gating_run = assert_appliable(db, recommendation, automated=False)
+        except EvalGateError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        apply_measured_savings(recommendation, gating_run)
     recommendation.status = payload.status
     recommendation.updated_at = now
     recommendation.resolved_at = now if payload.status != "open" else None

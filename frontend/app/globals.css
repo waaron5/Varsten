@@ -356,6 +356,13 @@ table.tbl { width: 100%; border-collapse: collapse; }
   margin-top: 10px; color: var(--text-3); font-size: 12px;
 }
 .rec-meta b { color: var(--text-2); font-weight: 550; }
+.eval-evidence {
+  margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2);
+}
+.eval-evidence .meta-row { margin-bottom: 4px; }
+.eval-evidence .rec-meta { margin-top: 6px; }
+.eval-note { color: var(--text-3); font-size: 12px; margin-top: 8px; }
 .rec-side {
   display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
   gap: 8px; text-align: right;

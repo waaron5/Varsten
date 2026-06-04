@@ -39,6 +39,13 @@ class Project(Base, TimestampMixin):
     proxy_bypass_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # Opt-in to the eval/replay harness for this project. When true (and the global
+    # eval_capture_enabled is on) the proxy samples real cache-miss traffic into the
+    # replay corpus so cheaper-model swaps can be proven safe before applying. This
+    # is the consent gate for the content store; off by default.
+    eval_capture_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
     organization: Mapped["Organization"] = relationship(back_populates="projects")
     api_keys: Mapped[list["ApiKey"]] = relationship(

@@ -1,5 +1,13 @@
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyOut
 from app.schemas.auth import AuthSyncRequest, UserOut
+from app.schemas.eval import (
+    EvalCaptureConfigUpdate,
+    EvalRunDetail,
+    EvalRunOut,
+    EvalSampleResultOut,
+    GoldenSampleBatchIn,
+    GoldenSampleIn,
+)
 from app.schemas.organization import OrganizationCreate, OrganizationOut
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectProxyConfigUpdate
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
@@ -10,6 +18,12 @@ __all__ = [
     "ApiKeyCreated",
     "ApiKeyOut",
     "AuthSyncRequest",
+    "EvalCaptureConfigUpdate",
+    "EvalRunDetail",
+    "EvalRunOut",
+    "EvalSampleResultOut",
+    "GoldenSampleBatchIn",
+    "GoldenSampleIn",
     "OrganizationCreate",
     "OrganizationOut",
     "UserOut",

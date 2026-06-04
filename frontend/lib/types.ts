@@ -175,6 +175,22 @@ export type LeverName =
 
 export type AutomationMode = "auto" | "approve";
 
+export interface EvalRunSummary {
+  id: string;
+  status: string;
+  verdict: string | null;
+  scorer_type: string | null;
+  candidate_model: string;
+  sample_count: number;
+  objective_pass_rate: string | null;
+  score_delta: string | null;
+  score_delta_ci_low: string | null;
+  score_delta_ci_high: string | null;
+  cost_delta_usd: string | null;
+  notes: string | null;
+  completed_at: string | null;
+}
+
 export interface Recommendation {
   id: string;
   organization_id: string;
@@ -201,6 +217,9 @@ export interface Recommendation {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  // Eval gate: `gated` model-swap levers need a passing shadow eval before apply.
+  gated?: boolean;
+  latest_eval?: EvalRunSummary | null;
 }
 
 export interface RecommendationAction {

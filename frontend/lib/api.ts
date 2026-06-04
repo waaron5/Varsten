@@ -15,6 +15,7 @@ import type {
   Breakdown,
   BreakdownDimension,
   CommandCenter,
+  EvalRunSummary,
   LeverConfig,
   LeverName,
   MetricsOverview,
@@ -292,6 +293,13 @@ export const api = {
     request<Recommendation>(`/recommendations/${id}`, token, {
       method: "PATCH",
       body: JSON.stringify({ status }),
+    }),
+
+  // Trigger a shadow eval for a gated (model-swap) recommendation. Runs off-path
+  // in a background worker; poll engineRecommendations for the updated verdict.
+  evaluateRecommendation: (token: string, id: string) =>
+    request<EvalRunSummary>(`/recommendations/${id}/evaluate`, token, {
+      method: "POST",
     }),
 
   // --- API key management (for a project) ---

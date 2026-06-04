@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.eval import EvalRunSummary
+
 
 RecommendationStatus = Literal["open", "applied", "dismissed", "rolled_back"]
 
@@ -37,6 +39,10 @@ class RecommendationOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
+    # Eval gate state. `gated` flags a model-swap lever that needs a passing shadow
+    # eval before it can be applied; `latest_eval` is its most recent run, if any.
+    gated: bool = False
+    latest_eval: EvalRunSummary | None = None
 
 
 class RecommendationUpdate(BaseModel):
