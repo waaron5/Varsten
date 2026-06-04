@@ -210,6 +210,39 @@ def test_proxy_routes_request_to_candidate(client, provision, db_session, monkey
     assert event is not None and event.event_metadata.get("routed") is True
 
 
+def test_engine_routes_lists_active_route_with_savings(client, provision, db_session):
+    project = _project(db_session, provision)
+    _seed_prices(db_session, project)
+    db_session.add(
+        ProxyRoutingRule(
+            organization_id=project.organization_id, project_id=project.id,
+            incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
+            activated_at=datetime.now(timezone.utc),
+        )
+    )
+    # A routed request this month, so the route shows measured savings.
+    record_proxy_usage(
+        db_session, project, None,
+        model=CANDIDATE, input_tokens=1000, output_tokens=500,
+        cached_input_tokens=0, cache_hit=False, naive_model=INCUMBENT,
+    )
+    db_session.commit()
+
+    resp = client.get(
+        "/v1/engine/routes",
+        headers={"Authorization": "Bearer auth0|route"},
+        params={"project_id": str(project.id)},
+    )
+    assert resp.status_code == 200
+    routes = resp.json()
+    assert len(routes) == 1
+    route = routes[0]
+    assert route["incumbent_model"] == INCUMBENT and route["candidate_model"] == CANDIDATE
+    assert route["routed_requests"] == 1
+    # incumbent cost (1000*5e-6 + 500*1.5e-5 = 0.0125) - candidate (0.0018) = 0.0107
+    assert Decimal(route["measured_savings_usd"]) == Decimal("0.0107")
+
+
 def test_bypass_disables_routing(client, provision, db_session, monkeypatch):
     monkeypatch.setattr(settings, "semantic_cache_enabled", False)
     ws = provision(sub="auth0|route3", email="route3@example.com")

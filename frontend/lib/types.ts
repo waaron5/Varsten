@@ -191,6 +191,18 @@ export interface EvalRunSummary {
   completed_at: string | null;
 }
 
+export interface ActiveRoute {
+  id: string;
+  incumbent_model: string;
+  candidate_model: string;
+  enabled: boolean;
+  activated_at: string | null;
+  source_recommendation_id: string | null;
+  source_title: string | null;
+  routed_requests: number;
+  measured_savings_usd: string;
+}
+
 export interface EvalRouteCorpus {
   route_key: string;
   traffic_samples: number;

@@ -19,6 +19,7 @@ import {
 import { api } from "@/lib/api";
 import { compact, relativeTime, usd } from "@/lib/format";
 import type {
+  ActiveRoute,
   AutomationLever,
   AutomationMode,
   CommandCenter,
@@ -691,6 +692,38 @@ function LeverRow({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; 
   );
 }
 
+function ActiveRoutesCard() {
+  const { data: routes, loading, error } = useProjectResource<ActiveRoute[]>(api.engineRoutes, []);
+  // Only meaningful once at least one cheaper-model swap is live; stay quiet otherwise.
+  if (loading || error || !routes || routes.length === 0) return null;
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Active routes</h3>
+        <span className="sub">cheaper-model swaps the proxy is executing now</span>
+      </div>
+      <table className="tbl">
+        <thead>
+          <tr><th>Route</th><th>From eval</th><th className="r">Requests (mo)</th><th className="r">Measured savings</th></tr>
+        </thead>
+        <tbody>
+          {routes.map((route) => (
+            <tr key={route.id}>
+              <td>
+                <b>{route.incumbent_model}</b> &rarr; {route.candidate_model}
+                {route.activated_at ? <span className="eval-note"> live {relativeTime(route.activated_at)}</span> : null}
+              </td>
+              <td>{route.source_title ?? "manual"}</td>
+              <td className="r">{compact(route.routed_requests)}</td>
+              <td className="r">{usd(route.measured_savings_usd, 2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function EngineLeversBody() {
   const { busyId, updateLever } = useEngineMutation();
   const {
@@ -731,6 +764,7 @@ function EngineLeversBody() {
           ))}
         </div>
       )}
+      <ActiveRoutesCard />
     </div>
   );
 }

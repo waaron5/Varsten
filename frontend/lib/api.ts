@@ -9,6 +9,7 @@ import type {
   AnalysisModels,
   AnalysisSpend,
   AlertRuleCreate,
+  ActiveRoute,
   AutomationLever,
   BudgetRule,
   BudgetRuleCreate,
@@ -186,6 +187,9 @@ export const api = {
 
   engineLevers: (token: string, projectId: string | undefined) =>
     request<LeverConfig[]>(readPath("/engine/levers", projectId), token),
+
+  engineRoutes: (token: string, projectId: string | undefined) =>
+    request<ActiveRoute[]>(readPath("/engine/routes", projectId), token),
 
   updateLever: (
     token: string,

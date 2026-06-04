@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
@@ -21,6 +21,7 @@ from app.models import (
     OrgMembership,
     Project,
     ProviderConnection,
+    ProxyRoutingRule,
     QualityGuardrail,
     Recommendation,
     RecommendationAction,
@@ -534,6 +535,72 @@ def engine_levers(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     return [_lever_payload(config) for config in _ensure_lever_configs(db, project)]
+
+
+@router.get("/engine/routes", response_model=None)
+def engine_routes(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Active cheaper-model routes: what the proxy is rewriting right now, with the
+    measured savings each has produced this month. This is the operational view of
+    the executed lever, so a user can see the engine is actually saving money."""
+    now = datetime.now(timezone.utc)
+    start = _month_start(now)
+    rules = list(
+        db.scalars(
+            select(ProxyRoutingRule)
+            .where(ProxyRoutingRule.project_id == project.id, ProxyRoutingRule.enabled.is_(True))
+            .order_by(ProxyRoutingRule.activated_at.desc())
+        )
+    )
+    # Routed usage this month, grouped by the from/to pair carried in metadata, so
+    # we can attach measured savings and request counts to each rule.
+    saved_expr = func.coalesce(
+        func.sum(cast(UsageEvent.event_metadata["saved_usd"].astext, Numeric(20, 12))), 0
+    )
+    rows = db.execute(
+        select(
+            UsageEvent.event_metadata["routed_from"].astext.label("frm"),
+            UsageEvent.event_metadata["routed_to"].astext.label("to"),
+            func.count().label("requests"),
+            saved_expr.label("saved"),
+        )
+        .where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.received_at >= start,
+            UsageEvent.event_metadata["routed"].astext == "true",
+        )
+        .group_by("frm", "to")
+    ).all()
+    stats = {(r.frm, r.to): (int(r.requests), r.saved) for r in rows}
+
+    titles = {
+        rid: title
+        for rid, title in db.execute(
+            select(Recommendation.id, Recommendation.title).where(
+                Recommendation.id.in_([r.source_recommendation_id for r in rules if r.source_recommendation_id])
+            )
+        ).all()
+    }
+
+    out = []
+    for rule in rules:
+        requests, saved = stats.get((rule.incumbent_model, rule.candidate_model), (0, Decimal("0")))
+        out.append({
+            "id": rule.id,
+            "incumbent_model": rule.incumbent_model,
+            "candidate_model": rule.candidate_model,
+            "enabled": rule.enabled,
+            "activated_at": rule.activated_at,
+            "source_recommendation_id": rule.source_recommendation_id,
+            "source_title": titles.get(rule.source_recommendation_id),
+            "routed_requests": requests,
+            # Money as a string, consistent with the rest of the API, to avoid
+            # float imprecision on the wire.
+            "measured_savings_usd": str(saved),
+        })
+    return out
 
 
 @router.patch("/engine/levers/{lever}", response_model=None)
