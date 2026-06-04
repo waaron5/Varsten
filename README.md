@@ -8,6 +8,24 @@ Varsten's five savings levers are smart routing, semantic cache, token trim, che
 
 The daily product loop is: spend comes in, the engine identifies cuts, guardrails define what is safe, a user approves or dismisses the risky work, and Proof explains the savings attribution. Analysis exists to support that loop, not to be the destination.
 
+## Product Screenshots
+
+### Command Center
+
+![Varsten Command Center](docs/assets/screenshots/varsten-home.png)
+
+### Savings Levers
+
+![Varsten savings levers](docs/assets/screenshots/varsten-levers.png)
+
+### Guardrails
+
+![Varsten guardrails](docs/assets/screenshots/varsten-guardrails.png)
+
+### Proof
+
+![Varsten proof view](docs/assets/screenshots/varsten-proof.png)
+
 ## MVP Scope
 
 In:
