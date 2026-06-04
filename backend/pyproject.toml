@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.136.3",
     "httpx>=0.28.1",
     "psycopg[binary]>=3.3.4",
+    "pgvector>=0.3.0",
     "pydantic-settings>=2.14.1",
     "pyjwt[crypto]>=2.13.0",
     "sentry-sdk>=2.0.0",

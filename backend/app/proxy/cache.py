@@ -49,6 +49,37 @@ def get_cached(
     )
 
 
+def semantic_search(
+    db: Session,
+    project_id: uuid.UUID,
+    model: str,
+    embedding: list[float] | None,
+    threshold: float,
+) -> ProxyCacheEntry | None:
+    """The nearest cached entry for this project+model within the cosine-distance
+    threshold, or None. Scoped to the same model so we never serve one model's
+    answer for another's request."""
+    if embedding is None:
+        return None
+    distance = ProxyCacheEntry.embedding.cosine_distance(embedding).label("distance")
+    row = db.execute(
+        select(ProxyCacheEntry, distance)
+        .where(
+            ProxyCacheEntry.project_id == project_id,
+            ProxyCacheEntry.model == model,
+            ProxyCacheEntry.embedding.is_not(None),
+        )
+        .order_by(distance)
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    entry, dist = row
+    if dist is not None and dist <= threshold:
+        return entry
+    return None
+
+
 def record_hit(db: Session, entry: ProxyCacheEntry) -> None:
     entry.hit_count += 1
     entry.last_hit_at = datetime.now(timezone.utc)
@@ -63,6 +94,7 @@ def store(
     response_payload: dict,
     input_tokens: int,
     output_tokens: int,
+    embedding: list[float] | None = None,
 ) -> ProxyCacheEntry:
     existing = get_cached(db, project_id, cache_key)
     if existing is not None:
@@ -74,6 +106,7 @@ def store(
         response_payload=response_payload,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        embedding=embedding,
     )
     db.add(entry)
     db.commit()

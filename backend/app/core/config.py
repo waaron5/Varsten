@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     proxy_openai_keys: dict[str, str] = {}
     # The only active optimization lever in Phase 1. The other four are bypassed.
     semantic_cache_enabled: bool = True
+    # Embedding model + dimensionality for semantic-cache matching.
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    # Max cosine distance for a semantic hit (0 = identical). Lower is stricter;
+    # 0.08 ~ 0.92 cosine similarity, conservative to avoid serving wrong answers.
+    semantic_cache_threshold: float = 0.08
     # Upstream request timeout (seconds) for the non-streaming path.
     proxy_upstream_timeout_seconds: float = 60.0
     # Global kill switch. When true, every project's traffic bypasses all Varsten

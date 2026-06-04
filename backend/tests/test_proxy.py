@@ -41,13 +41,41 @@ STREAM_BODY = (
 )
 
 
+DIM = 1536
+
+
+def _fake_embedding(text: str) -> list[float]:
+    """Deterministic, keyword-seeded unit vector. Same keyword -> same vector
+    (cosine distance 0, a hit); different keyword -> orthogonal (distance 1, miss)."""
+    vec = [0.0] * DIM
+    t = text.lower()
+    if "weather" in t:
+        vec[0] = 1.0
+    elif "stock" in t:
+        vec[1] = 1.0
+    elif "capital" in t:
+        vec[2] = 1.0
+    else:
+        vec[3] = 1.0
+    return vec
+
+
+def _embeddings_response(request: httpx.Request) -> httpx.Response:
+    payload = json.loads(request.content)
+    return httpx.Response(200, json={"data": [{"embedding": _fake_embedding(payload["input"])}]})
+
+
 @pytest.fixture
 def mock_openai(monkeypatch):
-    """Replace the upstream OpenAI client with a counting MockTransport."""
-    calls = {"n": 0}
+    """Mock OpenAI (completions + embeddings) via MockTransport, counting each
+    endpoint separately."""
+    calls = {"completions": 0, "embeddings": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls["n"] += 1
+        if request.url.path.endswith("/embeddings"):
+            calls["embeddings"] += 1
+            return _embeddings_response(request)
+        calls["completions"] += 1
         payload = json.loads(request.content)
         if payload.get("stream"):
             return httpx.Response(
@@ -66,12 +94,16 @@ def mock_openai(monkeypatch):
 
 @pytest.fixture
 def controllable_openai(monkeypatch):
-    """A mock upstream whose behavior can be flipped mid-test: ok | fail_503 |
-    fail_400 | raise. Counts calls so tests can assert short-circuiting."""
-    state = {"calls": 0, "mode": "ok"}
+    """A mock upstream whose completion behavior can be flipped mid-test:
+    ok | fail_503 | fail_400 | raise. Embeddings always succeed. Counts
+    completions so tests can assert short-circuiting."""
+    state = {"completions": 0, "embeddings": 0, "mode": "ok"}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        state["calls"] += 1
+        if request.url.path.endswith("/embeddings"):
+            state["embeddings"] += 1
+            return _embeddings_response(request)
+        state["completions"] += 1
         if state["mode"] == "raise":
             raise httpx.ConnectError("upstream unreachable")
         if state["mode"] == "fail_503":
@@ -112,7 +144,7 @@ def test_missing_provider_key_is_rejected(client, provision, mock_openai, monkey
         json={"model": CHAT, "messages": [{"role": "user", "content": "hi"}]},
     )
     assert res.status_code == 502
-    assert mock_openai["n"] == 0
+    assert mock_openai["completions"] == 0
 
 
 def test_unauthenticated_proxy_rejected(client, mock_openai):
@@ -128,7 +160,7 @@ def test_nonstream_miss_forwards_and_records(client, db_session, provision, mock
     res = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
     assert res.status_code == 200
     assert res.json()["choices"][0]["message"]["content"] == "Hello world"
-    assert mock_openai["n"] == 1
+    assert mock_openai["completions"] == 1
 
     events = db_session.scalars(
         select(UsageEvent).where(UsageEvent.project_id == ws["project_id"])
@@ -154,7 +186,7 @@ def test_streaming_miss_passes_through_and_records(client, db_session, provision
     assert res.status_code == 200
     # SSE passed through verbatim, content present.
     assert "Hello" in res.text and "[DONE]" in res.text
-    assert mock_openai["n"] == 1
+    assert mock_openai["completions"] == 1
 
     events = db_session.scalars(
         select(UsageEvent).where(UsageEvent.project_id == ws["project_id"])
@@ -170,13 +202,13 @@ def test_cache_hit_served_without_upstream(client, db_session, provision, mock_o
 
     first = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
     assert first.status_code == 200
-    assert mock_openai["n"] == 1
+    assert mock_openai["completions"] == 1
 
     second = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
     assert second.status_code == 200
     assert second.json()["choices"][0]["message"]["content"] == "Hello world"
     # No second upstream call: served from cache.
-    assert mock_openai["n"] == 1
+    assert mock_openai["completions"] == 1
 
     # Two ledger rows: one miss (real cost) and one hit ($0, naive cost recorded).
     events = db_session.scalars(
@@ -203,7 +235,7 @@ def test_global_kill_switch_bypasses_optimization(client, db_session, provision,
     assert first.status_code == 200 and second.status_code == 200
     assert first.headers["x-varsten-mode"] == "bypass"
     # Both forwarded: no cache serve, no cache store.
-    assert mock_openai["n"] == 2
+    assert mock_openai["completions"] == 2
     cached = db_session.scalar(
         select(func.count()).select_from(ProxyCacheEntry).where(
             ProxyCacheEntry.project_id == ws["project_id"]
@@ -230,7 +262,7 @@ def test_per_project_kill_switch_via_toggle(client, db_session, provision, mock_
     second = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
 
     assert first.headers["x-varsten-mode"] == "bypass"
-    assert mock_openai["n"] == 2  # bypassed, never served from cache
+    assert mock_openai["completions"] == 2  # bypassed, never served from cache
 
 
 def test_toggle_is_tenant_scoped(client, provision):
@@ -264,7 +296,7 @@ def test_fail_open_when_cache_lookup_breaks(client, provision, mock_openai, monk
     # A broken cache must never break the client's call: it forwards anyway.
     assert res.status_code == 200
     assert res.json()["choices"][0]["message"]["content"] == "Hello world"
-    assert mock_openai["n"] == 1
+    assert mock_openai["completions"] == 1
     # And the failure is now visible, not silently swallowed.
     assert any("cache lookup failed" in r.message for r in caplog.records)
 
@@ -283,14 +315,14 @@ def test_circuit_opens_and_fails_fast(client, provision, controllable_openai, mo
     # Two upstream failures are forwarded (and trip the breaker).
     assert client.post("/v1/chat/completions", headers=hdr, json=_msg()).status_code == 503
     assert client.post("/v1/chat/completions", headers=hdr, json=_msg("b")).status_code == 503
-    assert controllable_openai["calls"] == 2
+    assert controllable_openai["completions"] == 2
 
     # Breaker now open: the next request short-circuits without touching upstream.
     res = client.post("/v1/chat/completions", headers=hdr, json=_msg("c"))
     assert res.status_code == 503
     assert res.headers.get("x-varsten-circuit") == "open"
     assert res.json()["error"]["type"] == "varsten_circuit_open"
-    assert controllable_openai["calls"] == 2  # not called
+    assert controllable_openai["completions"] == 2  # not called
 
 
 def test_circuit_recovers_via_half_open(client, provision, controllable_openai, monkeypatch):
@@ -321,7 +353,7 @@ def test_client_error_does_not_trip_circuit(client, provision, controllable_open
     # A 4xx is the client's mistake; every call reaches upstream, breaker stays shut.
     for _ in range(3):
         assert client.post("/v1/chat/completions", headers=hdr, json=_msg()).status_code == 400
-    assert controllable_openai["calls"] == 3
+    assert controllable_openai["completions"] == 3
 
 
 def test_cache_hit_served_while_circuit_open(client, provision, controllable_openai, monkeypatch):
@@ -332,7 +364,7 @@ def test_cache_hit_served_while_circuit_open(client, provision, controllable_ope
 
     # Prime the cache with a successful call.
     assert client.post("/v1/chat/completions", headers=hdr, json=body).status_code == 200
-    primed_calls = controllable_openai["calls"]
+    primed_calls = controllable_openai["completions"]
 
     # Force the breaker open.
     breaker = circuit.get_breaker(ws["project_id"])
@@ -343,4 +375,76 @@ def test_cache_hit_served_while_circuit_open(client, provision, controllable_ope
     res = client.post("/v1/chat/completions", headers=hdr, json=body)
     assert res.status_code == 200
     assert res.headers["x-varsten-cache"] == "hit"
-    assert controllable_openai["calls"] == primed_calls  # upstream never touched
+    assert controllable_openai["completions"] == primed_calls  # upstream never touched
+
+
+# --- semantic cache ---
+
+
+def test_semantic_hit_on_near_duplicate(client, db_session, provision, mock_openai, monkeypatch):
+    ws = provision(sub="auth0|s", email="s@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    hdr = _b(ws["api_key"])
+
+    # First phrasing: a miss, forwarded, embedded, and cached.
+    first = client.post(
+        "/v1/chat/completions", headers=hdr, json=_msg("what is the weather today?")
+    )
+    assert first.status_code == 200
+    assert first.headers["x-varsten-cache"] == "miss"
+
+    # Different wording, same meaning (same embedding keyword) -> semantic hit, no
+    # second upstream completion.
+    second = client.post(
+        "/v1/chat/completions", headers=hdr, json=_msg("tell me about the weather please")
+    )
+    assert second.status_code == 200
+    assert second.headers["x-varsten-cache"] == "semantic"
+    assert second.json()["choices"][0]["message"]["content"] == "Hello world"
+    assert mock_openai["completions"] == 1  # only the first call reached OpenAI
+
+
+def test_semantic_miss_below_threshold(client, provision, mock_openai, monkeypatch):
+    ws = provision(sub="auth0|s", email="s@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    hdr = _b(ws["api_key"])
+
+    # Unrelated prompts embed to orthogonal vectors -> no match, both forwarded.
+    client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather?"))
+    res = client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the stock price?"))
+    assert res.headers["x-varsten-cache"] == "miss"
+    assert mock_openai["completions"] == 2
+
+
+def test_exact_repeat_skips_embedding(client, provision, mock_openai, monkeypatch):
+    ws = provision(sub="auth0|s", email="s@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    hdr = _b(ws["api_key"])
+    body = _msg("what is the weather?")
+
+    client.post("/v1/chat/completions", headers=hdr, json=body)  # miss: 1 embed + 1 completion
+    res = client.post("/v1/chat/completions", headers=hdr, json=body)  # exact hit: no embed
+
+    assert res.headers["x-varsten-cache"] == "hit"
+    assert mock_openai["completions"] == 1
+    assert mock_openai["embeddings"] == 1  # the exact repeat did not embed again
+
+
+def test_embedding_failure_fails_open(client, provision, mock_openai, monkeypatch):
+    ws = provision(sub="auth0|s", email="s@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    hdr = _b(ws["api_key"])
+
+    async def no_embedding(text, client_key):
+        return None
+
+    monkeypatch.setattr(proxy_router, "embed", no_embedding)
+
+    # Embedding is down: semantic lookup is skipped and the request forwards.
+    first = client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather?"))
+    assert first.status_code == 200
+    assert first.headers["x-varsten-cache"] == "miss"
+    # A near-duplicate cannot match (nothing was embedded), so it forwards too.
+    second = client.post("/v1/chat/completions", headers=hdr, json=_msg("how is the weather now?"))
+    assert second.status_code == 200
+    assert mock_openai["completions"] == 2

@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.models import Project
 from app.proxy import cache, openai
 from app.proxy.circuit import get_breaker, is_upstream_failure
+from app.proxy.embedding import embed, embedding_input
 from app.proxy.keys import openai_key_for_project
 from app.proxy.ledger import record_proxy_usage
 
@@ -59,40 +60,31 @@ async def chat_completions(
     bypass = _is_bypassed(project)
     cache_key = cache.compute_cache_key(body)
 
-    # --- cache hit: serve without touching OpenAI (skipped when bypassed) ---
-    # Fail-open: a cache-lookup failure must never block forwarding. The worst case
-    # is we miss a cache hit, never that we break the client's request.
+    # --- cache: exact-hash fast path, then semantic. Skipped when bypassed. ---
+    # Fail-open throughout: a cache/embedding failure must never block forwarding.
+    embedding: list[float] | None = None
     if not bypass and settings.semantic_cache_enabled:
-        entry = None
+        # 1) Exact hash: byte-identical repeats serve instantly, no embedding call.
         try:
             entry = cache.get_cached(db, project.id, cache_key)
         except Exception:
-            # Fail-open: a broken cache must never block forwarding.
             logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
             entry = None
         if entry is not None:
-            try:
-                cache.record_hit(db, entry)
-                record_proxy_usage(
-                    db,
-                    project,
-                    api_key_id,
-                    model=entry.model,
-                    input_tokens=entry.input_tokens,
-                    output_tokens=entry.output_tokens,
-                    cached_input_tokens=0,
-                    cache_hit=True,
-                )
-            except Exception:
-                logger.exception("cache-hit bookkeeping failed", extra={"project_id": str(project.id)})
-            headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": "hit"}
-            if stream:
-                return StreamingResponse(
-                    iter(list(openai.completion_to_sse(entry.response_payload))),
-                    media_type=SSE_MEDIA_TYPE,
-                    headers=headers,
-                )
-            return JSONResponse(entry.response_payload, headers=headers)
+            return _serve_cache_hit(db, project, api_key_id, entry, stream, "hit")
+
+        # 2) Semantic: embed the prompt and find the nearest cached answer. The
+        # embedding is reused for storage on a miss, so we embed at most once.
+        try:
+            embedding = await embed(embedding_input(body), client_key)
+            sem = cache.semantic_search(
+                db, project.id, model, embedding, settings.semantic_cache_threshold
+            )
+        except Exception:
+            logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
+            sem = None
+        if sem is not None:
+            return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
 
     # --- forward to OpenAI (cache miss, or bypassed). store_cache off when bypassed ---
     mode = "bypass" if bypass else "optimize"
@@ -111,14 +103,40 @@ async def chat_completions(
     if stream:
         return StreamingResponse(
             _stream_through(
-                db, project, api_key_id, client_key, body, model, cache_key, breaker, store_cache=not bypass
+                db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache=not bypass
             ),
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
         )
     return await _forward_once(
-        db, project, api_key_id, client_key, body, model, cache_key, breaker, store_cache=not bypass, headers=headers
+        db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache=not bypass, headers=headers
     )
+
+
+def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label):
+    """Serve a cache entry (exact or semantic), record the hit and the $0 ledger row."""
+    try:
+        cache.record_hit(db, entry)
+        record_proxy_usage(
+            db,
+            project,
+            api_key_id,
+            model=entry.model,
+            input_tokens=entry.input_tokens,
+            output_tokens=entry.output_tokens,
+            cached_input_tokens=0,
+            cache_hit=True,
+        )
+    except Exception:
+        logger.exception("cache-hit bookkeeping failed", extra={"project_id": str(project.id)})
+    headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": cache_label}
+    if stream:
+        return StreamingResponse(
+            iter(list(openai.completion_to_sse(entry.response_payload))),
+            media_type=SSE_MEDIA_TYPE,
+            headers=headers,
+        )
+    return JSONResponse(entry.response_payload, headers=headers)
 
 
 def _capture(
@@ -127,14 +145,21 @@ def _capture(
     api_key_id,
     *,
     model: str,
+    cache_model: str,
     response_payload: dict,
     cache_key: str,
     in_tok: int,
     out_tok: int,
     cached_tok: int,
     store_cache: bool,
+    embedding: list[float] | None,
 ) -> None:
-    """Write the ledger row and (unless bypassed) store the cache entry for a miss.
+    """Write the ledger row and (unless bypassed) store the cache entry, with its
+    prompt embedding, for a miss.
+
+    The ledger uses the upstream's precise response model; the cache stores the
+    requested model so the next request (which specifies the same requested model)
+    matches in the model-scoped semantic search.
 
     Best-effort: the response has already been obtained from OpenAI, so bookkeeping
     must never raise and fail the client's request. A failure here should be made
@@ -151,12 +176,14 @@ def _capture(
             cache_hit=False,
         )
         if store_cache and settings.semantic_cache_enabled and response_payload:
-            cache.store(db, project.id, cache_key, model, response_payload, in_tok, out_tok)
+            cache.store(
+                db, project.id, cache_key, cache_model, response_payload, in_tok, out_tok, embedding=embedding
+            )
     except Exception:
         logger.exception("proxy ledger/cache write failed", extra={"project_id": str(project.id)})
 
 
-async def _stream_through(db, project, api_key_id, client_key, body, model, cache_key, breaker, store_cache):
+async def _stream_through(db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache):
     """Pass the OpenAI SSE stream through verbatim, buffering a copy in memory to
     bill and (unless bypassed) cache after the client has its bytes."""
     upstream_body = {**body, "stream": True, "stream_options": {"include_usage": True}}
@@ -215,12 +242,14 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
             project,
             api_key_id,
             model=out_model,
+            cache_model=model,
             response_payload=payload,
             cache_key=cache_key,
             in_tok=in_tok,
             out_tok=out_tok,
             cached_tok=cached_tok,
             store_cache=store_cache,
+            embedding=embedding,
         )
     except Exception:
         # Never let post-stream bookkeeping break a delivered response.
@@ -228,7 +257,7 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
 
 
 async def _forward_once(
-    db, project, api_key_id, client_key, body, model, cache_key, breaker, store_cache, headers
+    db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache, headers
 ) -> JSONResponse:
     try:
         async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
@@ -271,11 +300,13 @@ async def _forward_once(
         project,
         api_key_id,
         model=out_model,
+        cache_model=model,
         response_payload=data,
         cache_key=cache_key,
         in_tok=in_tok,
         out_tok=out_tok,
         cached_tok=cached_tok,
         store_cache=store_cache,
+        embedding=embedding,
     )
     return JSONResponse(data, headers=headers)

@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:16
+    # pgvector image (Postgres 16 + the vector extension) for the semantic cache.
+    image: pgvector/pgvector:pg16
     container_name: varsten-db
     environment:
       POSTGRES_USER: varsten

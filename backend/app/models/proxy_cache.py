@@ -11,9 +11,11 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import settings
 from app.models.base import Base
 
 
@@ -42,6 +44,11 @@ class ProxyCacheEntry(Base):
     )
     cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Prompt embedding for semantic matching. Nullable: an entry stored when the
+    # embedding call failed still serves exact-hash hits, just not semantic ones.
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(settings.embedding_dimensions), nullable=True
+    )
     # The assembled OpenAI response, served verbatim on a hit.
     response_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     # Token counts of the cached completion, so a hit can record the avoided cost.
