@@ -36,6 +36,7 @@ from app.eval.gate import (
     is_gated,
     latest_run,
 )
+from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.experiment import compute_experiment
 from app.proxy.routing import activate_rule, deactivate_rules_for_recommendation
 from app.recommendations import ensure_recommendations_fresh
@@ -572,6 +573,7 @@ def engine_routes(
     out = []
     for rule in rules:
         ab = compute_experiment(db, project.id, rule.incumbent_model, rule.candidate_model, start)
+        drift = evaluate_drift(db, project.id, rule.incumbent_model, rule.candidate_model, start)
         out.append({
             "id": rule.id,
             "incumbent_model": rule.incumbent_model,
@@ -590,8 +592,25 @@ def engine_routes(
             "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
             "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
             "has_signal": ab["has_signal"],
+            "control_ok_rate": drift["control_ok_rate"],
+            "treatment_ok_rate": drift["treatment_ok_rate"],
+            "quality_drop": drift["quality_drop"],
+            "drifted": drift["drifted"],
         })
     return out
+
+
+@router.post("/engine/routes/check-drift", response_model=None)
+def engine_check_drift(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Run the quality-drift safety sweep and auto-roll-back any drifted route. The
+    production trigger is a scheduled job; exposed as an endpoint so a cron (or the
+    operator) can drive it."""
+    now = datetime.now(timezone.utc)
+    rolled = check_and_rollback_drift(db, project, _month_start(now), now=now)
+    return {"rolled_back": rolled}
 
 
 class RouteConfigUpdate(BaseModel):

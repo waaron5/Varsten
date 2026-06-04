@@ -82,6 +82,15 @@ class Settings(BaseSettings):
     # verdict drives approve-mode and never triggers auto-rollback.
     eval_judge_model: str = "gpt-4o-mini"
 
+    # --- Live quality-drift guard on the holdback ---
+    # A routed (treatment) arm whose objective quality drops more than this below
+    # the concurrent control arm is rolled back. Objective signal only (CLAUDE.md:
+    # judge noise is never bet on for auto-rollback).
+    drift_tolerance: float = 0.05
+    # Master switch for automatic rollback on drift. Off -> drift is surfaced but a
+    # human decides. On -> a drifted route is disabled automatically.
+    drift_auto_rollback_enabled: bool = True
+
     # --- Observability ---
     log_level: str = "INFO"
     # JSON logs in production; set false for plain human-readable logs locally.

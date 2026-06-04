@@ -29,6 +29,7 @@ def record_proxy_usage(
     arm: str | None = None,
     experiment_from: str | None = None,
     experiment_to: str | None = None,
+    quality_ok: bool | None = None,
     latency_ms: int | None = None,
     now: datetime | None = None,
 ) -> UsageEvent:
@@ -93,6 +94,10 @@ def record_proxy_usage(
         metadata["arm"] = arm
         metadata["experiment_from"] = experiment_from
         metadata["experiment_to"] = experiment_to
+        # Objective response-health for the live drift guard (a metadata fact, not
+        # content). Compared across arms to catch a candidate that degrades.
+        if quality_ok is not None:
+            metadata["quality_ok"] = quality_ok
 
     event = UsageEvent(
         project_id=project.id,

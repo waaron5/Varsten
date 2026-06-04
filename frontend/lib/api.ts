@@ -203,6 +203,13 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(body) },
     ),
 
+  checkRouteDrift: (token: string, projectId: string | undefined) =>
+    request<{ rolled_back: { route: string }[] }>(
+      readPath("/engine/routes/check-drift", projectId),
+      token,
+      { method: "POST" },
+    ),
+
   updateLever: (
     token: string,
     projectId: string | undefined,

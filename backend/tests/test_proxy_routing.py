@@ -23,9 +23,12 @@ from app.models import (
     UsageEvent,
 )
 from app.models.eval import RUN_COMPLETED, VERDICT_SAFE
+from app.models import RecommendationAction
 from app.proxy import circuit
+from app.proxy import drift as drift_mod
 from app.proxy import router as proxy_router
 from app.proxy.ledger import record_proxy_usage
+from app.proxy.quality import response_quality_ok
 from app.proxy.routing import (
     activate_rule,
     deactivate_rules_for_recommendation,
@@ -283,6 +286,113 @@ def test_engine_route_patch_pauses_and_sets_holdback(client, provision, db_sessi
         json={"holdback_percent": "0.9"},
     )
     assert bad.status_code == 422
+
+
+def _completion_payload(content: str, finish: str = "stop") -> dict:
+    return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": finish}]}
+
+
+def test_response_quality_ok_objective_signal():
+    assert response_quality_ok(_completion_payload("a real answer"), False) is True
+    assert response_quality_ok(_completion_payload(""), False) is False
+    assert response_quality_ok(_completion_payload("cut off", finish="length"), False) is False
+    assert response_quality_ok(_completion_payload('{"ok": 1}'), True) is True
+    assert response_quality_ok(_completion_payload("not json"), True) is False
+    assert response_quality_ok(None, False) is False
+
+
+def _record_q(db, project, arm, model, ok):
+    record_proxy_usage(
+        db, project, None, model=model, input_tokens=1000, output_tokens=500,
+        cached_input_tokens=0, cache_hit=False,
+        naive_model=INCUMBENT if arm == "treatment" else None,
+        arm=arm, experiment_from=INCUMBENT, experiment_to=CANDIDATE, quality_ok=ok,
+    )
+
+
+def _rule_with_rec(db, project):
+    rec = _mk_rec(db, project)
+    rule = ProxyRoutingRule(
+        organization_id=project.organization_id, project_id=project.id,
+        incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
+        holdback_percent=Decimal("0.1"), source_recommendation_id=rec.id,
+    )
+    db.add(rule)
+    db.commit()
+    return rule, rec
+
+
+def test_drift_auto_rollback(client, provision, db_session, monkeypatch):
+    monkeypatch.setattr(drift_mod, "MIN_ARM_SAMPLES", 4)
+    project = _project(db_session, provision)
+    rule, rec = _rule_with_rec(db_session, project)
+    # Control healthy, treatment degraded: a clear, significant quality drop.
+    for _ in range(5):
+        _record_q(db_session, project, "control", INCUMBENT, True)
+    for _ in range(5):
+        _record_q(db_session, project, "treatment", CANDIDATE, False)
+    db_session.commit()
+
+    resp = client.post(
+        "/v1/engine/routes/check-drift",
+        headers={"Authorization": "Bearer auth0|route"},
+        params={"project_id": str(project.id)},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["rolled_back"]) == 1
+
+    db_session.refresh(rule)
+    db_session.refresh(rec)
+    assert rule.enabled is False
+    assert rec.status == "rolled_back"
+    action = db_session.scalar(
+        select(RecommendationAction).where(
+            RecommendationAction.project_id == project.id,
+            RecommendationAction.action_type == "rolled_back",
+        )
+    )
+    assert action is not None and action.source == "system"
+
+
+def test_no_rollback_when_quality_holds(client, provision, db_session, monkeypatch):
+    monkeypatch.setattr(drift_mod, "MIN_ARM_SAMPLES", 4)
+    project = _project(db_session, provision)
+    rule, _ = _rule_with_rec(db_session, project)
+    for _ in range(5):
+        _record_q(db_session, project, "control", INCUMBENT, True)
+    for _ in range(5):
+        _record_q(db_session, project, "treatment", CANDIDATE, True)
+    db_session.commit()
+
+    resp = client.post(
+        "/v1/engine/routes/check-drift",
+        headers={"Authorization": "Bearer auth0|route"},
+        params={"project_id": str(project.id)},
+    )
+    assert resp.json()["rolled_back"] == []
+    db_session.refresh(rule)
+    assert rule.enabled is True
+
+
+def test_drift_needs_enough_samples(client, provision, db_session, monkeypatch):
+    monkeypatch.setattr(drift_mod, "MIN_ARM_SAMPLES", 10)
+    project = _project(db_session, provision)
+    rule, _ = _rule_with_rec(db_session, project)
+    # Degraded but too few samples to act on.
+    for _ in range(3):
+        _record_q(db_session, project, "control", INCUMBENT, True)
+    for _ in range(3):
+        _record_q(db_session, project, "treatment", CANDIDATE, False)
+    db_session.commit()
+
+    resp = client.post(
+        "/v1/engine/routes/check-drift",
+        headers={"Authorization": "Bearer auth0|route"},
+        params={"project_id": str(project.id)},
+    )
+    assert resp.json()["rolled_back"] == []
+    db_session.refresh(rule)
+    assert rule.enabled is True
 
 
 def test_holdback_keeps_control_on_incumbent(client, provision, db_session, monkeypatch):

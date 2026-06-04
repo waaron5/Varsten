@@ -738,14 +738,42 @@ function ActiveRoutesCard() {
     }
   };
 
+  const checkDrift = async () => {
+    setBusyId("drift");
+    setError(null);
+    try {
+      const result = await api.checkRouteDrift(await getToken(), activeProjectId ?? undefined);
+      // Rolled-back routes are disabled, so refetch to drop them from the list.
+      const fresh = await api.engineRoutes(await getToken(), activeProjectId ?? undefined);
+      setRoutes(fresh);
+      if (result.rolled_back.length > 0) {
+        setError(`Rolled back ${result.rolled_back.length} route(s) on quality drift: ${result.rolled_back.map((r) => r.route).join(", ")}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   // Only meaningful once at least one cheaper-model swap is live; stay quiet otherwise.
-  if (loading || error || !routes || routes.length === 0) return null;
+  if (loading || error || !routes || routes.length === 0) {
+    // Still surface a drift-check error/notice if one was set after a sweep.
+    if (error && routes && routes.length === 0) {
+      return <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>;
+    }
+    return null;
+  }
   return (
     <div className="card">
       <div className="card-head">
         <h3>Active routes</h3>
         <span className="sub">live cheaper-model swaps, savings measured against a concurrent holdback</span>
+        <button className="btn" disabled={busyId === "drift"} onClick={checkDrift} type="button">
+          {busyId === "drift" ? "Checking…" : "Run drift check"}
+        </button>
       </div>
+      {error ? <div className="card-pad"><p className="form-error">{error}</p></div> : null}
       <table className="tbl">
         <thead>
           <tr>
@@ -753,6 +781,7 @@ function ActiveRoutesCard() {
             <th className="r">Holdback</th>
             <th className="r">Control / Treatment</th>
             <th className="r">Cost / req</th>
+            <th className="r">Quality</th>
             <th className="r">Measured savings (mo)</th>
             <th />
           </tr>
@@ -771,6 +800,7 @@ function ActiveRoutesCard() {
                   ? `${usd(route.control_avg_cost_usd, 4)} → ${usd(route.treatment_avg_cost_usd, 4)}`
                   : "-"}
               </td>
+              <td className="r"><RouteQuality route={route} /></td>
               <td className="r"><RouteSavings route={route} /></td>
               <td className="r">
                 <button className="btn" disabled={busyId === route.id} onClick={() => pause(route)} type="button">
@@ -782,6 +812,21 @@ function ActiveRoutesCard() {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function RouteQuality({ route }: { route: ActiveRoute }) {
+  if (route.drifted) {
+    return <span className="pill amber">drift</span>;
+  }
+  if (route.treatment_ok_rate === null || route.control_ok_rate === null) {
+    return <span className="eval-note">-</span>;
+  }
+  return (
+    <span>
+      {percent(route.treatment_ok_rate)}
+      <span className="eval-note"> vs {percent(route.control_ok_rate)}</span>
+    </span>
   );
 }
 

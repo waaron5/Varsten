@@ -209,6 +209,10 @@ export interface ActiveRoute {
   measured_savings_ci_low_usd: string | null;
   measured_savings_ci_high_usd: string | null;
   has_signal: boolean;
+  control_ok_rate: number | null;
+  treatment_ok_rate: number | null;
+  quality_drop: number | null;
+  drifted: boolean;
 }
 
 export interface EvalRouteCorpus {

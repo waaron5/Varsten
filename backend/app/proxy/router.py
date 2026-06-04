@@ -21,7 +21,7 @@ from app.core.logging import get_logger
 from app.db.session import get_db
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import cache, openai, routing
+from app.proxy import cache, openai, quality, routing
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.embedding import embed, embedding_input
 from app.proxy.keys import openai_key_for_project
@@ -197,6 +197,13 @@ def _capture(
     Best-effort: the response has already been obtained from OpenAI, so bookkeeping
     must never raise and fail the client's request. A failure here should be made
     visible by observability later, never by a 500."""
+    # Objective response health, only for arm-tagged (experiment) traffic, so the
+    # drift guard can compare the treatment arm against the control arm.
+    quality_ok = (
+        quality.response_quality_ok(response_payload, quality.wants_json(body or {}))
+        if arm
+        else None
+    )
     try:
         record_proxy_usage(
             db,
@@ -211,6 +218,7 @@ def _capture(
             arm=arm,
             experiment_from=exp_from,
             experiment_to=exp_to,
+            quality_ok=quality_ok,
         )
         if store_cache and settings.semantic_cache_enabled and response_payload:
             cache.store(
