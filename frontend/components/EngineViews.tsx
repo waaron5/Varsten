@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { RequireSession } from "@/components/RequireSession";
 import { useSession } from "@/components/session";
 import { useProjectResource } from "@/components/useProjectResource";
@@ -34,6 +34,60 @@ const ENGINE_TABS = [
   { href: "/engine/levers", label: "Levers" },
   { href: "/engine/automation", label: "Automation" },
 ];
+
+const LEVER_ORDER = ["smart_routing", "semantic_cache", "token_trim", "cheaper_model", "batching"];
+
+const LEVER_META: Record<string, {
+  description: string;
+  iconPath: string;
+  stats: Array<{ label: string; value: (item: LeverConfig) => string; emphasis?: boolean }>;
+}> = {
+  smart_routing: {
+    description: "Sends each request to the cheapest model that clears the quality bar for that route.",
+    iconPath: "M6 19m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M18 5m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M8.5 19H14a3 3 0 0 0 3-3V7.5",
+    stats: [
+      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
+      { label: "Mode", value: (item) => titleize(item.automation_mode) },
+      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
+    ],
+  },
+  semantic_cache: {
+    description: "Reuses an answer when a new request is semantically close to one already served.",
+    iconPath: "M6 7c0-1.7 2.7-3 6-3s6 1.3 6 3-2.7 3-6 3-6-1.3-6-3z M6 7v5c0 1.7 2.7 3 6 3s6-1.3 6-3V7 M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5",
+    stats: [
+      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
+      { label: "Mode", value: (item) => titleize(item.automation_mode) },
+      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
+    ],
+  },
+  token_trim: {
+    description: "Compresses prompts and context before each call without changing the output.",
+    iconPath: "M6 6m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M6 18m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M8 7l12 10 M8 17L20 7",
+    stats: [
+      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
+      { label: "Mode", value: (item) => titleize(item.automation_mode) },
+      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
+    ],
+  },
+  cheaper_model: {
+    description: "Systematically moves whole workloads down to a cheaper tier where evals allow it.",
+    iconPath: "M4 7l8-4 8 4-8 4-8-4z M4 12l8 4 8-4 M4 17l8 4 8-4",
+    stats: [
+      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
+      { label: "Mode", value: (item) => titleize(item.automation_mode) },
+      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
+    ],
+  },
+  batching: {
+    description: "Routes non-urgent jobs through batch endpoints to capture bulk pricing.",
+    iconPath: "M5 6h14v4H5z M5 14h14v4H5z M8 10v4 M16 10v4",
+    stats: [
+      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
+      { label: "Mode", value: (item) => titleize(item.automation_mode) },
+      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
+    ],
+  },
+};
 
 function EngineTabs({ active }: { active: string }) {
   return <Tabs tabs={ENGINE_TABS} active={active} />;
@@ -391,14 +445,6 @@ function EngineLeversBody() {
     setError,
   } = useProjectResource<LeverConfig[]>(api.engineLevers, []);
 
-  const totals = useMemo(
-    () => ({
-      savings: (items ?? []).reduce((sum, item) => sum + Number(item.savings_to_date_usd ?? 0), 0),
-      enabled: (items ?? []).filter((item) => item.enabled).length,
-    }),
-    [items],
-  );
-
   const toggle = async (item: LeverConfig) => {
     try {
       const updated = await updateLever(item.lever, { enabled: !item.enabled });
@@ -408,6 +454,14 @@ function EngineLeversBody() {
     }
   };
 
+  const rows = items
+    ? [...items].sort((a, b) => {
+        const aRank = LEVER_ORDER.indexOf(a.lever);
+        const bRank = LEVER_ORDER.indexOf(b.lever);
+        return (aRank === -1 ? 99 : aRank) - (bRank === -1 ? 99 : bRank);
+      })
+    : [];
+
   return (
     <div className="view">
       <PageHeader
@@ -416,61 +470,50 @@ function EngineLeversBody() {
         description="The five mechanisms Varsten uses to reduce AI spend without hiding risk."
       />
       <EngineTabs active="/engine/levers" />
-      <div className="grid kpi-row">
-        <div className="card kpi">
-          <div className="label">Enabled levers</div>
-          <div className="value">{totals.enabled}/{items?.length || 5}</div>
-          <div className="foot">active optimization mechanisms</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Savings to date</div>
-          <div className="value">{usd(totals.savings, 0)}</div>
-          <div className="foot">attributed across enabled and paused levers</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Auto mode</div>
-          <div className="value">{(items ?? []).filter((item) => item.automation_mode === "auto").length}</div>
-          <div className="foot">levers allowed to act without review</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Approval mode</div>
-          <div className="value">{(items ?? []).filter((item) => item.automation_mode === "approve").length}</div>
-          <div className="foot">human-reviewed optimization paths</div>
-        </div>
+      <div className="section-intro">
+        <h2>Levers</h2>
+        <p>The five mechanisms that cut spend. Toggle one off to pause it everywhere.</p>
       </div>
       {loading || error ? (
         <div className="card"><PageState loading={loading} error={error} /></div>
       ) : !items || items.length === 0 ? (
         <div className="card"><PageState empty="No lever configuration" emptyDetail="Seed or ingest usage to initialize engine levers." /></div>
       ) : (
-        <div className="lever-grid">
-          {items.map((item) => (
-            <div className="card lever-card" key={item.id}>
-              <div className="lever-top">
-                <div>
-                  <h3>{leverLabel(item.lever)}</h3>
-                  <div className="page-sub">{item.enabled ? "Enabled" : "Paused"} · {titleize(item.automation_mode)} mode</div>
+        <div className="card lever-list-card">
+          {rows.map((item) => (
+            <div className="lever-row" key={item.id}>
+              <div className="lever-row-top">
+                <div className="lever-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d={LEVER_META[item.lever]?.iconPath ?? "M4 12h16 M12 4v16"} />
+                  </svg>
                 </div>
-                <span className={`pill ${item.enabled ? "green" : "neutral"}`}>{item.enabled ? "On" : "Paused"}</span>
+                <div className="lever-copy">
+                  <div className="lever-name">{leverLabel(item.lever)}</div>
+                </div>
+                <span className={`lever-badge ${item.enabled ? "active" : "paused"}`}>
+                  {item.enabled ? "active" : "paused"}
+                </span>
+                <button
+                  aria-label={`${item.enabled ? "Pause" : "Resume"} ${leverLabel(item.lever)}`}
+                  aria-pressed={item.enabled}
+                  className={`lever-toggle ${item.enabled ? "on" : ""}`}
+                  disabled={busyId === item.lever}
+                  onClick={() => toggle(item)}
+                  type="button"
+                />
               </div>
-              <div className="lever-stats">
-                <div>
-                  <span>Savings to date</span>
-                  <b>{usd(item.savings_to_date_usd, 0)}</b>
-                </div>
-                <div>
-                  <span>Quality delta</span>
-                  <b>{signedPercent(item.quality_delta_percent)}</b>
-                </div>
+              <div className="lever-desc">
+                {LEVER_META[item.lever]?.description ?? "Controls one of Varsten's optimization mechanisms."}
               </div>
-              <button
-                className="btn"
-                disabled={busyId === item.lever}
-                onClick={() => toggle(item)}
-                type="button"
-              >
-                {item.enabled ? "Pause lever" : "Resume lever"}
-              </button>
+              <div className="lever-row-stats">
+                {(LEVER_META[item.lever]?.stats ?? []).map((stat) => (
+                  <div key={stat.label}>
+                    <div className="k">{stat.label}</div>
+                    <div className={`v ${stat.emphasis ? "emphasis" : ""}`}>{stat.value(item)}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>

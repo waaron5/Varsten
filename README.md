@@ -1,10 +1,10 @@
 # Varsten
 
-Varsten is an AI cost-optimization engine for companies building with LLMs. It cuts AI spend, keeps quality inside configured guardrails, and proves the savings with a number finance can defend.
+Varsten is an AI cost-optimization engine for companies using LLMs in any capacity. It cuts AI spend, keeps quality inside configured guardrails, and proves the savings.
 
-The product is not just another token dashboard. Measurement is the foundation: Varsten ingests AI usage across products, teams, customers, models, and providers, derives trusted cost from a pricing catalog, and surfaces pricing/data-quality gaps instead of hiding them. The product value comes from what sits on top of that foundation: an engine that finds specific cuts, maps them to savings levers, lets a human approve what is not yet trusted, and shows proof of the dollars saved.
+Varsten ingests AI usage across products, teams, customers, models, and providers, derives trusted cost from a pricing catalog, and surfaces pricing/data-quality gaps instead of hiding them. The product value comes from what sits on top of that foundation: an engine that finds specific cuts, maps them to savings levers, lets a human approve what is not yet trusted, and shows proof of the dollars saved.
 
-Varsten's five savings levers are smart routing, semantic cache, token trim, cheaper model, and batching. The v1 app demonstrates the control plane and decision loop for those levers without pretending the later production inline gateway, live eval harness, or randomized holdback already exist.
+Varsten's five savings levers are smart routing, semantic cache, token trim, cheaper model, and batching.
 
 The daily product loop is: spend comes in, the engine identifies cuts, guardrails define what is safe, a user approves or dismisses the risky work, and Proof explains the savings attribution. Analysis exists to support that loop, not to be the destination.
 
