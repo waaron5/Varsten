@@ -163,6 +163,74 @@ export function AdminConnectionsView() {
   return <RequireSession><AdminConnectionsBody /></RequireSession>;
 }
 
+function ProviderConnectionsCard({
+  data,
+  error,
+  loading,
+}: {
+  data: AdminConnections | null | undefined;
+  error: string | null;
+  loading: boolean;
+}) {
+  return (
+    <div className="card">
+      <div className="card-head"><h3>Provider connections</h3></div>
+      {loading || error || !data ? (
+        <PageState loading={loading} error={error} empty={!data && !loading ? "No connection data" : undefined} />
+      ) : data.provider_connections.length === 0 ? (
+        <PageState empty="No provider connections" emptyDetail="Metadata ingestion can still run through API keys while provider sync is not configured." />
+      ) : (
+        <table className="tbl"><thead><tr><th>Provider</th><th>Method</th><th>Status</th><th className="r">Last sync</th></tr></thead><tbody>
+          {data.provider_connections.map((connection) => (
+            <tr key={connection.id}><td>{connection.provider}</td><td className="muted">{titleize(connection.connection_method)}</td><td><span className="pill neutral">{titleize(connection.status)}</span></td><td className="r">{connection.last_sync_at ? relativeTime(connection.last_sync_at) : "-"}</td></tr>
+          ))}
+        </tbody></table>
+      )}
+    </div>
+  );
+}
+
+function ApiKeysCard({
+  activeProjectId,
+  busy,
+  created,
+  data,
+  loading,
+  name,
+  onName,
+  onSubmit,
+}: {
+  activeProjectId: string | null;
+  busy: boolean;
+  created: ApiKeyCreated | null;
+  data: AdminConnections | null | undefined;
+  loading: boolean;
+  name: string;
+  onName: (value: string) => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  const canCreate = !!activeProjectId && !!name.trim();
+  return (
+    <div className="card">
+      <div className="card-head"><h3>API keys</h3></div>
+      {data && data.api_keys.length > 0 ? (
+        <table className="tbl"><thead><tr><th>Name</th><th>Prefix</th><th className="r">Last used</th></tr></thead><tbody>
+          {data.api_keys.map((key) => (
+            <tr key={key.id}><td>{key.name}</td><td className="mono">{key.key_prefix}</td><td className="r">{key.last_used_at ? relativeTime(key.last_used_at) : "Never"}</td></tr>
+          ))}
+        </tbody></table>
+      ) : !loading ? (
+        <PageState empty="No API keys" emptyDetail="Create a key to start sending usage events." />
+      ) : null}
+      <form className="config-form" onSubmit={onSubmit}>
+        <input className="input" value={name} onChange={(e) => onName(e.target.value)} placeholder="API key name" />
+        <button className="btn primary" type="submit" disabled={busy || !canCreate}>{busy ? "Creating..." : "Create API key"}</button>
+        {created ? <div className="code">{created.plaintext_key}</div> : null}
+      </form>
+    </div>
+  );
+}
+
 function AdminConnectionsBody() {
   const { activeProjectId, data, error, getToken, loading, reload, setError } =
     useProjectResource<AdminConnections>(api.adminConnections);
@@ -190,37 +258,17 @@ function AdminConnectionsBody() {
       <PageHeader section="Admin" title="Connections" description="Provider connections and project ingestion keys." />
       <Tabs tabs={ADMIN_TABS} active="/admin/connections" />
       <div className="grid cols-2">
-        <div className="card">
-          <div className="card-head"><h3>Provider connections</h3></div>
-          {loading || error || !data ? (
-            <PageState loading={loading} error={error} empty={!data && !loading ? "No connection data" : undefined} />
-          ) : data.provider_connections.length === 0 ? (
-            <PageState empty="No provider connections" emptyDetail="Metadata ingestion can still run through API keys while provider sync is not configured." />
-          ) : (
-            <table className="tbl"><thead><tr><th>Provider</th><th>Method</th><th>Status</th><th className="r">Last sync</th></tr></thead><tbody>
-              {data.provider_connections.map((connection) => (
-                <tr key={connection.id}><td>{connection.provider}</td><td className="muted">{titleize(connection.connection_method)}</td><td><span className="pill neutral">{titleize(connection.status)}</span></td><td className="r">{connection.last_sync_at ? relativeTime(connection.last_sync_at) : "-"}</td></tr>
-              ))}
-            </tbody></table>
-          )}
-        </div>
-        <div className="card">
-          <div className="card-head"><h3>API keys</h3></div>
-          {data && data.api_keys.length > 0 ? (
-            <table className="tbl"><thead><tr><th>Name</th><th>Prefix</th><th className="r">Last used</th></tr></thead><tbody>
-              {data.api_keys.map((key) => (
-                <tr key={key.id}><td>{key.name}</td><td className="mono">{key.key_prefix}</td><td className="r">{key.last_used_at ? relativeTime(key.last_used_at) : "Never"}</td></tr>
-              ))}
-            </tbody></table>
-          ) : !loading ? (
-            <PageState empty="No API keys" emptyDetail="Create a key to start sending usage events." />
-          ) : null}
-          <form className="config-form" onSubmit={createKey}>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="API key name" />
-            <button className="btn primary" type="submit" disabled={busy || !activeProjectId || !name.trim()}>{busy ? "Creating..." : "Create API key"}</button>
-            {created ? <div className="code">{created.plaintext_key}</div> : null}
-          </form>
-        </div>
+        <ProviderConnectionsCard data={data} loading={loading} error={error} />
+        <ApiKeysCard
+          activeProjectId={activeProjectId}
+          busy={busy}
+          created={created}
+          data={data}
+          loading={loading}
+          name={name}
+          onName={setName}
+          onSubmit={createKey}
+        />
       </div>
     </div>
   );

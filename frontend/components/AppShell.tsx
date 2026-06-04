@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Dispatch, SetStateAction } from "react";
 import { useState } from "react";
 import { useUser } from "@auth0/nextjs-auth0";
 import { useSession } from "./session";
+import type { Project, UserProfile } from "@/lib/types";
 
 const NAV_GROUPS: {
   label: string;
@@ -14,7 +16,7 @@ const NAV_GROUPS: {
     label: "Operate",
     items: [
       { href: "/command-center", match: "/command-center", label: "Command Center", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
-      { href: "/engine/recommendations", match: "/engine", label: "Engine", icon: "M9 9h6v6H9z M9 2v3 M15 2v3 M9 19v3 M15 19v3 M2 9h3 M2 15h3 M19 9h3 M19 15h3 M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z", badge: "5" },
+      { href: "/engine/recommendations", match: "/engine", label: "Engine", icon: "M9 9h6v6H9z M9 2v3 M15 2v3 M9 19v3 M15 19v3 M2 9h3 M2 15h3 M19 9h3 M19 15h3 M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" },
       { href: "/guardrails/quality", match: "/guardrails", label: "Guardrails", icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" },
       { href: "/proof/savings", match: "/proof", label: "Proof", icon: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8.5 12.5l2.5 2.5 4.5-5" },
     ],
@@ -58,6 +60,8 @@ const ROUTE_LABELS: Record<string, { title: string; crumb: string }> = {
   "/settings": { title: "Settings", crumb: "Project / Settings" },
 };
 
+type NavItem = { href: string; match: string; label: string; icon: string; badge?: string };
+
 function routeLabel(pathname: string): { title: string; crumb: string } {
   if (pathname.startsWith("/reports/")) return { title: "Executive Report", crumb: "Reports / Shared View" };
   return ROUTE_LABELS[pathname] ?? { title: "Varsten", crumb: "Home" };
@@ -76,7 +80,156 @@ function initials(nameOrEmail: string | null | undefined): string {
   if (!value) return "VA";
   const clean = value.includes("@") ? value.split("@")[0] : value;
   const parts = clean.split(/\s+|[._-]+/).filter(Boolean);
-  return (parts[0]?.[0] ?? "V").concat(parts[1]?.[0] ?? "").toUpperCase();
+  const first = parts[0]?.[0] ?? "V";
+  const second = parts[1]?.[0] ?? "";
+  return `${first}${second}`.toUpperCase();
+}
+
+function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
+  const active = pathname.startsWith(item.match);
+  return (
+    <Link href={item.href} className={`nav-item${active ? " active" : ""}`}>
+      <Icon path={item.icon} />
+      <span>{item.label}</span>
+      {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
+    </Link>
+  );
+}
+
+function NavGroup({ group, pathname }: { group: { label: string; items: NavItem[] }; pathname: string }) {
+  return (
+    <div className="nav-group">
+      <div className="nav-group-label">{group.label}</div>
+      {group.items.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
+    </div>
+  );
+}
+
+function AccountPanel({
+  accountOpen,
+  displayName,
+  isLoading,
+  orgName,
+  setAccountOpen,
+  userReady,
+}: {
+  accountOpen: boolean;
+  displayName: string;
+  isLoading: boolean;
+  orgName: string;
+  setAccountOpen: Dispatch<SetStateAction<boolean>>;
+  userReady: boolean;
+}) {
+  if (isLoading) return null;
+  if (!userReady) return <a href="/auth/login" className="account-login">Log in</a>;
+  return (
+    <div className="account-wrap">
+      <button
+        className="account-button"
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={accountOpen}
+        onClick={() => setAccountOpen((open) => !open)}
+      >
+        <span className="account-avatar">{initials(displayName)}</span>
+        <span className="account-copy">
+          <span className="account-name">{displayName}</span>
+          <span className="account-org">{orgName}</span>
+        </span>
+        <span className="account-dots" aria-hidden="true">•••</span>
+      </button>
+      {accountOpen ? (
+        <div className="account-menu" role="menu">
+          {/* Auth routes must use <a>, not <Link>, to avoid client-side routing. */}
+          <a href="/auth/logout" className="account-menu-item" role="menuitem">Log out</a>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Sidebar({
+  accountOpen,
+  displayName,
+  isLoading,
+  orgName,
+  pathname,
+  setAccountOpen,
+  userReady,
+}: {
+  accountOpen: boolean;
+  displayName: string;
+  isLoading: boolean;
+  orgName: string;
+  pathname: string;
+  setAccountOpen: Dispatch<SetStateAction<boolean>>;
+  userReady: boolean;
+}) {
+  return (
+    <aside className="sidebar">
+      <div className="brand">
+        <Link href="/command-center" aria-label="Go to Command Center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
+        </Link>
+      </div>
+      <nav className="nav">
+        {NAV_GROUPS.map((group) => <NavGroup key={group.label} group={group} pathname={pathname} />)}
+      </nav>
+      <div className="side-account">
+        <AccountPanel
+          accountOpen={accountOpen}
+          displayName={displayName}
+          isLoading={isLoading}
+          orgName={orgName}
+          setAccountOpen={setAccountOpen}
+          userReady={userReady}
+        />
+      </div>
+    </aside>
+  );
+}
+
+function Topbar({ route }: { route: { title: string; crumb: string } }) {
+  return (
+    <header className="topbar">
+      <div className="topbar-title">
+        <h1>{route.title}</h1>
+        <div className="crumb">{route.crumb}</div>
+      </div>
+    </header>
+  );
+}
+
+function firstProject(projects: Project[]): Project | null {
+  return projects.length > 0 ? projects[0] : null;
+}
+
+function activeProjectFor(projects: Project[], activeProjectId: string | null): Project | null {
+  return projects.find((project) => project.id === activeProjectId) || firstProject(projects);
+}
+
+function activeOrgName(profile: UserProfile | null, project: Project | null): string | null {
+  const organizations = profile?.organizations || [];
+  const organization = organizations.find((org) => org.id === project?.organization_id) || organizations[0];
+  return organization?.name || null;
+}
+
+function accountNames({
+  profile,
+  project,
+  userEmail,
+  userName,
+}: {
+  profile: UserProfile | null;
+  project: Project | null;
+  userEmail?: string | null;
+  userName?: string | null;
+}) {
+  return {
+    displayName: profile?.name || userName || userEmail || "Varsten user",
+    orgName: activeOrgName(profile, project) || project?.name || "Varsten workspace",
+  };
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -85,71 +238,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { activeProjectId, profile, projects } = useSession();
   const [accountOpen, setAccountOpen] = useState(false);
   const currentRoute = routeLabel(pathname);
-  const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
-  const activeOrg = profile?.organizations.find((org) => org.id === activeProject?.organization_id) ?? profile?.organizations[0] ?? null;
-  const displayName = profile?.name ?? user?.name ?? user?.email ?? "Varsten user";
-  const orgName = activeOrg?.name ?? activeProject?.name ?? "Varsten workspace";
+  const activeProject = activeProjectFor(projects, activeProjectId);
+  const { displayName, orgName } = accountNames({
+    profile,
+    project: activeProject,
+    userEmail: user?.email,
+    userName: user?.name,
+  });
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
-        </div>
-        <nav className="nav">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.label} className="nav-group">
-              <div className="nav-group-label">{group.label}</div>
-              {group.items.map((n) => {
-                const active = pathname.startsWith(n.match);
-                return (
-                  <Link key={n.href} href={n.href} className={`nav-item${active ? " active" : ""}`}>
-                    <Icon path={n.icon} />
-                    <span>{n.label}</span>
-                    {n.badge && <span className="nav-badge">{n.badge}</span>}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-        <div className="side-account">
-          {!isLoading && user ? (
-            <div className="account-wrap">
-              <button
-                className="account-button"
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={accountOpen}
-                onClick={() => setAccountOpen((open) => !open)}
-              >
-                <span className="account-avatar">{initials(displayName)}</span>
-                <span className="account-copy">
-                  <span className="account-name">{displayName}</span>
-                  <span className="account-org">{orgName}</span>
-                </span>
-                <span className="account-dots" aria-hidden="true">•••</span>
-              </button>
-              {accountOpen ? (
-                <div className="account-menu" role="menu">
-                  {/* Auth routes must use <a>, not <Link>, to avoid client-side routing. */}
-                  <a href="/auth/logout" className="account-menu-item" role="menuitem">Log out</a>
-                </div>
-              ) : null}
-            </div>
-          ) : !isLoading ? (
-            <a href="/auth/login" className="account-login">Log in</a>
-          ) : null}
-        </div>
-      </aside>
+      <Sidebar
+        accountOpen={accountOpen}
+        displayName={displayName}
+        isLoading={isLoading}
+        orgName={orgName}
+        pathname={pathname}
+        setAccountOpen={setAccountOpen}
+        userReady={!!user}
+      />
       <div className="main">
-        <header className="topbar">
-          <div className="topbar-title">
-            <h1>{currentRoute.title}</h1>
-            <div className="crumb">{currentRoute.crumb}</div>
-          </div>
-        </header>
+        <Topbar route={currentRoute} />
         <div className="content">{children}</div>
       </div>
     </div>

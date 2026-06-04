@@ -384,6 +384,21 @@ table.tbl { width: 100%; border-collapse: collapse; }
   font-family: var(--font-mono); font-size: 14px; font-weight: 650; margin-top: 2px; color: var(--text);
 }
 .lever-row-stats .v.emphasis { color: var(--brand-press); }
+.lever-gears {
+  width: 30px; height: 22px; position: relative; flex: 0 0 auto;
+  color: var(--text-3); opacity: 0.48;
+}
+.lever-gears .gear {
+  position: absolute; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+  display: block; transform-box: fill-box; transform-origin: center; will-change: transform;
+}
+.lever-gears .gear-marker { fill: currentColor; stroke: none; }
+.lever-gears .gear-large { width: 18px; height: 18px; left: 0; top: 1px; }
+.lever-gears .gear-small { width: 14px; height: 14px; right: 0; bottom: 1px; }
+.lever-gears.active { color: var(--brand-press); opacity: 0.9; }
+.lever-gears.active .gear-large { animation: gear-turn 1.6s linear infinite; }
+.lever-gears.active .gear-small { animation: gear-turn-reverse 1.15s linear infinite; }
+.lever-gears.paused .gear { animation: none; }
 .lever-badge {
   display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px;
   font-size: 11px; font-weight: 650; text-transform: lowercase; flex: 0 0 auto;
@@ -402,6 +417,12 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .lever-toggle.on { background: var(--brand); }
 .lever-toggle.on::after { left: 18px; }
 .lever-toggle:disabled { opacity: 0.55; cursor: not-allowed; }
+@keyframes gear-turn { to { transform: rotate(360deg); } }
+@keyframes gear-turn-reverse { to { transform: rotate(-360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .lever-gears.active .gear-large,
+  .lever-gears.active .gear-small { animation: none; }
+}
 
 .seg {
   display: inline-flex; align-items: center; gap: 3px; padding: 3px;

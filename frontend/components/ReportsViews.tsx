@@ -94,6 +94,62 @@ export function ReportsView() {
   return <RequireSession><ReportsBody /></RequireSession>;
 }
 
+function ReportHero({ report, shareUrl }: { report: MonthlyReport; shareUrl: string }) {
+  return (
+    <div className="hero-panel">
+      <div>
+        <div className="hero-kicker">{periodLabel(report)}</div>
+        <h1>{report.title}</h1>
+        <p>{report.executive_summary}</p>
+      </div>
+      <div className="hero-note">
+        <div className="mini-title">Share link</div>
+        <Link href={`/reports/${report.share_token}`} className="mono">{shareUrl}</Link>
+      </div>
+    </div>
+  );
+}
+
+function PreviousReports({ reports }: { reports: MonthlyReport[] }) {
+  if (reports.length <= 1) return null;
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-head"><h3>Previous reports</h3></div>
+      <table className="tbl">
+        <thead><tr><th>Period</th><th>Status</th><th className="r">Net saved</th><th className="r">Trust</th></tr></thead>
+        <tbody>
+          {reports.slice(1).map((report) => (
+            <tr key={report.id}>
+              <td>{periodLabel(report)}</td>
+              <td><span className="pill neutral">{titleize(report.status)}</span></td>
+              <td className="r">{usd(report.net_savings_usd, 0)}</td>
+              <td className="r">{percent(report.trust_score)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReportsContent({
+  latest,
+  reports,
+  shareUrl,
+}: {
+  latest: MonthlyReport;
+  reports: MonthlyReport[];
+  shareUrl: string;
+}) {
+  return (
+    <>
+      <ReportHero report={latest} shareUrl={shareUrl} />
+      <ReportSnapshot report={latest} />
+      <PreviousReports reports={reports} />
+    </>
+  );
+}
+
 function ReportsBody() {
   const {
     activeProjectId,
@@ -131,38 +187,7 @@ function ReportsBody() {
       ) : !latest ? (
         <div className="card"><PageState empty="No reports yet" emptyDetail="Generate the current month report to create a shareable executive link." /></div>
       ) : (
-        <>
-          <div className="hero-panel">
-            <div>
-              <div className="hero-kicker">{periodLabel(latest)}</div>
-              <h1>{latest.title}</h1>
-              <p>{latest.executive_summary}</p>
-            </div>
-            <div className="hero-note">
-              <div className="mini-title">Share link</div>
-              <Link href={`/reports/${latest.share_token}`} className="mono">{shareUrl}</Link>
-            </div>
-          </div>
-          <ReportSnapshot report={latest} />
-          {reports && reports.length > 1 ? (
-            <div className="card" style={{ marginTop: 16 }}>
-              <div className="card-head"><h3>Previous reports</h3></div>
-              <table className="tbl">
-                <thead><tr><th>Period</th><th>Status</th><th className="r">Net saved</th><th className="r">Trust</th></tr></thead>
-                <tbody>
-                  {reports.slice(1).map((report) => (
-                    <tr key={report.id}>
-                      <td>{periodLabel(report)}</td>
-                      <td><span className="pill neutral">{titleize(report.status)}</span></td>
-                      <td className="r">{usd(report.net_savings_usd, 0)}</td>
-                      <td className="r">{percent(report.trust_score)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </>
+        <ReportsContent latest={latest} reports={reports ?? []} shareUrl={shareUrl} />
       )}
     </div>
   );

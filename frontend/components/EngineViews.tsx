@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
 import { RequireSession } from "@/components/RequireSession";
@@ -37,55 +36,43 @@ const ENGINE_TABS = [
 
 const LEVER_ORDER = ["smart_routing", "semantic_cache", "token_trim", "cheaper_model", "batching"];
 
+type LeverStat = { label: string; value: (item: LeverConfig) => string; emphasis?: boolean };
+
+const LEVER_STATS: LeverStat[] = [
+  { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
+  { label: "Mode", value: (item) => titleize(item.automation_mode) },
+  { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
+];
+
 const LEVER_META: Record<string, {
   description: string;
   iconPath: string;
-  stats: Array<{ label: string; value: (item: LeverConfig) => string; emphasis?: boolean }>;
+  stats: LeverStat[];
 }> = {
   smart_routing: {
     description: "Sends each request to the cheapest model that clears the quality bar for that route.",
     iconPath: "M6 19m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M18 5m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M8.5 19H14a3 3 0 0 0 3-3V7.5",
-    stats: [
-      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
-      { label: "Mode", value: (item) => titleize(item.automation_mode) },
-      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
-    ],
+    stats: LEVER_STATS,
   },
   semantic_cache: {
     description: "Reuses an answer when a new request is semantically close to one already served.",
     iconPath: "M6 7c0-1.7 2.7-3 6-3s6 1.3 6 3-2.7 3-6 3-6-1.3-6-3z M6 7v5c0 1.7 2.7 3 6 3s6-1.3 6-3V7 M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5",
-    stats: [
-      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
-      { label: "Mode", value: (item) => titleize(item.automation_mode) },
-      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
-    ],
+    stats: LEVER_STATS,
   },
   token_trim: {
     description: "Compresses prompts and context before each call without changing the output.",
     iconPath: "M6 6m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M6 18m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M8 7l12 10 M8 17L20 7",
-    stats: [
-      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
-      { label: "Mode", value: (item) => titleize(item.automation_mode) },
-      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
-    ],
+    stats: LEVER_STATS,
   },
   cheaper_model: {
     description: "Systematically moves whole workloads down to a cheaper tier where evals allow it.",
     iconPath: "M4 7l8-4 8 4-8 4-8-4z M4 12l8 4 8-4 M4 17l8 4 8-4",
-    stats: [
-      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
-      { label: "Mode", value: (item) => titleize(item.automation_mode) },
-      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
-    ],
+    stats: LEVER_STATS,
   },
   batching: {
     description: "Routes non-urgent jobs through batch endpoints to capture bulk pricing.",
     iconPath: "M5 6h14v4H5z M5 14h14v4H5z M8 10v4 M16 10v4",
-    stats: [
-      { label: "Saved this month", value: (item) => usd(item.savings_to_date_usd, 0), emphasis: true },
-      { label: "Mode", value: (item) => titleize(item.automation_mode) },
-      { label: "Quality delta", value: (item) => signedPercent(item.quality_delta_percent) },
-    ],
+    stats: LEVER_STATS,
   },
 };
 
@@ -207,6 +194,127 @@ function ActionRow({ action }: { action: RecommendationAction }) {
   );
 }
 
+function CommandKpis({ data }: { data: CommandCenter }) {
+  const trust = data.live_savings.trust_score === null ? "-" : percent(data.live_savings.trust_score);
+  return (
+    <div className="grid kpi-row">
+      <div className="card kpi">
+        <div className="label">Spend this month</div>
+        <div className="value">{usd(data.live_savings.spend_month, 0)}</div>
+        <div className="foot">{compact(data.requests_month)} requests measured</div>
+      </div>
+      <div className="card kpi">
+        <div className="label">Saved this month</div>
+        <div className="value">{usd(data.live_savings.saved_month, 0)}</div>
+        <div className="foot">gross savings attributed to levers</div>
+      </div>
+      <div className="card kpi">
+        <div className="label">Annualized savings</div>
+        <div className="value">{usd(data.live_savings.annual_run_rate, 0)}</div>
+        <div className="foot">based on current monthly savings pace</div>
+      </div>
+      <div className="card kpi">
+        <div className="label">Trust score</div>
+        <div className="value">{trust}</div>
+        <div className="foot">pricing and metadata coverage</div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionQueue({
+  busyId,
+  onStatus,
+  recommendations,
+}: {
+  busyId: string | null;
+  onStatus: (id: string, status: RecommendationStatus) => void;
+  recommendations: Recommendation[];
+}) {
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Decision queue</h3>
+        <div className="right"><span className="pill neutral">{recommendations.length} open</span></div>
+      </div>
+      {recommendations.length === 0 ? (
+        <PageState empty="No open recommendations" emptyDetail="The engine has no savings decisions awaiting review." />
+      ) : (
+        <div className="rec-list">
+          {recommendations.slice(0, 6).map((rec) => (
+            <RecommendationCard key={rec.id} recommendation={rec} busy={busyId === rec.id} onStatus={onStatus} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TopWasteCard({
+  busyId,
+  onStatus,
+  recommendation,
+}: {
+  busyId: string | null;
+  onStatus: (id: string, status: RecommendationStatus) => void;
+  recommendation: Recommendation | null;
+}) {
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Top waste now</h3>
+      </div>
+      {recommendation ? (
+        <div className="card-pad">
+          <RecommendationCard recommendation={recommendation} busy={busyId === recommendation.id} onStatus={onStatus} />
+        </div>
+      ) : (
+        <PageState empty="No dominant waste source" emptyDetail="Savings opportunities will appear as usage accumulates." />
+      )}
+    </div>
+  );
+}
+
+function RecentActions({ actions }: { actions: RecommendationAction[] }) {
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Recent actions</h3>
+      </div>
+      {actions.length === 0 ? (
+        <PageState empty="No actions recorded" emptyDetail="Applied recommendations and engine actions will appear here." />
+      ) : (
+        <div className="action-list">
+          {actions.slice(0, 8).map((action) => <ActionRow key={action.id} action={action} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommandCenterContent({
+  busyId,
+  data,
+  onStatus,
+}: {
+  busyId: string | null;
+  data: CommandCenter;
+  onStatus: (id: string, status: RecommendationStatus) => void;
+}) {
+  return (
+    <>
+      <CommandKpis data={data} />
+      <div className="grid cols-2">
+        <DecisionQueue busyId={busyId} recommendations={data.decision_queue} onStatus={onStatus} />
+        <div className="grid">
+          <TopWasteCard busyId={busyId} recommendation={data.top_waste_now} onStatus={onStatus} />
+          <RecentActions actions={data.recent_actions} />
+        </div>
+      </div>
+    </>
+  );
+}
+
 function useEngineMutation() {
   const { activeProjectId, getToken } = useSession();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -272,96 +380,14 @@ function CommandCenterBody() {
     );
   }
 
-  const trust = data.live_savings.trust_score === null ? "-" : percent(data.live_savings.trust_score);
-
   return (
     <div className="view">
       <PageHeader
         section="Operate"
         title="Command Center"
         description="The operating view for what Varsten should cut, prove, and watch right now."
-        action={<Link href="/engine/recommendations" className="btn primary">Open Engine</Link>}
       />
-
-      <div className="grid kpi-row">
-        <div className="card kpi">
-          <div className="label">Spend this month</div>
-          <div className="value">{usd(data.live_savings.spend_month, 0)}</div>
-          <div className="foot">{compact(data.requests_month)} requests measured</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Saved this month</div>
-          <div className="value">{usd(data.live_savings.saved_month, 0)}</div>
-          <div className="foot">gross savings attributed to levers</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Annualized savings</div>
-          <div className="value">{usd(data.live_savings.annual_run_rate, 0)}</div>
-          <div className="foot">based on current monthly savings pace</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Trust score</div>
-          <div className="value">{trust}</div>
-          <div className="foot">pricing and metadata coverage</div>
-        </div>
-      </div>
-
-      <div className="grid cols-2">
-        <div className="card">
-          <div className="card-head">
-            <h3>Decision queue</h3>
-            <div className="right"><span className="pill neutral">{data.decision_queue.length} open</span></div>
-          </div>
-          {data.decision_queue.length === 0 ? (
-            <PageState empty="No open recommendations" emptyDetail="The engine has no savings decisions awaiting review." />
-          ) : (
-            <div className="rec-list">
-              {data.decision_queue.slice(0, 6).map((rec) => (
-                <RecommendationCard
-                  key={rec.id}
-                  recommendation={rec}
-                  busy={busyId === rec.id}
-                  onStatus={act}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="grid">
-          <div className="card">
-            <div className="card-head">
-              <h3>Top waste now</h3>
-            </div>
-            {data.top_waste_now ? (
-              <div className="card-pad">
-                <RecommendationCard
-                  recommendation={data.top_waste_now}
-                  busy={busyId === data.top_waste_now.id}
-                  onStatus={act}
-                />
-              </div>
-            ) : (
-              <PageState empty="No dominant waste source" emptyDetail="Savings opportunities will appear as usage accumulates." />
-            )}
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Recent actions</h3>
-            </div>
-            {data.recent_actions.length === 0 ? (
-              <PageState empty="No actions recorded" emptyDetail="Applied recommendations and engine actions will appear here." />
-            ) : (
-              <div className="action-list">
-                {data.recent_actions.slice(0, 8).map((action) => (
-                  <ActionRow key={action.id} action={action} />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <CommandCenterContent busyId={busyId} data={data} onStatus={act} />
     </div>
   );
 }
@@ -435,6 +461,98 @@ export function EngineLeversView() {
   );
 }
 
+function sortedLeverRows(items: LeverConfig[] | null | undefined): LeverConfig[] {
+  return [...(items ?? [])].sort((a, b) => {
+    const aRank = LEVER_ORDER.indexOf(a.lever);
+    const bRank = LEVER_ORDER.indexOf(b.lever);
+    return (aRank === -1 ? 99 : aRank) - (bRank === -1 ? 99 : bRank);
+  });
+}
+
+function LeverIcon({ meta }: { meta: (typeof LEVER_META)[string] | undefined }) {
+  const iconPath = meta?.iconPath || "M4 12h16 M12 4v16";
+  return (
+    <div className="lever-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d={iconPath} />
+      </svg>
+    </div>
+  );
+}
+
+function LeverBadge({ enabled }: { enabled: boolean }) {
+  const status = enabled ? "active" : "paused";
+  return <span className={`lever-badge ${status}`}>{status}</span>;
+}
+
+function LeverActivityGears({ active }: { active: boolean }) {
+  return (
+    <div className={`lever-gears ${active ? "active" : "paused"}`} aria-hidden="true">
+      <svg className="gear gear-large" viewBox="0 0 24 24" fill="none">
+        <path d="M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M18.4 5.6l-2.1 2.1 M7.7 16.3l-2.1 2.1" />
+        <circle cx="12" cy="12" r="5" />
+        <circle cx="12" cy="12" r="1.8" />
+        <circle className="gear-marker" cx="12" cy="5.2" r="1.1" />
+      </svg>
+      <svg className="gear gear-small" viewBox="0 0 24 24" fill="none">
+        <path d="M12 4v2.5 M12 17.5V20 M4 12h2.5 M17.5 12H20 M6.4 6.4l1.8 1.8 M15.8 15.8l1.8 1.8 M17.6 6.4l-1.8 1.8 M8.2 15.8l-1.8 1.8" />
+        <circle cx="12" cy="12" r="4.2" />
+        <circle cx="12" cy="12" r="1.5" />
+        <circle className="gear-marker" cx="12" cy="6" r="0.9" />
+      </svg>
+    </div>
+  );
+}
+
+function LeverToggle({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; onToggle: (item: LeverConfig) => void }) {
+  const action = item.enabled ? "Pause" : "Resume";
+  const className = item.enabled ? "lever-toggle on" : "lever-toggle";
+  return (
+    <button
+      aria-label={`${action} ${leverLabel(item.lever)}`}
+      aria-pressed={item.enabled}
+      className={className}
+      disabled={busy}
+      onClick={() => onToggle(item)}
+      type="button"
+    />
+  );
+}
+
+function LeverStats({ item, meta }: { item: LeverConfig; meta: (typeof LEVER_META)[string] | undefined }) {
+  const stats = meta?.stats || [];
+  return (
+    <div className="lever-row-stats">
+      {stats.map((stat) => (
+        <div key={stat.label}>
+          <div className="k">{stat.label}</div>
+          <div className={`v ${stat.emphasis ? "emphasis" : ""}`}>{stat.value(item)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LeverRow({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; onToggle: (item: LeverConfig) => void }) {
+  const meta = LEVER_META[item.lever];
+  const description = meta?.description || "Controls one of Varsten's optimization mechanisms.";
+  return (
+    <div className="lever-row">
+      <div className="lever-row-top">
+        <LeverIcon meta={meta} />
+        <div className="lever-copy">
+          <div className="lever-name">{leverLabel(item.lever)}</div>
+        </div>
+        <LeverActivityGears active={item.enabled} />
+        <LeverBadge enabled={item.enabled} />
+        <LeverToggle busy={busy} item={item} onToggle={onToggle} />
+      </div>
+      <div className="lever-desc">{description}</div>
+      <LeverStats item={item} meta={meta} />
+    </div>
+  );
+}
+
 function EngineLeversBody() {
   const { busyId, updateLever } = useEngineMutation();
   const {
@@ -454,13 +572,7 @@ function EngineLeversBody() {
     }
   };
 
-  const rows = items
-    ? [...items].sort((a, b) => {
-        const aRank = LEVER_ORDER.indexOf(a.lever);
-        const bRank = LEVER_ORDER.indexOf(b.lever);
-        return (aRank === -1 ? 99 : aRank) - (bRank === -1 ? 99 : bRank);
-      })
-    : [];
+  const rows = sortedLeverRows(items);
 
   return (
     <div className="view">
@@ -470,10 +582,6 @@ function EngineLeversBody() {
         description="The five mechanisms Varsten uses to reduce AI spend without hiding risk."
       />
       <EngineTabs active="/engine/levers" />
-      <div className="section-intro">
-        <h2>Levers</h2>
-        <p>The five mechanisms that cut spend. Toggle one off to pause it everywhere.</p>
-      </div>
       {loading || error ? (
         <div className="card"><PageState loading={loading} error={error} /></div>
       ) : !items || items.length === 0 ? (
@@ -481,40 +589,7 @@ function EngineLeversBody() {
       ) : (
         <div className="card lever-list-card">
           {rows.map((item) => (
-            <div className="lever-row" key={item.id}>
-              <div className="lever-row-top">
-                <div className="lever-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d={LEVER_META[item.lever]?.iconPath ?? "M4 12h16 M12 4v16"} />
-                  </svg>
-                </div>
-                <div className="lever-copy">
-                  <div className="lever-name">{leverLabel(item.lever)}</div>
-                </div>
-                <span className={`lever-badge ${item.enabled ? "active" : "paused"}`}>
-                  {item.enabled ? "active" : "paused"}
-                </span>
-                <button
-                  aria-label={`${item.enabled ? "Pause" : "Resume"} ${leverLabel(item.lever)}`}
-                  aria-pressed={item.enabled}
-                  className={`lever-toggle ${item.enabled ? "on" : ""}`}
-                  disabled={busyId === item.lever}
-                  onClick={() => toggle(item)}
-                  type="button"
-                />
-              </div>
-              <div className="lever-desc">
-                {LEVER_META[item.lever]?.description ?? "Controls one of Varsten's optimization mechanisms."}
-              </div>
-              <div className="lever-row-stats">
-                {(LEVER_META[item.lever]?.stats ?? []).map((stat) => (
-                  <div key={stat.label}>
-                    <div className="k">{stat.label}</div>
-                    <div className={`v ${stat.emphasis ? "emphasis" : ""}`}>{stat.value(item)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <LeverRow key={item.id} item={item} busy={busyId === item.lever} onToggle={toggle} />
           ))}
         </div>
       )}
@@ -527,6 +602,89 @@ export function EngineAutomationView() {
     <RequireSession>
       <EngineAutomationBody />
     </RequireSession>
+  );
+}
+
+function AutomationModeControl({
+  busy,
+  item,
+  onMode,
+}: {
+  busy: boolean;
+  item: AutomationLever;
+  onMode: (item: AutomationLever, mode: AutomationMode) => void;
+}) {
+  return (
+    <div className="seg" aria-label={`${leverLabel(item.lever)} automation mode`}>
+      <button
+        className={item.automation_mode === "auto" ? "active" : ""}
+        disabled={busy}
+        onClick={() => onMode(item, "auto")}
+        type="button"
+      >
+        Auto
+      </button>
+      <button
+        className={item.automation_mode === "approve" ? "active" : ""}
+        disabled={busy}
+        onClick={() => onMode(item, "approve")}
+        type="button"
+      >
+        Approve
+      </button>
+    </div>
+  );
+}
+
+function AutomationRow({
+  busy,
+  item,
+  onMode,
+}: {
+  busy: boolean;
+  item: AutomationLever;
+  onMode: (item: AutomationLever, mode: AutomationMode) => void;
+}) {
+  return (
+    <tr>
+      <td>
+        <div className="name">
+          <span className="dot-ic" style={{ background: item.enabled ? "var(--brand)" : "var(--text-faint)" }} />
+          {leverLabel(item.lever)}
+        </div>
+      </td>
+      <td><span className={`pill ${item.enabled ? "green" : "neutral"}`}>{item.enabled ? "Enabled" : "Paused"}</span></td>
+      <td className="muted">{item.risk_profile}</td>
+      <td className="r"><AutomationModeControl busy={busy} item={item} onMode={onMode} /></td>
+    </tr>
+  );
+}
+
+function AutomationTable({
+  busyId,
+  onMode,
+  rows,
+}: {
+  busyId: string | null;
+  onMode: (item: AutomationLever, mode: AutomationMode) => void;
+  rows: readonly AutomationLever[];
+}) {
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          <th>Lever</th>
+          <th>Status</th>
+          <th>Risk profile</th>
+          <th className="r">Mode</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((item) => (
+          <AutomationRow key={item.lever} item={item} busy={busyId === item.lever} onMode={onMode} />
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -569,52 +727,7 @@ function EngineAutomationBody() {
         empty="No automation policy"
         emptyDetail="Engine levers will appear here after project setup."
       >
-        {(rows) => (
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Lever</th>
-                <th>Status</th>
-                <th>Risk profile</th>
-                <th className="r">Mode</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((item) => (
-                <tr key={item.lever}>
-                  <td>
-                    <div className="name">
-                      <span className="dot-ic" style={{ background: item.enabled ? "var(--brand)" : "var(--text-faint)" }} />
-                      {leverLabel(item.lever)}
-                    </div>
-                  </td>
-                  <td><span className={`pill ${item.enabled ? "green" : "neutral"}`}>{item.enabled ? "Enabled" : "Paused"}</span></td>
-                  <td className="muted">{item.risk_profile}</td>
-                  <td className="r">
-                    <div className="seg" aria-label={`${leverLabel(item.lever)} automation mode`}>
-                      <button
-                        className={item.automation_mode === "auto" ? "active" : ""}
-                        disabled={busyId === item.lever}
-                        onClick={() => setMode(item, "auto")}
-                        type="button"
-                      >
-                        Auto
-                      </button>
-                      <button
-                        className={item.automation_mode === "approve" ? "active" : ""}
-                        disabled={busyId === item.lever}
-                        onClick={() => setMode(item, "approve")}
-                        type="button"
-                      >
-                        Approve
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {(rows) => <AutomationTable rows={rows} busyId={busyId} onMode={setMode} />}
       </EngineDataCard>
     </div>
   );
