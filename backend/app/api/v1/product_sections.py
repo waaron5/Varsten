@@ -35,6 +35,7 @@ from app.eval.gate import (
     is_gated,
     latest_run,
 )
+from app.proxy.routing import activate_rule, deactivate_rules_for_recommendation
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
 from app.schemas.eval import EvalRunSummary
@@ -491,6 +492,12 @@ def engine_update_recommendation(
         except EvalGateError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         apply_measured_savings(recommendation, gating_run)
+        # Execution: a passed cheaper-model swap now actually routes traffic.
+        if gating_run is not None:
+            activate_rule(db, project, recommendation, gating_run.candidate_model, now=now)
+    elif payload.status in {"dismissed", "rolled_back"}:
+        # Stop routing this swap; traffic returns to the incumbent model.
+        deactivate_rules_for_recommendation(db, recommendation)
     recommendation.status = payload.status
     recommendation.updated_at = now
     recommendation.resolved_at = now if payload.status != "open" else None

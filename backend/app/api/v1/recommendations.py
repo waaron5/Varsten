@@ -10,6 +10,7 @@ from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
 from app.eval.gate import EvalGateError, apply_measured_savings, assert_appliable
 from app.models import OrgMembership, Project, Recommendation, User
+from app.proxy.routing import activate_rule, deactivate_rules_for_recommendation
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import record_applied_savings
 from app.schemas import RecommendationOut, RecommendationUpdate
@@ -76,9 +77,15 @@ def update_recommendation(
         apply_measured_savings(recommendation, gating_run)
         project = db.get(Project, recommendation.project_id)
         if project is not None:
+            # Execution: a passed cheaper-model swap now actually routes traffic.
+            if gating_run is not None:
+                activate_rule(db, project, recommendation, gating_run.candidate_model, now=now)
             record_applied_savings(
                 db, project, recommendation, actor_user_id=user.id, source="user", now=now
             )
+    elif payload.status in {"dismissed", "rolled_back"}:
+        # Stop routing this swap; traffic returns to the incumbent model.
+        deactivate_rules_for_recommendation(db, recommendation)
     recommendation.status = payload.status
     recommendation.updated_at = now
     recommendation.resolved_at = now if payload.status != "open" else None

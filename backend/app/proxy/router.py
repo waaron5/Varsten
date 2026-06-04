@@ -21,7 +21,7 @@ from app.core.logging import get_logger
 from app.db.session import get_db
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import cache, openai
+from app.proxy import cache, openai, routing
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.embedding import embed, embedding_input
 from app.proxy.keys import openai_key_for_project
@@ -87,9 +87,22 @@ async def chat_completions(
         if sem is not None:
             return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
 
+    # --- cheaper-model routing: if an applied+eval-passed rule maps this model to
+    # a cheaper candidate, send the candidate upstream. Skipped when bypassed.
+    # Fail-open: resolve returns None on any issue and we forward the original. ---
+    routed_from: str | None = None
+    upstream_model = model
+    if not bypass:
+        candidate = routing.resolve_effective_model(db, project.id, model)
+        if candidate and candidate != model:
+            routed_from = model
+            upstream_model = candidate
+
     # --- forward to OpenAI (cache miss, or bypassed). store_cache off when bypassed ---
     mode = "bypass" if bypass else "optimize"
     headers = {"X-Varsten-Mode": mode, "X-Varsten-Cache": "bypass" if bypass else "miss"}
+    if routed_from:
+        headers["X-Varsten-Routed"] = f"{routed_from}->{upstream_model}"
 
     # Circuit breaker: if the upstream has been failing, fail fast instead of
     # making this request wait the full timeout. Cache hits above are unaffected.
@@ -104,13 +117,15 @@ async def chat_completions(
     if stream:
         return StreamingResponse(
             _stream_through(
-                db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache=not bypass
+                db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding,
+                store_cache=not bypass, upstream_model=upstream_model, routed_from=routed_from,
             ),
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
         )
     return await _forward_once(
-        db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache=not bypass, headers=headers
+        db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding,
+        store_cache=not bypass, headers=headers, upstream_model=upstream_model, routed_from=routed_from,
     )
 
 
@@ -155,6 +170,7 @@ def _capture(
     store_cache: bool,
     embedding: list[float] | None,
     body: dict | None = None,
+    routed_from: str | None = None,
 ) -> None:
     """Write the ledger row and (unless bypassed) store the cache entry, with its
     prompt embedding, for a miss.
@@ -176,6 +192,7 @@ def _capture(
             output_tokens=out_tok,
             cached_input_tokens=cached_tok,
             cache_hit=False,
+            naive_model=routed_from,
         )
         if store_cache and settings.semantic_cache_enabled and response_payload:
             cache.store(
@@ -200,10 +217,13 @@ def _capture(
         )
 
 
-async def _stream_through(db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache):
+async def _stream_through(
+    db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache,
+    upstream_model=None, routed_from=None,
+):
     """Pass the OpenAI SSE stream through verbatim, buffering a copy in memory to
     bill and (unless bypassed) cache after the client has its bytes."""
-    upstream_body = {**body, "stream": True, "stream_options": {"include_usage": True}}
+    upstream_body = {**body, "model": upstream_model or model, "stream": True, "stream_options": {"include_usage": True}}
     buffer = bytearray()
     ok = False
 
@@ -268,6 +288,7 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
             store_cache=store_cache,
             embedding=embedding,
             body=body,
+            routed_from=routed_from,
         )
     except Exception:
         # Never let post-stream bookkeeping break a delivered response.
@@ -275,14 +296,15 @@ async def _stream_through(db, project, api_key_id, client_key, body, model, cach
 
 
 async def _forward_once(
-    db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache, headers
+    db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache, headers,
+    upstream_model=None, routed_from=None,
 ) -> JSONResponse:
     try:
         async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
             resp = await client.post(
                 openai.upstream_url(),
                 headers=openai.upstream_headers(client_key),
-                json=body,
+                json={**body, "model": upstream_model or model},
             )
     except httpx.RequestError as exc:
         # OpenAI unreachable/slow: count it against the breaker, clean 502.
@@ -327,5 +349,6 @@ async def _forward_once(
         store_cache=store_cache,
         embedding=embedding,
         body=body,
+        routed_from=routed_from,
     )
     return JSONResponse(data, headers=headers)

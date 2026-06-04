@@ -25,12 +25,13 @@ def record_proxy_usage(
     output_tokens: int,
     cached_input_tokens: int,
     cache_hit: bool,
+    naive_model: str | None = None,
     latency_ms: int | None = None,
     now: datetime | None = None,
 ) -> UsageEvent:
     at = now or datetime.now(timezone.utc)
-    # What these tokens cost at catalog price = the naive retail cost.
-    naive_cost, cost_source, pricing_status, price_version_id = price_usage_event(
+    # Cost of these tokens at catalog price for the model actually used.
+    used_cost, cost_source, pricing_status, price_version_id = price_usage_event(
         db,
         organization_id=project.organization_id,
         model_key=model,
@@ -48,11 +49,37 @@ def record_proxy_usage(
         metadata = {
             "proxy": True,
             "cache": "hit",
+            "naive_cost_usd": str(used_cost) if used_cost is not None else None,
+            "saved_usd": str(used_cost) if used_cost is not None else None,
+        }
+    elif naive_model and naive_model != model:
+        # Routed to a cheaper model. Actual spend is the candidate's cost; the
+        # naive baseline is what the incumbent would have cost for the same tokens
+        # (the direct method). The difference is measured savings.
+        naive_cost, _, _, _ = price_usage_event(
+            db,
+            organization_id=project.organization_id,
+            model_key=naive_model,
+            provider="openai",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
+            reported_cost_usd=None,
+            at=at,
+        )
+        cost_usd = used_cost
+        saved = (naive_cost - used_cost) if (naive_cost is not None and used_cost is not None) else None
+        metadata = {
+            "proxy": True,
+            "cache": "miss",
+            "routed": True,
+            "routed_from": naive_model,
+            "routed_to": model,
             "naive_cost_usd": str(naive_cost) if naive_cost is not None else None,
-            "saved_usd": str(naive_cost) if naive_cost is not None else None,
+            "saved_usd": str(saved) if saved is not None else None,
         }
     else:
-        cost_usd = naive_cost
+        cost_usd = used_cost
         metadata = {"proxy": True, "cache": "miss"}
 
     event = UsageEvent(
