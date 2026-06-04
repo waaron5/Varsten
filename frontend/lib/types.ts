@@ -191,6 +191,25 @@ export interface EvalRunSummary {
   completed_at: string | null;
 }
 
+export interface EvalRouteCorpus {
+  route_key: string;
+  traffic_samples: number;
+  golden_samples: number;
+}
+
+export interface EvalConfig {
+  eval_capture_enabled: boolean;
+  min_samples: number;
+  routes: EvalRouteCorpus[];
+}
+
+export interface GoldenSampleInput {
+  route_key: string;
+  messages: { role: string; content: string }[];
+  expected_output: string;
+  request_params?: Record<string, unknown>;
+}
+
 export interface Recommendation {
   id: string;
   organization_id: string;

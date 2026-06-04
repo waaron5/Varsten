@@ -347,3 +347,10 @@ def test_golden_upload_and_capture_config(client, provision, db_session):
         json={"eval_capture_enabled": True},
     )
     assert resp.status_code == 200 and resp.json()["eval_capture_enabled"] is True
+
+    # The config read reflects both: capture is on and the golden sample is counted
+    # under its route, so the UI can show corpus readiness.
+    cfg = client.get(f"/v1/evals/config?project_id={pid}", headers=headers).json()
+    assert cfg["eval_capture_enabled"] is True
+    route = next(r for r in cfg["routes"] if r["route_key"] == "gpt-4o")
+    assert route["golden_samples"] == 1

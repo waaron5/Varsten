@@ -22,6 +22,7 @@ import { compact, usd } from "@/lib/format";
 import type {
   AlertRule,
   BudgetRule,
+  EvalConfig,
   ProofAttribution,
   ProofDataQuality,
   ProofSavings,
@@ -270,6 +271,120 @@ function ProofDataQualityBody() {
   );
 }
 
+function EvalHarnessControls() {
+  const {
+    activeProjectId,
+    data: config,
+    error,
+    getToken,
+    loading,
+    reload,
+    setData: setConfig,
+    setError,
+  } = useProjectResource<EvalConfig>(api.evalConfig);
+
+  const [route, setRoute] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [expected, setExpected] = useState("");
+  const [savingGolden, setSavingGolden] = useState(false);
+  const [togglingCapture, setTogglingCapture] = useState(false);
+
+  const toggleCapture = async (enabled: boolean) => {
+    setTogglingCapture(true);
+    setError(null);
+    try {
+      await api.updateEvalCapture(await getToken(), activeProjectId ?? undefined, enabled);
+      setConfig((current) => (current ? { ...current, eval_capture_enabled: enabled } : current));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTogglingCapture(false);
+    }
+  };
+
+  const addGolden = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!route.trim() || !prompt.trim() || !expected.trim()) return;
+    setSavingGolden(true);
+    setError(null);
+    try {
+      await api.uploadGoldenSamples(await getToken(), activeProjectId ?? undefined, [
+        {
+          route_key: route.trim(),
+          messages: [{ role: "user", content: prompt.trim() }],
+          expected_output: expected.trim(),
+        },
+      ]);
+      setRoute("");
+      setPrompt("");
+      setExpected("");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingGolden(false);
+    }
+  };
+
+  const minSamples = config?.min_samples ?? 0;
+
+  return (
+    <div className="grid cols-2">
+      <div className="card">
+        <div className="card-head"><h3>Eval harness</h3></div>
+        <div className="card-pad">
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={config?.eval_capture_enabled ?? false}
+              disabled={loading || togglingCapture}
+              onChange={(e) => toggleCapture(e.target.checked)}
+            />
+            Sample real traffic into the replay corpus
+          </label>
+          <p className="eval-note">
+            Off by default. When on, a sampled, redaction-eligible copy of real prompts and their
+            answers is stored (TTL&apos;d, capped per route) so a cheaper-model swap can be proven safe
+            on real traffic before it is applied. Golden sets below are the strongest signal and never expire.
+          </p>
+          {error ? <p className="form-error">{error}</p> : null}
+          {config && config.routes.length > 0 ? (
+            <table className="tbl">
+              <thead><tr><th>Route</th><th className="r">Traffic</th><th className="r">Golden</th><th className="r">Ready</th></tr></thead>
+              <tbody>
+                {config.routes.map((r) => {
+                  const ready = r.traffic_samples + r.golden_samples >= minSamples;
+                  return (
+                    <tr key={r.route_key}>
+                      <td>{r.route_key}</td>
+                      <td className="r">{compact(r.traffic_samples)}</td>
+                      <td className="r">{compact(r.golden_samples)}</td>
+                      <td className="r"><BinaryPill active={ready} activeLabel="Ready" inactiveLabel={`Need ${minSamples}`} inactiveTone="amber" /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <p className="eval-note">No replay samples yet. Enable capture or add golden samples to build the corpus.</p>
+          )}
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-head"><h3>Add golden sample</h3></div>
+        <form className="config-form" onSubmit={addGolden}>
+          <input className="input" placeholder="Route (model), e.g. gpt-4o" value={route} onChange={(e) => setRoute(e.target.value)} />
+          <textarea className="input" placeholder="Prompt (the user message)" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <textarea className="input" placeholder="Expected answer" rows={3} value={expected} onChange={(e) => setExpected(e.target.value)} />
+          <button className="btn primary" disabled={savingGolden || !route.trim() || !prompt.trim() || !expected.trim()} type="submit">
+            {savingGolden ? "Adding..." : "Add golden sample"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function GuardrailsQualityView() {
   return <RequireSession><GuardrailsQualityBody /></RequireSession>;
 }
@@ -358,6 +473,7 @@ function GuardrailsQualityBody() {
           </form>
         </div>
       </div>
+      <EvalHarnessControls />
     </div>
   );
 }

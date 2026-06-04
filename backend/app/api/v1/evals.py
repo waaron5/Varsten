@@ -15,10 +15,11 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal, get_db
 from app.eval.gate import GATED_LEVERS
@@ -140,28 +141,6 @@ def list_eval_runs(
     )
 
 
-@router.get("/evals/{run_id}", response_model=EvalRunDetail)
-def get_eval_run(
-    run_id: uuid.UUID,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-) -> EvalRun:
-    run = db.get(EvalRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="eval run not found")
-    _assert_member(user, run.organization_id, db)
-    results = list(
-        db.scalars(
-            select(EvalSampleResult)
-            .where(EvalSampleResult.eval_run_id == run.id)
-            .order_by(EvalSampleResult.created_at.asc())
-        )
-    )
-    detail = EvalRunDetail.model_validate(run)
-    detail.results = results  # type: ignore[assignment]
-    return detail
-
-
 @router.post("/evals/golden", response_model=dict)
 def upload_golden_samples(
     payload: GoldenSampleBatchIn,
@@ -191,6 +170,36 @@ def upload_golden_samples(
     return {"created": created}
 
 
+@router.get("/evals/config", response_model=dict)
+def eval_config(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Current capture opt-in plus the replay corpus per route, so the UI can show
+    the toggle state and whether a route has enough samples to evaluate."""
+    rows = db.execute(
+        select(
+            ReplaySample.route_key,
+            ReplaySample.source,
+            func.count().label("n"),
+        )
+        .where(ReplaySample.project_id == project.id)
+        .group_by(ReplaySample.route_key, ReplaySample.source)
+    ).all()
+    routes: dict[str, dict] = {}
+    for route_key, source, n in rows:
+        entry = routes.setdefault(route_key, {"route_key": route_key, "traffic_samples": 0, "golden_samples": 0})
+        if source == SOURCE_GOLDEN:
+            entry["golden_samples"] += n
+        else:
+            entry["traffic_samples"] += n
+    return {
+        "eval_capture_enabled": project.eval_capture_enabled,
+        "min_samples": settings.eval_min_samples,
+        "routes": sorted(routes.values(), key=lambda r: r["route_key"]),
+    }
+
+
 @router.post("/evals/capture-config", response_model=dict)
 def update_capture_config(
     payload: EvalCaptureConfigUpdate,
@@ -203,3 +212,27 @@ def update_capture_config(
     project.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"eval_capture_enabled": project.eval_capture_enabled}
+
+
+# Registered last so the static /evals/* routes above are matched first; otherwise
+# this path param swallows "config", "golden", etc.
+@router.get("/evals/{run_id}", response_model=EvalRunDetail)
+def get_eval_run(
+    run_id: uuid.UUID,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> EvalRun:
+    run = db.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="eval run not found")
+    _assert_member(user, run.organization_id, db)
+    results = list(
+        db.scalars(
+            select(EvalSampleResult)
+            .where(EvalSampleResult.eval_run_id == run.id)
+            .order_by(EvalSampleResult.created_at.asc())
+        )
+    )
+    detail = EvalRunDetail.model_validate(run)
+    detail.results = results  # type: ignore[assignment]
+    return detail

@@ -15,7 +15,9 @@ import type {
   Breakdown,
   BreakdownDimension,
   CommandCenter,
+  EvalConfig,
   EvalRunSummary,
+  GoldenSampleInput,
   LeverConfig,
   LeverName,
   MetricsOverview,
@@ -300,6 +302,26 @@ export const api = {
   evaluateRecommendation: (token: string, id: string) =>
     request<EvalRunSummary>(`/recommendations/${id}/evaluate`, token, {
       method: "POST",
+    }),
+
+  // --- eval harness config (capture opt-in + golden corpus) ---
+  evalConfig: (token: string, projectId: string | undefined) =>
+    request<EvalConfig>(readPath("/evals/config", projectId), token),
+
+  updateEvalCapture: (token: string, projectId: string | undefined, enabled: boolean) =>
+    request<{ eval_capture_enabled: boolean }>(readPath("/evals/capture-config", projectId), token, {
+      method: "POST",
+      body: JSON.stringify({ eval_capture_enabled: enabled }),
+    }),
+
+  uploadGoldenSamples: (
+    token: string,
+    projectId: string | undefined,
+    samples: GoldenSampleInput[],
+  ) =>
+    request<{ created: number }>(readPath("/evals/golden", projectId), token, {
+      method: "POST",
+      body: JSON.stringify({ samples }),
     }),
 
   // --- API key management (for a project) ---
