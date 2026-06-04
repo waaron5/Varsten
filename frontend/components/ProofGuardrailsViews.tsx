@@ -23,6 +23,7 @@ import type {
   AlertRule,
   BudgetRule,
   EvalConfig,
+  EvalRouteCorpus,
   ProofAttribution,
   ProofDataQuality,
   ProofSavings,
@@ -127,14 +128,54 @@ export function ProofSavingsView() {
   return <RequireSession><ProofSavingsBody /></RequireSession>;
 }
 
+function proofSavingsRate(data: ProofSavings): number | null {
+  const baseline = numberValue(data.counterfactual_spend_usd);
+  return baseline > 0 ? numberValue(data.gross_savings_usd) / baseline : null;
+}
+
+function ProofSavingsKpis({ data }: { data: ProofSavings }) {
+  const savingsRate = proofSavingsRate(data);
+  const grossFoot = savingsRate === null ? "no baseline yet" : `${percent(savingsRate)} reduction from baseline`;
+  return (
+    <div className="grid kpi-row">
+      <div className="card kpi">
+        <div className="label">Counterfactual spend</div>
+        <div className="value">{usd(data.counterfactual_spend_usd, 0)}</div>
+        <div className="foot">what the traffic would have cost</div>
+      </div>
+      <div className="card kpi">
+        <div className="label">Actual spend</div>
+        <div className="value">{usd(data.actual_spend_usd, 0)}</div>
+        <div className="foot">measured optimized spend</div>
+      </div>
+      <div className="card kpi">
+        <div className="label">Gross saved</div>
+        <div className="value">{usd(data.gross_savings_usd, 0)}</div>
+        <div className="foot">{grossFoot}</div>
+      </div>
+      <div className="card kpi">
+        <div className="label">Net to customer</div>
+        <div className="value">{usd(data.net_savings_usd, 0)}</div>
+        <div className="foot">after {usd(data.varsten_fee_usd, 0)} Varsten fee</div>
+      </div>
+    </div>
+  );
+}
+
+function ProofSavingsContent({ data }: { data: ProofSavings }) {
+  return (
+    <>
+      <ProofSavingsKpis data={data} />
+      <div className="card">
+        <div className="card-head"><h3>Measurement note</h3></div>
+        <div className="card-pad muted-copy">{data.measurement_note}</div>
+      </div>
+    </>
+  );
+}
+
 function ProofSavingsBody() {
   const { data, loading, error } = useProjectResource<ProofSavings>(api.proofSavings);
-
-  const savingsRate = data
-    ? numberValue(data.counterfactual_spend_usd) > 0
-      ? numberValue(data.gross_savings_usd) / numberValue(data.counterfactual_spend_usd)
-      : null
-    : null;
 
   return (
     <div className="view">
@@ -147,34 +188,7 @@ function ProofSavingsBody() {
       {loading || error || !data ? (
         <div className="card"><PageState loading={loading} error={error} empty={!data && !loading ? "No savings proof yet" : undefined} /></div>
       ) : (
-        <>
-          <div className="grid kpi-row">
-            <div className="card kpi">
-              <div className="label">Counterfactual spend</div>
-              <div className="value">{usd(data.counterfactual_spend_usd, 0)}</div>
-              <div className="foot">what the traffic would have cost</div>
-            </div>
-            <div className="card kpi">
-              <div className="label">Actual spend</div>
-              <div className="value">{usd(data.actual_spend_usd, 0)}</div>
-              <div className="foot">measured optimized spend</div>
-            </div>
-            <div className="card kpi">
-              <div className="label">Gross saved</div>
-              <div className="value">{usd(data.gross_savings_usd, 0)}</div>
-              <div className="foot">{savingsRate === null ? "no baseline yet" : `${percent(savingsRate)} reduction from baseline`}</div>
-            </div>
-            <div className="card kpi">
-              <div className="label">Net to customer</div>
-              <div className="value">{usd(data.net_savings_usd, 0)}</div>
-              <div className="foot">after {usd(data.varsten_fee_usd, 0)} Varsten fee</div>
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-head"><h3>Measurement note</h3></div>
-            <div className="card-pad muted-copy">{data.measurement_note}</div>
-          </div>
-        </>
+        <ProofSavingsContent data={data} />
       )}
     </div>
   );
@@ -271,6 +285,107 @@ function ProofDataQualityBody() {
   );
 }
 
+function EvalCaptureCard({
+  config,
+  error,
+  loading,
+  minSamples,
+  onToggle,
+  toggling,
+}: {
+  config: EvalConfig | null | undefined;
+  error: string | null;
+  loading: boolean;
+  minSamples: number;
+  onToggle: (enabled: boolean) => void;
+  toggling: boolean;
+}) {
+  return (
+    <div className="card">
+      <div className="card-head"><h3>Eval harness</h3></div>
+      <div className="card-pad">
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={config?.eval_capture_enabled ?? false}
+            disabled={loading || toggling}
+            onChange={(e) => onToggle(e.target.checked)}
+          />
+          Sample real traffic into the replay corpus
+        </label>
+        <p className="eval-note">
+          Off by default. When on, a sampled, redaction-eligible copy of real prompts and their
+          answers is stored (TTL&apos;d, capped per route) so a cheaper-model swap can be proven safe
+          on real traffic before it is applied. Golden sets below are the strongest signal and never expire.
+        </p>
+        {error ? <p className="form-error">{error}</p> : null}
+        <EvalRoutesTable minSamples={minSamples} routes={config?.routes ?? []} />
+      </div>
+    </div>
+  );
+}
+
+function EvalRoutesTable({ minSamples, routes }: { minSamples: number; routes: EvalRouteCorpus[] }) {
+  if (routes.length === 0) {
+    return <p className="eval-note">No replay samples yet. Enable capture or add golden samples to build the corpus.</p>;
+  }
+  return (
+    <table className="tbl">
+      <thead><tr><th>Route</th><th className="r">Traffic</th><th className="r">Golden</th><th className="r">Ready</th></tr></thead>
+      <tbody>
+        {routes.map((route) => <EvalRouteRow key={route.route_key} minSamples={minSamples} route={route} />)}
+      </tbody>
+    </table>
+  );
+}
+
+function EvalRouteRow({ minSamples, route }: { minSamples: number; route: EvalRouteCorpus }) {
+  const ready = route.traffic_samples + route.golden_samples >= minSamples;
+  return (
+    <tr>
+      <td>{route.route_key}</td>
+      <td className="r">{compact(route.traffic_samples)}</td>
+      <td className="r">{compact(route.golden_samples)}</td>
+      <td className="r"><BinaryPill active={ready} activeLabel="Ready" inactiveLabel={`Need ${minSamples}`} inactiveTone="amber" /></td>
+    </tr>
+  );
+}
+
+function GoldenSampleForm({
+  busy,
+  expected,
+  onExpected,
+  onPrompt,
+  onRoute,
+  onSubmit,
+  prompt,
+  route,
+}: {
+  busy: boolean;
+  expected: string;
+  onExpected: (value: string) => void;
+  onPrompt: (value: string) => void;
+  onRoute: (value: string) => void;
+  onSubmit: (event: FormEvent) => void;
+  prompt: string;
+  route: string;
+}) {
+  const disabled = busy || !route.trim() || !prompt.trim() || !expected.trim();
+  return (
+    <div className="card">
+      <div className="card-head"><h3>Add golden sample</h3></div>
+      <form className="config-form" onSubmit={onSubmit}>
+        <input className="input" placeholder="Route (model), e.g. gpt-4o" value={route} onChange={(e) => onRoute(e.target.value)} />
+        <textarea className="input" placeholder="Prompt (the user message)" rows={3} value={prompt} onChange={(e) => onPrompt(e.target.value)} />
+        <textarea className="input" placeholder="Expected answer" rows={3} value={expected} onChange={(e) => onExpected(e.target.value)} />
+        <button className="btn primary" disabled={disabled} type="submit">
+          {busy ? "Adding..." : "Add golden sample"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function EvalHarnessControls() {
   const {
     activeProjectId,
@@ -330,63 +445,69 @@ function EvalHarnessControls() {
 
   return (
     <div className="grid cols-2">
-      <div className="card">
-        <div className="card-head"><h3>Eval harness</h3></div>
-        <div className="card-pad">
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={config?.eval_capture_enabled ?? false}
-              disabled={loading || togglingCapture}
-              onChange={(e) => toggleCapture(e.target.checked)}
-            />
-            Sample real traffic into the replay corpus
-          </label>
-          <p className="eval-note">
-            Off by default. When on, a sampled, redaction-eligible copy of real prompts and their
-            answers is stored (TTL&apos;d, capped per route) so a cheaper-model swap can be proven safe
-            on real traffic before it is applied. Golden sets below are the strongest signal and never expire.
-          </p>
-          {error ? <p className="form-error">{error}</p> : null}
-          {config && config.routes.length > 0 ? (
-            <table className="tbl">
-              <thead><tr><th>Route</th><th className="r">Traffic</th><th className="r">Golden</th><th className="r">Ready</th></tr></thead>
-              <tbody>
-                {config.routes.map((r) => {
-                  const ready = r.traffic_samples + r.golden_samples >= minSamples;
-                  return (
-                    <tr key={r.route_key}>
-                      <td>{r.route_key}</td>
-                      <td className="r">{compact(r.traffic_samples)}</td>
-                      <td className="r">{compact(r.golden_samples)}</td>
-                      <td className="r"><BinaryPill active={ready} activeLabel="Ready" inactiveLabel={`Need ${minSamples}`} inactiveTone="amber" /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <p className="eval-note">No replay samples yet. Enable capture or add golden samples to build the corpus.</p>
-          )}
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-head"><h3>Add golden sample</h3></div>
-        <form className="config-form" onSubmit={addGolden}>
-          <input className="input" placeholder="Route (model), e.g. gpt-4o" value={route} onChange={(e) => setRoute(e.target.value)} />
-          <textarea className="input" placeholder="Prompt (the user message)" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-          <textarea className="input" placeholder="Expected answer" rows={3} value={expected} onChange={(e) => setExpected(e.target.value)} />
-          <button className="btn primary" disabled={savingGolden || !route.trim() || !prompt.trim() || !expected.trim()} type="submit">
-            {savingGolden ? "Adding..." : "Add golden sample"}
-          </button>
-        </form>
-      </div>
+      <EvalCaptureCard
+        config={config}
+        error={error}
+        loading={loading}
+        minSamples={minSamples}
+        onToggle={toggleCapture}
+        toggling={togglingCapture}
+      />
+      <GoldenSampleForm
+        busy={savingGolden}
+        expected={expected}
+        onExpected={setExpected}
+        onPrompt={setPrompt}
+        onRoute={setRoute}
+        onSubmit={addGolden}
+        prompt={prompt}
+        route={route}
+      />
     </div>
   );
 }
 
 export function GuardrailsQualityView() {
   return <RequireSession><GuardrailsQualityBody /></RequireSession>;
+}
+
+function nullableTrim(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function nullableString(value: string): string | null {
+  return value === "" ? null : value;
+}
+
+function nullableNumber(value: string): number | null {
+  return value === "" ? null : Number(value);
+}
+
+function qualityGuardrailPayload({
+  autoRollback,
+  evalGate,
+  latency,
+  minScore,
+  route,
+  tier,
+}: {
+  autoRollback: boolean;
+  evalGate: string;
+  latency: string;
+  minScore: string;
+  route: string;
+  tier: string;
+}) {
+  return {
+    route: route.trim(),
+    min_model_tier: nullableTrim(tier),
+    eval_gate: nullableTrim(evalGate),
+    min_eval_score: nullableString(minScore),
+    max_latency_ms: nullableNumber(latency),
+    auto_rollback_enabled: autoRollback,
+    enabled: true,
+  };
 }
 
 function GuardrailsQualityBody() {
@@ -407,28 +528,25 @@ function GuardrailsQualityBody() {
   const [autoRollback, setAutoRollback] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  const resetForm = () => {
+    setRoute("");
+    setTier("");
+    setEvalGate("");
+    setMinScore("");
+    setLatency("");
+    setAutoRollback(true);
+  };
+
   const create = async (event: FormEvent) => {
     event.preventDefault();
     if (!route.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createQualityGuardrail(await getToken(), activeProjectId ?? undefined, {
-        route: route.trim(),
-        min_model_tier: tier.trim() || null,
-        eval_gate: evalGate.trim() || null,
-        min_eval_score: minScore === "" ? null : minScore,
-        max_latency_ms: latency === "" ? null : Number(latency),
-        auto_rollback_enabled: autoRollback,
-        enabled: true,
-      });
+      const payload = qualityGuardrailPayload({ autoRollback, evalGate, latency, minScore, route, tier });
+      const created = await api.createQualityGuardrail(await getToken(), activeProjectId ?? undefined, payload);
       setItems((current) => [...(current ?? []), created].sort((a, b) => a.route.localeCompare(b.route)));
-      setRoute("");
-      setTier("");
-      setEvalGate("");
-      setMinScore("");
-      setLatency("");
-      setAutoRollback(true);
+      resetForm();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

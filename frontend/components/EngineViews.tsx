@@ -134,43 +134,179 @@ function canApplyRecommendation(rec: Recommendation): boolean {
   return run?.status === "completed" && (run.verdict === "safe" || run.verdict === "needs_human");
 }
 
+function EvalMetric({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <>
+      <span>{label}</span>
+      <b>{value}</b>
+    </>
+  );
+}
+
+function evalQualityDelta(run: EvalRunSummary): string {
+  const interval =
+    run.score_delta_ci_low !== null && run.score_delta_ci_high !== null
+      ? ` (CI ${run.score_delta_ci_low}, ${run.score_delta_ci_high})`
+      : "";
+  return `${run.score_delta}${interval}`;
+}
+
+function EvalVerdictBadge({ run }: { run: EvalRunSummary }) {
+  if (!run.verdict) return null;
+  const verdict = EVAL_VERDICT[run.verdict] ?? { label: titleize(run.verdict), cls: "neutral" };
+  return <span className={`pill ${verdict.cls}`}>{verdict.label}</span>;
+}
+
 function EvalEvidence({ run }: { run: EvalRunSummary }) {
-  const verdict = run.verdict ? EVAL_VERDICT[run.verdict] ?? { label: titleize(run.verdict), cls: "neutral" } : null;
   return (
     <div className="eval-evidence">
       <div className="meta-row">
-        {verdict ? <span className={`pill ${verdict.cls}`}>{verdict.label}</span> : null}
+        <EvalVerdictBadge run={run} />
         <span className="pill neutral">candidate {run.candidate_model}</span>
         {run.scorer_type ? <span className="pill neutral">{titleize(run.scorer_type)} scoring</span> : null}
       </div>
       <div className="rec-meta">
-        <span>Samples</span>
-        <b>{run.sample_count}</b>
-        {run.objective_pass_rate !== null ? (
-          <>
-            <span>Objective parity</span>
-            <b>{percent(run.objective_pass_rate, 100)}</b>
-          </>
-        ) : null}
-        {run.score_delta !== null ? (
-          <>
-            <span>Quality delta</span>
-            <b>
-              {run.score_delta}
-              {run.score_delta_ci_low !== null && run.score_delta_ci_high !== null
-                ? ` (CI ${run.score_delta_ci_low}, ${run.score_delta_ci_high})`
-                : ""}
-            </b>
-          </>
-        ) : null}
-        {run.cost_delta_usd !== null ? (
-          <>
-            <span>Measured savings</span>
-            <b>{usd(run.cost_delta_usd, 0)}/mo</b>
-          </>
-        ) : null}
+        <EvalMetric label="Samples" value={run.sample_count} />
+        {run.objective_pass_rate !== null ? <EvalMetric label="Objective parity" value={percent(run.objective_pass_rate, 100)} /> : null}
+        {run.score_delta !== null ? <EvalMetric label="Quality delta" value={evalQualityDelta(run)} /> : null}
+        {run.cost_delta_usd !== null ? <EvalMetric label="Measured savings" value={`${usd(run.cost_delta_usd, 0)}/mo`} /> : null}
       </div>
       {run.notes ? <p className="eval-note">{run.notes}</p> : null}
+    </div>
+  );
+}
+
+function RecommendationBadges({ recommendation }: { recommendation: Recommendation }) {
+  return (
+    <div className="meta-row">
+      <span className="pill accent">{leverLabel(recommendation.lever)}</span>
+      <span className={`pill ${riskClass(recommendation.risk_level)}`}>
+        {titleize(recommendation.risk_level)} risk
+      </span>
+      <span className="pill neutral">{percent(recommendation.confidence)} confidence</span>
+      {recommendation.gated ? <span className="pill neutral">Eval gated</span> : null}
+    </div>
+  );
+}
+
+function RecommendationMeta({ recommendation }: { recommendation: Recommendation }) {
+  const targetLabel = recommendation.target_type ? titleize(recommendation.target_type) : "Target";
+  const target = recommendation.target_key ?? recommendation.related_feature ?? recommendation.related_model ?? "project-wide";
+  return (
+    <div className="rec-meta">
+      <EvalMetric label={targetLabel} value={target} />
+      <EvalMetric label="Method" value={titleize(recommendation.measurement_method)} />
+      {recommendation.monthly_request_volume !== null ? (
+        <EvalMetric label="Requests" value={compact(recommendation.monthly_request_volume)} />
+      ) : null}
+    </div>
+  );
+}
+
+function RecommendationEvalStatus({
+  gated,
+  run,
+  running,
+}: {
+  gated: boolean;
+  run: EvalRunSummary | null | undefined;
+  running: boolean | undefined;
+}) {
+  if (run) return <EvalEvidence run={run} />;
+  if (running) return <p className="eval-note">Replaying real traffic through the candidate model…</p>;
+  if (gated) return <p className="eval-note">This model swap must clear a shadow eval on real traffic before it can be applied.</p>;
+  return null;
+}
+
+function evaluateButtonLabel(running: boolean | undefined, run: EvalRunSummary | null | undefined): string {
+  if (running) return "Evaluating…";
+  return run ? "Re-evaluate" : "Evaluate";
+}
+
+function RecommendationEvaluateButton({
+  busy,
+  id,
+  onEvaluate,
+  run,
+  running,
+}: {
+  busy?: boolean;
+  id: string;
+  onEvaluate: (id: string) => void;
+  run: EvalRunSummary | null | undefined;
+  running: boolean | undefined;
+}) {
+  return (
+    <button className="btn" disabled={busy || running} onClick={() => onEvaluate(id)} type="button">
+      {evaluateButtonLabel(running, run)}
+    </button>
+  );
+}
+
+function RecommendationStatusButton({
+  busy,
+  children,
+  className = "btn",
+  disabled,
+  id,
+  onStatus,
+  status,
+  title,
+}: {
+  busy?: boolean;
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  id: string;
+  onStatus: (id: string, status: RecommendationStatus) => void;
+  status: RecommendationStatus;
+  title?: string;
+}) {
+  return (
+    <button className={className} disabled={busy || disabled} title={title} onClick={() => onStatus(id, status)} type="button">
+      {children}
+    </button>
+  );
+}
+
+function RecommendationActions({
+  busy,
+  gated,
+  gatedBlocked,
+  id,
+  onEvaluate,
+  onStatus,
+  run,
+  running,
+}: {
+  busy?: boolean;
+  gated: boolean;
+  gatedBlocked: boolean;
+  id: string;
+  onEvaluate?: (id: string) => void;
+  onStatus?: (id: string, status: RecommendationStatus) => void;
+  run: EvalRunSummary | null | undefined;
+  running: boolean | undefined;
+}) {
+  if (!onStatus) return null;
+  const showEvaluate = gated && onEvaluate;
+  return (
+    <div className="rec-actions">
+      {showEvaluate ? <RecommendationEvaluateButton id={id} busy={busy} run={run} running={running} onEvaluate={onEvaluate} /> : null}
+      <RecommendationStatusButton
+        className="btn primary"
+        disabled={running || gatedBlocked}
+        busy={busy}
+        id={id}
+        onStatus={onStatus}
+        status="applied"
+        title={gatedBlocked ? "Run a shadow eval that clears before applying" : undefined}
+      >
+        Apply
+      </RecommendationStatusButton>
+      <RecommendationStatusButton busy={busy} disabled={running} id={id} onStatus={onStatus} status="dismissed">
+        Dismiss
+      </RecommendationStatusButton>
     </div>
   );
 }
@@ -190,75 +326,33 @@ function RecommendationCard({
 }) {
   const savings = recommendation.estimated_monthly_savings_usd;
   const run = recommendation.latest_eval;
-  const running = evaluating || evalIsRunning(run);
-  const gatedBlocked = recommendation.gated && !canApplyRecommendation(recommendation);
+  const gated = Boolean(recommendation.gated);
+  const running = Boolean(evaluating || evalIsRunning(run));
+  const gatedBlocked = gated && !canApplyRecommendation(recommendation);
   // Measured savings replace the estimate once an eval has produced them.
   const measured = recommendation.measurement_method === "replay_measured";
   return (
     <div className="rec-card">
       <div className="rec-main">
-        <div className="meta-row">
-          <span className="pill accent">{leverLabel(recommendation.lever)}</span>
-          <span className={`pill ${riskClass(recommendation.risk_level)}`}>
-            {titleize(recommendation.risk_level)} risk
-          </span>
-          <span className="pill neutral">{percent(recommendation.confidence)} confidence</span>
-          {recommendation.gated ? <span className="pill neutral">Eval gated</span> : null}
-        </div>
+        <RecommendationBadges recommendation={recommendation} />
         <h3>{recommendation.title}</h3>
         <p>{recommendation.rationale ?? recommendation.description}</p>
-        <div className="rec-meta">
-          <span>{recommendation.target_type ? titleize(recommendation.target_type) : "Target"}</span>
-          <b>{recommendation.target_key ?? recommendation.related_feature ?? recommendation.related_model ?? "project-wide"}</b>
-          <span>Method</span>
-          <b>{titleize(recommendation.measurement_method)}</b>
-          {recommendation.monthly_request_volume !== null ? (
-            <>
-              <span>Requests</span>
-              <b>{compact(recommendation.monthly_request_volume)}</b>
-            </>
-          ) : null}
-        </div>
-        {run ? <EvalEvidence run={run} /> : null}
-        {running ? <p className="eval-note">Replaying real traffic through the candidate model…</p> : null}
-        {recommendation.gated && !run && !running ? (
-          <p className="eval-note">This model swap must clear a shadow eval on real traffic before it can be applied.</p>
-        ) : null}
+        <RecommendationMeta recommendation={recommendation} />
+        <RecommendationEvalStatus gated={gated} run={run} running={running} />
       </div>
       <div className="rec-side">
         <div className="rec-money">{savings === null ? "Needs pricing" : usd(savings, 0)}</div>
         <div className="rec-sub">{measured ? "measured monthly savings" : "estimated monthly savings"}</div>
-        {onStatus ? (
-          <div className="rec-actions">
-            {recommendation.gated && onEvaluate ? (
-              <button
-                className="btn"
-                disabled={busy || running}
-                onClick={() => onEvaluate(recommendation.id)}
-                type="button"
-              >
-                {running ? "Evaluating…" : run ? "Re-evaluate" : "Evaluate"}
-              </button>
-            ) : null}
-            <button
-              className="btn primary"
-              disabled={busy || running || gatedBlocked}
-              title={gatedBlocked ? "Run a shadow eval that clears before applying" : undefined}
-              onClick={() => onStatus(recommendation.id, "applied")}
-              type="button"
-            >
-              Apply
-            </button>
-            <button
-              className="btn"
-              disabled={busy || running}
-              onClick={() => onStatus(recommendation.id, "dismissed")}
-              type="button"
-            >
-              Dismiss
-            </button>
-          </div>
-        ) : null}
+        <RecommendationActions
+          busy={busy}
+          gated={gated}
+          gatedBlocked={gatedBlocked}
+          id={recommendation.id}
+          onEvaluate={onEvaluate}
+          onStatus={onStatus}
+          run={run}
+          running={running}
+        />
       </div>
     </div>
   );
@@ -713,6 +807,96 @@ function RouteSavings({ route }: { route: ActiveRoute }) {
   );
 }
 
+function routeCostLabel(route: ActiveRoute): string {
+  if (route.control_avg_cost_usd === null || route.treatment_avg_cost_usd === null) return "-";
+  return `${usd(route.control_avg_cost_usd, 4)} → ${usd(route.treatment_avg_cost_usd, 4)}`;
+}
+
+function ActiveRoutesEmpty({ error, routes }: { error: string | null; routes: ActiveRoute[] | null | undefined }) {
+  if (error && routes && routes.length === 0) {
+    return <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>;
+  }
+  return null;
+}
+
+function ActiveRoutesHeader({
+  busy,
+  onCheckDrift,
+}: {
+  busy: boolean;
+  onCheckDrift: () => void;
+}) {
+  return (
+    <div className="card-head">
+      <h3>Active routes</h3>
+      <span className="sub">live cheaper-model swaps, savings measured against a concurrent holdback</span>
+      <button className="btn" disabled={busy} onClick={onCheckDrift} type="button">
+        {busy ? "Checking…" : "Run drift check"}
+      </button>
+    </div>
+  );
+}
+
+function ActiveRouteRow({
+  busy,
+  onPause,
+  route,
+}: {
+  busy: boolean;
+  onPause: (route: ActiveRoute) => void;
+  route: ActiveRoute;
+}) {
+  return (
+    <tr>
+      <td>
+        <b>{route.incumbent_model}</b> &rarr; {route.candidate_model}
+        {route.activated_at ? <span className="eval-note"> live {relativeTime(route.activated_at)}</span> : null}
+      </td>
+      <td className="r">{holdbackLabel(route.holdback_percent)}</td>
+      <td className="r">{compact(route.control_requests)} / {compact(route.treatment_requests)}</td>
+      <td className="r">{routeCostLabel(route)}</td>
+      <td className="r"><RouteQuality route={route} /></td>
+      <td className="r"><RouteSavings route={route} /></td>
+      <td className="r">
+        <button className="btn" disabled={busy} onClick={() => onPause(route)} type="button">
+          Pause
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function ActiveRoutesTable({
+  busyId,
+  onPause,
+  routes,
+}: {
+  busyId: string | null;
+  onPause: (route: ActiveRoute) => void;
+  routes: ActiveRoute[];
+}) {
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th className="r">Holdback</th>
+          <th className="r">Control / Treatment</th>
+          <th className="r">Cost / req</th>
+          <th className="r">Quality</th>
+          <th className="r">Measured savings (mo)</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {routes.map((route) => (
+          <ActiveRouteRow key={route.id} route={route} busy={busyId === route.id} onPause={onPause} />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function ActiveRoutesCard() {
   const {
     activeProjectId,
@@ -758,59 +942,13 @@ function ActiveRoutesCard() {
 
   // Only meaningful once at least one cheaper-model swap is live; stay quiet otherwise.
   if (loading || error || !routes || routes.length === 0) {
-    // Still surface a drift-check error/notice if one was set after a sweep.
-    if (error && routes && routes.length === 0) {
-      return <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>;
-    }
-    return null;
+    return <ActiveRoutesEmpty error={error} routes={routes} />;
   }
   return (
     <div className="card">
-      <div className="card-head">
-        <h3>Active routes</h3>
-        <span className="sub">live cheaper-model swaps, savings measured against a concurrent holdback</span>
-        <button className="btn" disabled={busyId === "drift"} onClick={checkDrift} type="button">
-          {busyId === "drift" ? "Checking…" : "Run drift check"}
-        </button>
-      </div>
+      <ActiveRoutesHeader busy={busyId === "drift"} onCheckDrift={checkDrift} />
       {error ? <div className="card-pad"><p className="form-error">{error}</p></div> : null}
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th>Route</th>
-            <th className="r">Holdback</th>
-            <th className="r">Control / Treatment</th>
-            <th className="r">Cost / req</th>
-            <th className="r">Quality</th>
-            <th className="r">Measured savings (mo)</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {routes.map((route) => (
-            <tr key={route.id}>
-              <td>
-                <b>{route.incumbent_model}</b> &rarr; {route.candidate_model}
-                {route.activated_at ? <span className="eval-note"> live {relativeTime(route.activated_at)}</span> : null}
-              </td>
-              <td className="r">{holdbackLabel(route.holdback_percent)}</td>
-              <td className="r">{compact(route.control_requests)} / {compact(route.treatment_requests)}</td>
-              <td className="r">
-                {route.control_avg_cost_usd !== null && route.treatment_avg_cost_usd !== null
-                  ? `${usd(route.control_avg_cost_usd, 4)} → ${usd(route.treatment_avg_cost_usd, 4)}`
-                  : "-"}
-              </td>
-              <td className="r"><RouteQuality route={route} /></td>
-              <td className="r"><RouteSavings route={route} /></td>
-              <td className="r">
-                <button className="btn" disabled={busyId === route.id} onClick={() => pause(route)} type="button">
-                  Pause
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ActiveRoutesTable routes={routes} busyId={busyId} onPause={pause} />
     </div>
   );
 }
