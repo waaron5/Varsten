@@ -91,6 +91,36 @@ class Settings(BaseSettings):
     # human decides. On -> a drifted route is disabled automatically.
     drift_auto_rollback_enabled: bool = True
 
+    # --- Batching lever data plane (async /v1/batches mirror) ---
+    # Where staged batch .jsonl files live. "local" (filesystem, dev/CI) or "s3"
+    # (prod). The proxy never holds the file in memory: the client uploads it to
+    # storage via a pre-signed URL, and the backend streams it to OpenAI.
+    batch_storage_backend: str = "local"
+    # Local backend root (dev/CI). One subtree per project for tenant isolation.
+    batch_local_storage_dir: str = "/tmp/varsten-batches"
+    # S3 backend settings (only read when batch_storage_backend == "s3"). Region
+    # and credentials come from the standard AWS env/instance role, not from here.
+    batch_s3_bucket: str = ""
+    batch_s3_region: str = ""
+    # Lifetime of a pre-signed upload/download URL.
+    batch_presign_ttl_seconds: int = 3600
+    # How long staged input/output objects are retained before cleanup. The batch
+    # file is a documented content store (like the cache), so it is TTL'd.
+    batch_object_ttl_hours: int = 72
+    # Default completion window passed to OpenAI's Batch API.
+    batch_completion_window: str = "24h"
+
+    # --- Background scheduler ---
+    # Master switch for the in-process periodic scheduler (drift sweep + batch
+    # poller). Off by default so tests and one-off processes do not spawn loops;
+    # production sets SCHEDULER_ENABLED=true. With more than one app instance, run
+    # this on a single leader (or move to external cron) so sweeps do not overlap.
+    scheduler_enabled: bool = False
+    # How often the quality-drift safety sweep runs across all projects.
+    drift_sweep_interval_seconds: int = 300
+    # How often the batch poller syncs in-flight batch jobs across all projects.
+    batch_poll_interval_seconds: int = 120
+
     # --- Observability ---
     log_level: str = "INFO"
     # JSON logs in production; set false for plain human-readable logs locally.

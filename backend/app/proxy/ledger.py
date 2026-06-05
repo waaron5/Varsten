@@ -127,3 +127,65 @@ def record_proxy_usage(
     db.add(event)
     db.commit()
     return event
+
+
+def record_batch_usage(
+    db: Session,
+    project: Project,
+    api_key_id: uuid.UUID | None,
+    *,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    actual_cost_usd: Decimal | None,
+    naive_cost_usd: Decimal | None,
+    request_count: int,
+    now: datetime | None = None,
+) -> UsageEvent:
+    """Record one model's slice of a completed batch in the ledger. The batch lever
+    is the direct method: actual spend is the batch-priced cost, the naive baseline
+    is the synchronous price for the same tokens, and the difference is measured
+    savings (no holdback needed -- batch pricing is a contractual discount on
+    identical tokens). Metadata only; the .jsonl never reaches the ledger."""
+    at = now or datetime.now(timezone.utc)
+    saved = (
+        naive_cost_usd - actual_cost_usd
+        if (naive_cost_usd is not None and actual_cost_usd is not None)
+        else None
+    )
+    metadata = {
+        "proxy": True,
+        "batch": True,
+        "lever": "batching",
+        "request_count": request_count,
+        "naive_cost_usd": str(naive_cost_usd) if naive_cost_usd is not None else None,
+        "saved_usd": str(saved) if saved is not None else None,
+    }
+    event = UsageEvent(
+        project_id=project.id,
+        organization_id=project.organization_id,
+        api_key_id=api_key_id,
+        provider="openai",
+        model=model,
+        operation="batch",
+        request_type="batch",
+        feature="proxy",
+        environment="production",
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_input_tokens=0,
+        total_tokens=input_tokens + output_tokens,
+        cost_usd=actual_cost_usd,
+        cost_source="catalog" if actual_cost_usd is not None else "unknown",
+        pricing_status="priced" if actual_cost_usd is not None else "model_not_in_catalog",
+        price_version_id=None,
+        currency="USD",
+        status="success",
+        success=True,
+        latency_ms=None,
+        event_metadata=metadata,
+        occurred_at=at,
+    )
+    db.add(event)
+    db.commit()
+    return event

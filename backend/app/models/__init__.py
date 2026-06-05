@@ -1,5 +1,6 @@
 from app.models.api_key import ApiKey
 from app.models.base import Base
+from app.models.batch import BatchJob
 from app.models.engine import (
     AlertRule,
     BudgetRule,
@@ -24,6 +25,7 @@ __all__ = [
     "ApiKey",
     "AlertRule",
     "Base",
+    "BatchJob",
     "BudgetRule",
     "CustomerEconomics",
     "EvalRun",

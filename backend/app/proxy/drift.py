@@ -69,6 +69,33 @@ def evaluate_drift(
     }
 
 
+def sweep_all_projects(db: Session, *, now: datetime | None = None) -> dict[str, list[dict]]:
+    """Run the drift sweep for every project that has an enabled holdback-measured
+    policy. The scheduler's entry point; idempotent and per-project safe. Returns a
+    map of project_id -> rolled-back routes (only projects with rollbacks)."""
+    now = now or datetime.now(timezone.utc)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    project_ids = list(
+        db.scalars(
+            select(ProxyPolicy.project_id)
+            .where(
+                ProxyPolicy.enabled.is_(True),
+                ProxyPolicy.lever.in_((*ROUTING_LEVERS, TRIM_LEVER)),
+            )
+            .distinct()
+        )
+    )
+    results: dict[str, list[dict]] = {}
+    for pid in project_ids:
+        project = db.get(Project, pid)
+        if project is None:
+            continue
+        rolled = check_and_rollback_drift(db, project, start, now=now)
+        if rolled:
+            results[str(pid)] = rolled
+    return results
+
+
 def check_and_rollback_drift(
     db: Session, project: Project, period_start: datetime, now: datetime | None = None
 ) -> list[dict]:
