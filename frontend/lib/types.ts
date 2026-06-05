@@ -191,10 +191,16 @@ export interface EvalRunSummary {
   completed_at: string | null;
 }
 
-export interface ActiveRoute {
-  id: string;
-  incumbent_model: string;
-  candidate_model: string;
+export interface RoutePredicate {
+  max_prompt_chars?: number;
+  route_when_tools?: boolean;
+  route_when_json_schema?: boolean;
+  max_completion_tokens?: number;
+}
+
+// The live holdback A/B a route or trim policy is measured by. Shared so the
+// dashboard renders both with the same components.
+export interface HoldbackMeasurement {
   enabled: boolean;
   holdback_percent: string | null;
   activated_at: string | null;
@@ -213,6 +219,34 @@ export interface ActiveRoute {
   treatment_ok_rate: number | null;
   quality_drop: number | null;
   drifted: boolean;
+}
+
+export interface ActiveRoute extends HoldbackMeasurement {
+  id: string;
+  lever?: LeverName | string;
+  incumbent_model: string;
+  candidate_model: string;
+  predicate?: RoutePredicate | null;
+}
+
+// A live token-trim policy, keyed on the model whose requests are trimmed.
+export interface ActiveTrim extends HoldbackMeasurement {
+  id: string;
+  model: string;
+}
+
+export interface BatchJob {
+  id: string;
+  status: string;
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  actual_cost_usd: string | null;
+  naive_cost_usd: string | null;
+  saved_usd: string | null;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
 }
 
 export interface EvalRouteCorpus {

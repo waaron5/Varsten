@@ -189,6 +189,32 @@ def test_local_upload_rejects_cross_tenant_key(client, provision, db_session, mo
     assert resp.status_code == 403
 
 
+def test_engine_batches_lists_for_dashboard(client, provision, db_session, monkeypatch):
+    # The dashboard reads batches via the session-authed engine endpoint, not the
+    # API-key /v1/batches the client uses.
+    ws, project = _ws(provision, db_session, monkeypatch, "auth0|batchE")
+    job = BatchJob(
+        organization_id=project.organization_id, project_id=project.id,
+        status="finalized", input_storage_key="k", request_count=2,
+        input_tokens=3000, output_tokens=1500,
+        actual_cost_usd=Decimal("0.0027"), naive_cost_usd=Decimal("0.0054"), saved_usd=Decimal("0.0027"),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    resp = client.get(
+        "/v1/engine/batches",
+        headers={"Authorization": f"Bearer {ws['token']}"},
+        params={"project_id": str(project.id)},
+    )
+    assert resp.status_code == 200
+    rows = resp.json()
+    row = next(r for r in rows if r["id"] == str(job.id))
+    assert row["status"] == "finalized"
+    assert Decimal(row["saved_usd"]) == Decimal("0.0027")
+    assert row["input_tokens"] == 3000
+
+
 def test_unpriced_model_surfaces_no_fabricated_savings(client, provision, db_session, monkeypatch):
     ws, project = _ws(provision, db_session, monkeypatch, "auth0|batch4")
     # A model the catalog does not cover: savings cannot be measured, must be null

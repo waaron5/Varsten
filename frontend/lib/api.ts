@@ -10,7 +10,9 @@ import type {
   AnalysisSpend,
   AlertRuleCreate,
   ActiveRoute,
+  ActiveTrim,
   AutomationLever,
+  BatchJob,
   BudgetRule,
   BudgetRuleCreate,
   Breakdown,
@@ -209,6 +211,24 @@ export const api = {
       token,
       { method: "POST" },
     ),
+
+  engineTrims: (token: string, projectId: string | undefined) =>
+    request<ActiveTrim[]>(readPath("/engine/trims", projectId), token),
+
+  updateEngineTrim: (
+    token: string,
+    projectId: string | undefined,
+    policyId: string,
+    body: { enabled?: boolean; holdback_percent?: string },
+  ) =>
+    request<{ id: string; enabled: boolean; holdback_percent: string | null }>(
+      readPath(`/engine/trims/${policyId}`, projectId),
+      token,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  engineBatches: (token: string, projectId: string | undefined) =>
+    request<BatchJob[]>(readPath("/engine/batches", projectId), token),
 
   updateLever: (
     token: string,

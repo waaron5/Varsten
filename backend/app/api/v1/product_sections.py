@@ -15,6 +15,7 @@ from app.models import (
     ROUTING_LEVERS,
     AlertRule,
     ApiKey,
+    BatchJob,
     BudgetRule,
     CustomerEconomics,
     LeverConfig,
@@ -709,6 +710,62 @@ def engine_update_route(
         "enabled": rule.enabled,
         "holdback_percent": _route_str(rule.holdback_percent),
     }
+
+
+@router.patch("/engine/trims/{policy_id}", response_model=None)
+def engine_update_trim(
+    policy_id: uuid.UUID,
+    payload: RouteConfigUpdate,
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Adjust a live token-trim policy: pause it (traffic stops being trimmed) or
+    change the holdback fraction. Same 50% holdback cap as routes."""
+    policy = db.get(ProxyPolicy, policy_id)
+    if policy is None or policy.project_id != project.id or policy.lever != TRIM_LEVER:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="trim policy not found")
+    if payload.enabled is not None:
+        policy.enabled = payload.enabled
+    if payload.holdback_percent is not None:
+        policy.holdback_percent = payload.holdback_percent
+    db.commit()
+    return {
+        "id": policy.id,
+        "enabled": policy.enabled,
+        "holdback_percent": _route_str(policy.holdback_percent),
+    }
+
+
+@router.get("/engine/batches", response_model=None)
+def engine_batches(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Recent batch jobs and their measured savings, for the dashboard. The
+    client-facing submit/poll API is the API-key-authed /v1/batches; this is the
+    session-authed read the Engine view uses."""
+    jobs = db.scalars(
+        select(BatchJob)
+        .where(BatchJob.project_id == project.id)
+        .order_by(BatchJob.created_at.desc())
+        .limit(50)
+    )
+    return [
+        {
+            "id": str(job.id),
+            "status": job.status,
+            "request_count": job.request_count,
+            "input_tokens": job.input_tokens,
+            "output_tokens": job.output_tokens,
+            "actual_cost_usd": _route_str(job.actual_cost_usd),
+            "naive_cost_usd": _route_str(job.naive_cost_usd),
+            "saved_usd": _route_str(job.saved_usd),
+            "submitted_at": job.submitted_at,
+            "completed_at": job.completed_at,
+            "created_at": job.created_at,
+        }
+        for job in jobs
+    ]
 
 
 @router.patch("/engine/levers/{lever}", response_model=None)

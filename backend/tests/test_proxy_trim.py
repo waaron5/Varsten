@@ -276,6 +276,35 @@ def test_trim_drift_auto_rollback(client, provision, db_session, monkeypatch):
     assert rec.status == "rolled_back"
 
 
+def test_engine_update_trim_pauses_and_caps_holdback(client, provision, db_session):
+    project = _project(db_session, provision)
+    policy = ProxyPolicy(
+        organization_id=project.organization_id, project_id=project.id,
+        lever=LEVER, target_type="model", target_key=MODEL, enabled=True,
+        holdback_percent=Decimal("0.05"),
+    )
+    db_session.add(policy)
+    db_session.commit()
+
+    resp = client.patch(
+        f"/v1/engine/trims/{policy.id}",
+        headers={"Authorization": "Bearer auth0|trim"},
+        params={"project_id": str(project.id)},
+        json={"enabled": False, "holdback_percent": "0.2"},
+    )
+    assert resp.status_code == 200
+    db_session.refresh(policy)
+    assert policy.enabled is False and policy.holdback_percent == Decimal("0.2")
+
+    bad = client.patch(
+        f"/v1/engine/trims/{policy.id}",
+        headers={"Authorization": "Bearer auth0|trim"},
+        params={"project_id": str(project.id)},
+        json={"holdback_percent": "0.9"},
+    )
+    assert bad.status_code == 422
+
+
 def test_engine_trims_reports_ab(client, provision, db_session):
     project = _project(db_session, provision)
     at = datetime.now(timezone.utc) - timedelta(days=1)

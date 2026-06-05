@@ -20,14 +20,18 @@ import { api } from "@/lib/api";
 import { compact, relativeTime, usd } from "@/lib/format";
 import type {
   ActiveRoute,
+  ActiveTrim,
   AutomationLever,
   AutomationMode,
+  BatchJob,
   CommandCenter,
   EvalRunSummary,
+  HoldbackMeasurement,
   LeverConfig,
   Recommendation,
   RecommendationAction,
   RecommendationStatus,
+  RoutePredicate,
 } from "@/lib/types";
 
 const ENGINE_TABS = [
@@ -878,25 +882,25 @@ function holdbackLabel(percent: string | null): string {
   return `${Math.round(Number(percent) * 100)}%`;
 }
 
-function RouteSavings({ route }: { route: ActiveRoute }) {
-  if (route.measured_savings_usd === null) {
+function RouteSavings({ row }: { row: HoldbackMeasurement }) {
+  if (row.measured_savings_usd === null) {
     return <span className="eval-note">gathering arms…</span>;
   }
   const band =
-    route.measured_savings_ci_low_usd !== null && route.measured_savings_ci_high_usd !== null
-      ? ` (CI ${usd(route.measured_savings_ci_low_usd, 2)}–${usd(route.measured_savings_ci_high_usd, 2)})`
+    row.measured_savings_ci_low_usd !== null && row.measured_savings_ci_high_usd !== null
+      ? ` (CI ${usd(row.measured_savings_ci_low_usd, 2)}–${usd(row.measured_savings_ci_high_usd, 2)})`
       : "";
   return (
     <span>
-      {usd(route.measured_savings_usd, 2)}
-      <span className="eval-note">{band}{route.has_signal ? "" : " · provisional"}</span>
+      {usd(row.measured_savings_usd, 2)}
+      <span className="eval-note">{band}{row.has_signal ? "" : " · provisional"}</span>
     </span>
   );
 }
 
-function routeCostLabel(route: ActiveRoute): string {
-  if (route.control_avg_cost_usd === null || route.treatment_avg_cost_usd === null) return "-";
-  return `${usd(route.control_avg_cost_usd, 4)} → ${usd(route.treatment_avg_cost_usd, 4)}`;
+function routeCostLabel(row: HoldbackMeasurement): string {
+  if (row.control_avg_cost_usd === null || row.treatment_avg_cost_usd === null) return "-";
+  return `${usd(row.control_avg_cost_usd, 4)} → ${usd(row.treatment_avg_cost_usd, 4)}`;
 }
 
 function ActiveRoutesEmpty({ error, routes }: { error: string | null; routes: ActiveRoute[] | null | undefined }) {
@@ -937,13 +941,17 @@ function ActiveRouteRow({
     <tr>
       <td>
         <b>{route.incumbent_model}</b> &rarr; {route.candidate_model}
+        {route.lever === "smart_routing" ? <span className="pill neutral">predicate</span> : null}
+        {route.lever === "smart_routing" && route.predicate ? (
+          <span className="eval-note"> {predicateSummary(route.predicate)}</span>
+        ) : null}
         {route.activated_at ? <span className="eval-note"> live {relativeTime(route.activated_at)}</span> : null}
       </td>
       <td className="r">{holdbackLabel(route.holdback_percent)}</td>
       <td className="r">{compact(route.control_requests)} / {compact(route.treatment_requests)}</td>
       <td className="r">{routeCostLabel(route)}</td>
-      <td className="r"><RouteQuality route={route} /></td>
-      <td className="r"><RouteSavings route={route} /></td>
+      <td className="r"><RouteQuality row={route} /></td>
+      <td className="r"><RouteSavings row={route} /></td>
       <td className="r">
         <button className="btn" disabled={busy} onClick={() => onPause(route)} type="button">
           Pause
@@ -951,6 +959,15 @@ function ActiveRouteRow({
       </td>
     </tr>
   );
+}
+
+function predicateSummary(p: RoutePredicate): string {
+  const parts: string[] = [];
+  if (p.max_prompt_chars != null) parts.push(`≤${compact(p.max_prompt_chars)} chars`);
+  if (p.max_completion_tokens != null) parts.push(`≤${compact(p.max_completion_tokens)} out`);
+  if (!p.route_when_tools) parts.push("no tools");
+  if (!p.route_when_json_schema) parts.push("no JSON");
+  return parts.join(" · ");
 }
 
 function ActiveRoutesTable({
@@ -1040,18 +1057,167 @@ function ActiveRoutesCard() {
   );
 }
 
-function RouteQuality({ route }: { route: ActiveRoute }) {
-  if (route.drifted) {
+function RouteQuality({ row }: { row: HoldbackMeasurement }) {
+  if (row.drifted) {
     return <span className="pill amber">drift</span>;
   }
-  if (route.treatment_ok_rate === null || route.control_ok_rate === null) {
+  if (row.treatment_ok_rate === null || row.control_ok_rate === null) {
     return <span className="eval-note">-</span>;
   }
   return (
     <span>
-      {percent(route.treatment_ok_rate)}
-      <span className="eval-note"> vs {percent(route.control_ok_rate)}</span>
+      {percent(row.treatment_ok_rate)}
+      <span className="eval-note"> vs {percent(row.control_ok_rate)}</span>
     </span>
+  );
+}
+
+function ActiveTrimRow({
+  busy,
+  onPause,
+  trim,
+}: {
+  busy: boolean;
+  onPause: (trim: ActiveTrim) => void;
+  trim: ActiveTrim;
+}) {
+  return (
+    <tr>
+      <td>
+        <b>{trim.model}</b> <span className="eval-note">trimmed prompts</span>
+        {trim.activated_at ? <span className="eval-note"> · live {relativeTime(trim.activated_at)}</span> : null}
+      </td>
+      <td className="r">{holdbackLabel(trim.holdback_percent)}</td>
+      <td className="r">{compact(trim.control_requests)} / {compact(trim.treatment_requests)}</td>
+      <td className="r">{routeCostLabel(trim)}</td>
+      <td className="r"><RouteQuality row={trim} /></td>
+      <td className="r"><RouteSavings row={trim} /></td>
+      <td className="r">
+        <button className="btn" disabled={busy} onClick={() => onPause(trim)} type="button">
+          Pause
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function ActiveTrimsCard() {
+  const {
+    activeProjectId,
+    data: trims,
+    error,
+    getToken,
+    loading,
+    setData: setTrims,
+    setError,
+  } = useProjectResource<ActiveTrim[]>(api.engineTrims, []);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const pause = async (trim: ActiveTrim) => {
+    setBusyId(trim.id);
+    setError(null);
+    try {
+      await api.updateEngineTrim(await getToken(), activeProjectId ?? undefined, trim.id, { enabled: false });
+      setTrims((current) => (current ?? []).filter((t) => t.id !== trim.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Quiet until at least one trim policy is live.
+  if (loading || error || !trims || trims.length === 0) {
+    return error && trims && trims.length === 0
+      ? <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>
+      : null;
+  }
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Active trims</h3>
+        <span className="sub">live token-trim policies, savings measured against an untrimmed holdback</span>
+      </div>
+      {error ? <div className="card-pad"><p className="form-error">{error}</p></div> : null}
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th className="r">Holdback</th>
+            <th className="r">Control / Treatment</th>
+            <th className="r">Cost / req</th>
+            <th className="r">Quality</th>
+            <th className="r">Measured savings (mo)</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {trims.map((trim) => (
+            <ActiveTrimRow key={trim.id} trim={trim} busy={busyId === trim.id} onPause={pause} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const BATCH_STATUS_CLASS: Record<string, string> = {
+  finalized: "green",
+  completed: "green",
+  failed: "amber",
+  expired: "amber",
+  cancelled: "neutral",
+};
+
+function BatchStatusPill({ status }: { status: string }) {
+  const cls = BATCH_STATUS_CLASS[status] ?? "accent";
+  return <span className={`pill ${cls}`}>{titleize(status)}</span>;
+}
+
+function BatchJobRow({ job }: { job: BatchJob }) {
+  return (
+    <tr>
+      <td>{relativeTime(job.submitted_at ?? job.created_at)}</td>
+      <td><BatchStatusPill status={job.status} /></td>
+      <td className="r">{compact(job.request_count)}</td>
+      <td className="r">{compact(job.input_tokens)} / {compact(job.output_tokens)}</td>
+      <td className="r">{job.naive_cost_usd === null ? "-" : usd(job.naive_cost_usd, 2)}</td>
+      <td className="r emphasis">{job.saved_usd === null ? "-" : usd(job.saved_usd, 2)}</td>
+    </tr>
+  );
+}
+
+function BatchJobsCard() {
+  const { data: jobs, error, loading } = useProjectResource<BatchJob[]>(api.engineBatches, []);
+
+  // Quiet until the client has run at least one batch.
+  if (loading || error || !jobs || jobs.length === 0) {
+    return error && jobs && jobs.length === 0
+      ? <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>
+      : null;
+  }
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Batch jobs</h3>
+        <span className="sub">async batch runs, ~50% off measured against synchronous pricing</span>
+      </div>
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Submitted</th>
+            <th>Status</th>
+            <th className="r">Requests</th>
+            <th className="r">Tokens in / out</th>
+            <th className="r">Naive cost</th>
+            <th className="r">Saved</th>
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.map((job) => <BatchJobRow key={job.id} job={job} />)}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1096,6 +1262,8 @@ function EngineLeversBody() {
         </div>
       )}
       <ActiveRoutesCard />
+      <ActiveTrimsCard />
+      <BatchJobsCard />
     </div>
   );
 }
