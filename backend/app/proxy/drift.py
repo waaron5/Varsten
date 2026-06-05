@@ -16,9 +16,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.models import Project, ProxyRoutingRule, Recommendation, RecommendationAction, UsageEvent
+from app.models import ROUTING_LEVERS, Project, ProxyPolicy, Recommendation, RecommendationAction, UsageEvent
 from app.proxy.experiment import MIN_ARM_SAMPLES
 from app.proxy.routing import ARM_CONTROL, ARM_TREATMENT
+from app.proxy.trim import LEVER as TRIM_LEVER
 
 logger = get_logger("varsten.proxy.drift")
 
@@ -80,20 +81,32 @@ def check_and_rollback_drift(
     if not settings.drift_auto_rollback_enabled:
         return rolled
 
+    # All holdback-measured levers carry an objective drift guard: routing swaps
+    # and token-trim transforms. (Trim is a same-model experiment, so its
+    # experiment pair is model -> model.)
     rules = list(
         db.scalars(
-            select(ProxyRoutingRule).where(
-                ProxyRoutingRule.project_id == project.id, ProxyRoutingRule.enabled.is_(True)
+            select(ProxyPolicy).where(
+                ProxyPolicy.project_id == project.id,
+                ProxyPolicy.lever.in_((*ROUTING_LEVERS, TRIM_LEVER)),
+                ProxyPolicy.enabled.is_(True),
             )
         )
     )
     for rule in rules:
-        d = evaluate_drift(db, project.id, rule.incumbent_model, rule.candidate_model, period_start)
+        incumbent = rule.incumbent_model
+        candidate = rule.candidate_model if rule.lever in ROUTING_LEVERS else incumbent
+        if not candidate:
+            continue
+        d = evaluate_drift(db, project.id, incumbent, candidate, period_start)
         if not d["drifted"]:
             continue
         rule.enabled = False
+        route_label = (
+            f"{incumbent} -> {candidate}" if rule.lever in ROUTING_LEVERS else f"{incumbent} (trim)"
+        )
         title = (
-            f"Auto-rollback {rule.incumbent_model} -> {rule.candidate_model}: quality drift "
+            f"Auto-rollback {route_label}: quality drift "
             f"({d['treatment_ok_rate']} vs {d['control_ok_rate']} control)"
         )
         rec = db.get(Recommendation, rule.source_recommendation_id) if rule.source_recommendation_id else None
@@ -107,7 +120,7 @@ def check_and_rollback_drift(
                 project_id=project.id,
                 recommendation_id=rule.source_recommendation_id,
                 actor_user_id=None,
-                lever="cheaper_model",
+                lever=rule.lever,
                 action_type="rolled_back",
                 status="completed",
                 source="system",
@@ -118,7 +131,7 @@ def check_and_rollback_drift(
         )
         logger.warning("route auto-rolled back on drift", extra={"project_id": str(project.id), "route": title})
         rolled.append({
-            "route": f"{rule.incumbent_model} -> {rule.candidate_model}",
+            "route": route_label,
             **d,
         })
     db.commit()

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
 from app.models import (
+    ROUTING_LEVERS,
     AlertRule,
     ApiKey,
     BudgetRule,
@@ -21,7 +22,7 @@ from app.models import (
     OrgMembership,
     Project,
     ProviderConnection,
-    ProxyRoutingRule,
+    ProxyPolicy,
     QualityGuardrail,
     Recommendation,
     RecommendationAction,
@@ -38,7 +39,8 @@ from app.eval.gate import (
 )
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.experiment import compute_experiment
-from app.proxy.routing import activate_rule, deactivate_rules_for_recommendation
+from app.proxy.execution import activate_execution, deactivate_execution
+from app.proxy.trim import LEVER as TRIM_LEVER
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
 from app.schemas.eval import EvalRunSummary
@@ -495,12 +497,11 @@ def engine_update_recommendation(
         except EvalGateError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         apply_measured_savings(recommendation, gating_run)
-        # Execution: a passed cheaper-model swap now actually routes traffic.
-        if gating_run is not None:
-            activate_rule(db, project, recommendation, gating_run.candidate_model, now=now)
+        # Execution: activate the lever's policy (routing swap, trim transform, ...).
+        activate_execution(db, project, recommendation, gating_run, now=now)
     elif payload.status in {"dismissed", "rolled_back"}:
-        # Stop routing this swap; traffic returns to the incumbent model.
-        deactivate_rules_for_recommendation(db, recommendation)
+        # Stop executing this lever; traffic returns to the original behaviour.
+        deactivate_execution(db, recommendation)
     recommendation.status = payload.status
     recommendation.updated_at = now
     recommendation.resolved_at = now if payload.status != "open" else None
@@ -556,9 +557,13 @@ def engine_routes(
     start = _month_start(now)
     rules = list(
         db.scalars(
-            select(ProxyRoutingRule)
-            .where(ProxyRoutingRule.project_id == project.id, ProxyRoutingRule.enabled.is_(True))
-            .order_by(ProxyRoutingRule.activated_at.desc())
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project.id,
+                ProxyPolicy.lever.in_(ROUTING_LEVERS),
+                ProxyPolicy.enabled.is_(True),
+            )
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
         )
     )
     titles = {
@@ -576,13 +581,76 @@ def engine_routes(
         drift = evaluate_drift(db, project.id, rule.incumbent_model, rule.candidate_model, start)
         out.append({
             "id": rule.id,
+            "lever": rule.lever,
             "incumbent_model": rule.incumbent_model,
             "candidate_model": rule.candidate_model,
+            "predicate": (rule.params or {}).get("predicate"),
             "enabled": rule.enabled,
             "holdback_percent": _route_str(rule.holdback_percent),
             "activated_at": rule.activated_at,
             "source_recommendation_id": rule.source_recommendation_id,
             "source_title": titles.get(rule.source_recommendation_id),
+            "control_requests": ab["control_requests"],
+            "treatment_requests": ab["treatment_requests"],
+            "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
+            "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
+            "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
+            "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
+            "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
+            "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
+            "has_signal": ab["has_signal"],
+            "control_ok_rate": drift["control_ok_rate"],
+            "treatment_ok_rate": drift["treatment_ok_rate"],
+            "quality_drop": drift["quality_drop"],
+            "drifted": drift["drifted"],
+        })
+    return out
+
+
+@router.get("/engine/trims", response_model=None)
+def engine_trims(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Active token-trim policies the proxy is executing now, each with its live
+    holdback A/B. Trim is a same-model experiment (the treatment arm sends a
+    trimmed body, so it bills fewer input tokens), so the measured savings is the
+    arm cost-per-request difference, like routing."""
+    now = datetime.now(timezone.utc)
+    start = _month_start(now)
+    policies = list(
+        db.scalars(
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project.id,
+                ProxyPolicy.lever == TRIM_LEVER,
+                ProxyPolicy.enabled.is_(True),
+            )
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
+        )
+    )
+    titles = {
+        rid: title
+        for rid, title in db.execute(
+            select(Recommendation.id, Recommendation.title).where(
+                Recommendation.id.in_([p.source_recommendation_id for p in policies if p.source_recommendation_id])
+            )
+        ).all()
+    }
+
+    out = []
+    for policy in policies:
+        model = policy.target_key
+        ab = compute_experiment(db, project.id, model, model, start)
+        drift = evaluate_drift(db, project.id, model, model, start)
+        out.append({
+            "id": policy.id,
+            "model": model,
+            "enabled": policy.enabled,
+            "holdback_percent": _route_str(policy.holdback_percent),
+            "activated_at": policy.activated_at,
+            "source_recommendation_id": policy.source_recommendation_id,
+            "source_title": titles.get(policy.source_recommendation_id),
             "control_requests": ab["control_requests"],
             "treatment_requests": ab["treatment_requests"],
             "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
@@ -628,8 +696,8 @@ def engine_update_route(
     """Adjust a live route: pause it (traffic returns to the incumbent) or change
     the holdback fraction. Holdback is capped at 50% so a route can never send the
     majority of traffic to the unproven arm by mistake."""
-    rule = db.get(ProxyRoutingRule, rule_id)
-    if rule is None or rule.project_id != project.id:
+    rule = db.get(ProxyPolicy, rule_id)
+    if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
     if payload.enabled is not None:
         rule.enabled = payload.enabled

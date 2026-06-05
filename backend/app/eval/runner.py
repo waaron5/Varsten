@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.eval import scoring
 from app.eval.openai_ops import judge_pairwise, replay_candidate
+from app.proxy import predicate as predicate_mod
 from app.models import EvalRun, EvalSampleResult, Project, Recommendation, ReplaySample
 from app.models.eval import (
     RUN_COMPLETED,
@@ -72,6 +73,13 @@ def _price(db: Session, org_id: uuid.UUID, model: str, in_tok: int, out_tok: int
     return cost
 
 
+def _eligible_for_smart_routing(sample: ReplaySample) -> bool:
+    """Whether a captured sample would be routed to the candidate under the default
+    smart-routing predicate (the same one activation seeds)."""
+    body = {"messages": sample.request_messages, **(sample.request_params or {})}
+    return predicate_mod.is_eligible(body, predicate_mod.DEFAULT_PREDICATE)
+
+
 def select_samples(db: Session, run: EvalRun) -> list[ReplaySample]:
     """Samples for the route, golden first (strongest), then newest traffic that
     has an incumbent answer to compare against. Capped for run cost."""
@@ -107,6 +115,11 @@ async def run_eval(
 
     try:
         samples = select_samples(db, run)
+        # Smart routing only ever sends the predicate-eligible subset to the
+        # candidate, so prove the candidate on exactly that subset, not on traffic
+        # it would never receive.
+        if run.lever == "smart_routing":
+            samples = [s for s in samples if _eligible_for_smart_routing(s)]
         scores: list[Decimal] = []
         scorers: set[str] = set()
         obj_total = 0

@@ -1,13 +1,15 @@
-"""Inline model routing: the execution side of the cheaper-model lever.
+"""Inline model routing: the execution side of the model-swap levers.
 
-`resolve_effective_model` runs on the proxy hot path. It is a single indexed
-lookup and fails open: any error returns the requested model unchanged, so a
+`resolve_route` runs on the proxy hot path. It is a single indexed lookup and
+fails open: any error returns None (forward the requested model unchanged), so a
 routing problem can never break a request, only stop a saving. (The in-VPC
 north-star caches this policy in memory; a query is fine at this stage and
 mirrors the existing cache lookup.)
 
-`activate_rule` / `deactivate_rules` run on the control plane when a recommendation
-is applied or dismissed.
+`activate_rule` / `deactivate_rules_for_recommendation` run on the control plane
+when a recommendation is applied or dismissed. They read and write the unified
+`proxy_policies` table; this module owns the routing-lever (cheaper_model,
+smart_routing) view of it.
 """
 import random
 import uuid
@@ -19,9 +21,12 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.models import Project, ProxyRoutingRule, Recommendation
+from app.models import ROUTING_LEVERS, Project, ProxyPolicy, Recommendation
+from app.proxy import predicate as predicate_mod
 
 logger = get_logger("varsten.proxy.routing")
+
+SMART_ROUTING = "smart_routing"
 
 # Ledger metadata arm tags for the live holdback A/B.
 ARM_CONTROL = "control"
@@ -33,23 +38,41 @@ class RouteDecision(NamedTuple):
     holdback_percent: Decimal
 
 
-def resolve_route(db: Session, project_id: uuid.UUID, requested_model: str) -> RouteDecision | None:
-    """The candidate model and holdback fraction for an enabled rule on this route,
-    or None when no rule applies. Fail-open: any error returns None (forward the
-    original model)."""
+def _routing_policy_for_model(db: Session, project_id: uuid.UUID, requested_model: str) -> ProxyPolicy | None:
+    """The enabled routing-lever policy that applies to this incumbent model, if
+    any. At most one is expected; the most recently activated wins if not."""
+    return db.scalars(
+        select(ProxyPolicy)
+        .where(
+            ProxyPolicy.project_id == project_id,
+            ProxyPolicy.lever.in_(ROUTING_LEVERS),
+            ProxyPolicy.target_key == requested_model,
+            ProxyPolicy.enabled.is_(True),
+        )
+        .order_by(ProxyPolicy.activated_at.desc().nullslast())
+        .limit(1)
+    ).first()
+
+
+def resolve_route(
+    db: Session, project_id: uuid.UUID, requested_model: str, body: dict | None = None
+) -> RouteDecision | None:
+    """The candidate model and holdback fraction for an enabled routing policy on
+    this model, or None when none applies. For smart_routing the per-request
+    predicate decides eligibility: a request that fails it stays on the incumbent
+    (returns None) and never enters the holdback experiment. Fail-open: any error
+    returns None (forward the original model)."""
     if not requested_model:
         return None
     try:
-        row = db.execute(
-            select(ProxyRoutingRule.candidate_model, ProxyRoutingRule.holdback_percent).where(
-                ProxyRoutingRule.project_id == project_id,
-                ProxyRoutingRule.incumbent_model == requested_model,
-                ProxyRoutingRule.enabled.is_(True),
-            )
-        ).first()
-        if row is None:
+        policy = _routing_policy_for_model(db, project_id, requested_model)
+        if policy is None or not policy.candidate_model:
             return None
-        return RouteDecision(row.candidate_model, row.holdback_percent or Decimal("0"))
+        if policy.lever == SMART_ROUTING:
+            pred = (policy.params or {}).get("predicate")
+            if not predicate_mod.is_eligible(body or {}, pred):
+                return None
+        return RouteDecision(policy.candidate_model, policy.holdback_percent or Decimal("0"))
     except Exception:
         logger.exception("routing lookup failed; forwarding original model", extra={"project_id": str(project_id)})
         return None
@@ -63,19 +86,13 @@ def assign_arm(holdback_percent: Decimal) -> str:
 
 
 def resolve_effective_model(db: Session, project_id: uuid.UUID, requested_model: str) -> str | None:
-    """The candidate model an enabled rule routes this request to, or None when no
-    rule applies. Fail-open: on any error, return None (forward the original)."""
+    """The candidate model an enabled routing policy routes this request to, or
+    None when none applies. Fail-open: on any error, return None."""
     if not requested_model:
         return None
     try:
-        candidate = db.scalar(
-            select(ProxyRoutingRule.candidate_model).where(
-                ProxyRoutingRule.project_id == project_id,
-                ProxyRoutingRule.incumbent_model == requested_model,
-                ProxyRoutingRule.enabled.is_(True),
-            )
-        )
-        return candidate
+        policy = _routing_policy_for_model(db, project_id, requested_model)
+        return policy.candidate_model if policy is not None else None
     except Exception:
         logger.exception("routing lookup failed; forwarding original model", extra={"project_id": str(project_id)})
         return None
@@ -88,39 +105,49 @@ def activate_rule(
     candidate_model: str,
     *,
     now: datetime | None = None,
-) -> ProxyRoutingRule | None:
-    """Activate (or refresh) the routing rule for an applied cheaper-model
+) -> ProxyPolicy | None:
+    """Activate (or refresh) the routing policy for an applied model-swap
     recommendation. Returns None when the recommendation lacks an incumbent model
     or a candidate to route to."""
     incumbent = recommendation.related_model
+    lever = recommendation.lever if recommendation.lever in ROUTING_LEVERS else "cheaper_model"
     if not incumbent or not candidate_model or incumbent == candidate_model:
         return None
     at = now or datetime.now(timezone.utc)
-    rule = db.scalar(
-        select(ProxyRoutingRule).where(
-            ProxyRoutingRule.project_id == project.id,
-            ProxyRoutingRule.incumbent_model == incumbent,
+    policy = db.scalar(
+        select(ProxyPolicy).where(
+            ProxyPolicy.project_id == project.id,
+            ProxyPolicy.lever == lever,
+            ProxyPolicy.target_key == incumbent,
         )
     )
-    if rule is None:
-        rule = ProxyRoutingRule(
+    if policy is None:
+        policy = ProxyPolicy(
             organization_id=project.organization_id,
             project_id=project.id,
-            incumbent_model=incumbent,
+            lever=lever,
+            target_type="model",
+            target_key=incumbent,
         )
-        db.add(rule)
-    rule.candidate_model = candidate_model
-    rule.enabled = True
-    rule.source_recommendation_id = recommendation.id
-    rule.activated_at = at
-    return rule
+        db.add(policy)
+    params = {**(policy.params or {}), "candidate_model": candidate_model}
+    # Smart routing gates each request on a deterministic predicate; seed a
+    # conservative default the operator can tune. A plain cheaper-model swap has
+    # no predicate (every request on the model is routed).
+    if lever == SMART_ROUTING and "predicate" not in params:
+        params["predicate"] = dict(predicate_mod.DEFAULT_PREDICATE)
+    policy.params = params
+    policy.enabled = True
+    policy.source_recommendation_id = recommendation.id
+    policy.activated_at = at
+    return policy
 
 
 def deactivate_rules_for_recommendation(db: Session, recommendation: Recommendation) -> None:
-    """Turn off any rule sourced from this recommendation (e.g. on dismiss or
+    """Turn off any policy sourced from this recommendation (e.g. on dismiss or
     rollback), returning that route to the incumbent model."""
     db.execute(
-        update(ProxyRoutingRule)
-        .where(ProxyRoutingRule.source_recommendation_id == recommendation.id)
+        update(ProxyPolicy)
+        .where(ProxyPolicy.source_recommendation_id == recommendation.id)
         .values(enabled=False)
     )

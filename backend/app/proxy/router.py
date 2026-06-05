@@ -21,7 +21,7 @@ from app.core.logging import get_logger
 from app.db.session import get_db
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import cache, openai, quality, routing
+from app.proxy import cache, openai, quality, routing, trim
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.embedding import embed, embedding_input
 from app.proxy.keys import openai_key_for_project
@@ -92,25 +92,40 @@ async def chat_completions(
     # the control arm (held back on the incumbent) or treatment (routed to the
     # candidate). Both arms are metered so savings are a measured A/B, not modelled.
     # Skipped when bypassed. Fail-open: resolve returns None and we forward. ---
+    # A request joins at most one lever's holdback experiment so savings never
+    # double-count. Routing claims it first; if no routing swap applies to this
+    # model, token-trim may run its own A/B (control = untrimmed, treatment =
+    # trimmed body, same model, fewer input tokens).
     routed_from: str | None = None
     upstream_model = model
     arm: str | None = None
     exp_from: str | None = None
     exp_to: str | None = None
+    trim_applied = False
     if not bypass:
-        decision = routing.resolve_route(db, project.id, model)
+        decision = routing.resolve_route(db, project.id, model, body)
         if decision and decision.candidate_model and decision.candidate_model != model:
             exp_from, exp_to = model, decision.candidate_model
             arm = routing.assign_arm(decision.holdback_percent)
             if arm == routing.ARM_TREATMENT:
                 routed_from = model
                 upstream_model = decision.candidate_model
+        else:
+            tdecision = trim.resolve_trim(db, project.id, model)
+            if tdecision:
+                # Same-model experiment: from == to marks a token-trim A/B.
+                exp_from = exp_to = model
+                arm = routing.assign_arm(tdecision.holdback_percent)
+                if arm == routing.ARM_TREATMENT:
+                    body, trim_applied = trim.apply_trim(body, tdecision.params)
 
     # --- forward to OpenAI (cache miss, or bypassed). store_cache off when bypassed ---
     mode = "bypass" if bypass else "optimize"
     headers = {"X-Varsten-Mode": mode, "X-Varsten-Cache": "bypass" if bypass else "miss"}
     if routed_from:
         headers["X-Varsten-Routed"] = f"{routed_from}->{upstream_model}"
+    if trim_applied:
+        headers["X-Varsten-Trim"] = "applied"
     if arm:
         headers["X-Varsten-Arm"] = arm
 

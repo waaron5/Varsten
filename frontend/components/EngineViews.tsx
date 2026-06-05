@@ -377,29 +377,88 @@ function ActionRow({ action }: { action: RecommendationAction }) {
   );
 }
 
+function LeverMiniIcon({ lever }: { lever: string | null | undefined }) {
+  const iconPath = lever ? LEVER_META[lever]?.iconPath : undefined;
+  return (
+    <span className="cc-rec-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d={iconPath || "M4 12h16 M12 4v16"} />
+      </svg>
+    </span>
+  );
+}
+
+function recommendationTarget(recommendation: Recommendation): string {
+  return recommendation.target_key
+    ?? recommendation.related_feature
+    ?? recommendation.related_model
+    ?? recommendation.related_provider
+    ?? "Project-wide";
+}
+
+function recommendationDetail(recommendation: Recommendation): string {
+  const details = [
+    recommendation.monthly_request_volume !== null ? `${compact(recommendation.monthly_request_volume)} req/mo` : null,
+    recommendation.quality_delta_percent !== null ? `quality delta ${signedPercent(recommendation.quality_delta_percent)}` : null,
+    `${titleize(recommendation.risk_level)} risk`,
+  ].filter(Boolean);
+  return details.join(" · ");
+}
+
+function CommandDecisionRow({
+  busy,
+  onStatus,
+  recommendation,
+}: {
+  busy: boolean;
+  onStatus: (id: string, status: RecommendationStatus) => void;
+  recommendation: Recommendation;
+}) {
+  const savings = recommendation.estimated_monthly_savings_usd;
+  return (
+    <div className="cc-rec-row">
+      <LeverMiniIcon lever={recommendation.lever} />
+      <div className="cc-rec-body">
+        <div className="cc-rec-title">{recommendation.title}</div>
+        <div className="cc-rec-sub">{recommendationDetail(recommendation)}</div>
+      </div>
+      <div className="cc-rec-amount">
+        <div>{savings === null ? "TBD" : usd(savings, 0)}</div>
+        <span>per month</span>
+      </div>
+      <div className="cc-rec-actions">
+        <span className={`pill ${riskClass(recommendation.risk_level)}`}>{titleize(recommendation.risk_level)} risk</span>
+        <button className="btn primary" disabled={busy} onClick={() => onStatus(recommendation.id, "applied")} type="button">
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CommandKpis({ data }: { data: CommandCenter }) {
   const trust = data.live_savings.trust_score === null ? "-" : percent(data.live_savings.trust_score);
   return (
-    <div className="grid kpi-row">
+    <div className="grid kpi-row command-kpi-row">
       <div className="card kpi">
         <div className="label">Spend this month</div>
         <div className="value">{usd(data.live_savings.spend_month, 0)}</div>
-        <div className="foot">{compact(data.requests_month)} requests measured</div>
+        <div className="foot">{usd(data.live_savings.net_saved_month, 0)} after cuts</div>
       </div>
       <div className="card kpi">
         <div className="label">Saved this month</div>
         <div className="value">{usd(data.live_savings.saved_month, 0)}</div>
-        <div className="foot">gross savings attributed to levers</div>
+        <div className="foot">gross savings attributed</div>
       </div>
       <div className="card kpi">
-        <div className="label">Annualized savings</div>
+        <div className="label">Annual run-rate</div>
         <div className="value">{usd(data.live_savings.annual_run_rate, 0)}</div>
-        <div className="foot">based on current monthly savings pace</div>
+        <div className="foot">current savings pace</div>
       </div>
       <div className="card kpi">
         <div className="label">Trust score</div>
         <div className="value">{trust}</div>
-        <div className="foot">pricing and metadata coverage</div>
+        <div className="foot">{compact(data.requests_month)} requests measured</div>
       </div>
     </div>
   );
@@ -415,17 +474,17 @@ function DecisionQueue({
   recommendations: Recommendation[];
 }) {
   return (
-    <div className="card">
+    <div className="card command-card command-decision-card">
       <div className="card-head">
         <h3>Decision queue</h3>
-        <div className="right"><span className="pill neutral">{recommendations.length} open</span></div>
+        <span className="sub">{recommendations.length} actions need your call</span>
       </div>
       {recommendations.length === 0 ? (
         <PageState empty="No open recommendations" emptyDetail="The engine has no savings decisions awaiting review." />
       ) : (
-        <div className="rec-list">
-          {recommendations.slice(0, 6).map((rec) => (
-            <RecommendationCard key={rec.id} recommendation={rec} busy={busyId === rec.id} onStatus={onStatus} />
+        <div className="cc-scroll cc-decision-scroll">
+          {recommendations.map((rec) => (
+            <CommandDecisionRow key={rec.id} recommendation={rec} busy={busyId === rec.id} onStatus={onStatus} />
           ))}
         </div>
       )}
@@ -433,23 +492,52 @@ function DecisionQueue({
   );
 }
 
-function TopWasteCard({
+function TopWasteTable({
   busyId,
   onStatus,
-  recommendation,
+  recommendations,
 }: {
   busyId: string | null;
   onStatus: (id: string, status: RecommendationStatus) => void;
-  recommendation: Recommendation | null;
+  recommendations: Recommendation[];
 }) {
   return (
-    <div className="card">
+    <div className="card command-card command-waste-card">
       <div className="card-head">
-        <h3>Top waste now</h3>
+        <h3>Top waste right now</h3>
+        <span className="sub">where the next dollar is hiding</span>
       </div>
-      {recommendation ? (
-        <div className="card-pad">
-          <RecommendationCard recommendation={recommendation} busy={busyId === recommendation.id} onStatus={onStatus} />
+      {recommendations.length > 0 ? (
+        <div className="cc-scroll cc-table-scroll">
+          <table className="tbl cc-waste-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Driver</th>
+                <th className="r">Monthly spend</th>
+                <th className="r">Recoverable</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {recommendations.map((recommendation) => (
+                <tr key={recommendation.id}>
+                  <td>
+                    <b>{recommendationTarget(recommendation)}</b>
+                    <span>{leverLabel(recommendation.lever)}</span>
+                  </td>
+                  <td>{recommendation.rationale ?? recommendation.description}</td>
+                  <td className="r">{recommendation.monthly_request_volume === null ? "-" : `${compact(recommendation.monthly_request_volume)} req`}</td>
+                  <td className="r emphasis">{recommendation.estimated_monthly_savings_usd === null ? "TBD" : usd(recommendation.estimated_monthly_savings_usd, 0)}</td>
+                  <td className="r">
+                    <button className="btn" disabled={busyId === recommendation.id} onClick={() => onStatus(recommendation.id, "applied")} type="button">
+                      Apply
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         <PageState empty="No dominant waste source" emptyDetail="Savings opportunities will appear as usage accumulates." />
@@ -460,15 +548,15 @@ function TopWasteCard({
 
 function RecentActions({ actions }: { actions: RecommendationAction[] }) {
   return (
-    <div className="card">
+    <div className="card command-card command-actions-card">
       <div className="card-head">
-        <h3>Recent actions</h3>
+        <h3>Recent auto-actions</h3>
       </div>
       {actions.length === 0 ? (
         <PageState empty="No actions recorded" emptyDetail="Applied recommendations and engine actions will appear here." />
       ) : (
-        <div className="action-list">
-          {actions.slice(0, 8).map((action) => <ActionRow key={action.id} action={action} />)}
+        <div className="action-list cc-scroll cc-actions-scroll">
+          {actions.map((action) => <ActionRow key={action.id} action={action} />)}
         </div>
       )}
     </div>
@@ -484,17 +572,21 @@ function CommandCenterContent({
   data: CommandCenter;
   onStatus: (id: string, status: RecommendationStatus) => void;
 }) {
+  const wasteRows = data.top_waste_now
+    ? [
+      data.top_waste_now,
+      ...data.decision_queue.filter((recommendation) => recommendation.id !== data.top_waste_now?.id),
+    ]
+    : data.decision_queue;
   return (
-    <>
+    <div className="command-center-stack">
       <CommandKpis data={data} />
-      <div className="grid cols-2">
+      <div className="grid command-main-grid">
         <DecisionQueue busyId={busyId} recommendations={data.decision_queue} onStatus={onStatus} />
-        <div className="grid">
-          <TopWasteCard busyId={busyId} recommendation={data.top_waste_now} onStatus={onStatus} />
-          <RecentActions actions={data.recent_actions} />
-        </div>
+        <RecentActions actions={data.recent_actions} />
       </div>
-    </>
+      <TopWasteTable busyId={busyId} recommendations={wasteRows} onStatus={onStatus} />
+    </div>
   );
 }
 
@@ -594,12 +686,7 @@ function CommandCenterBody() {
   }
 
   return (
-    <div className="view">
-      <PageHeader
-        section="Operate"
-        title="Command Center"
-        description="The operating view for what Varsten should cut, prove, and watch right now."
-      />
+    <div className="view command-center-view">
       <CommandCenterContent busyId={busyId} data={data} onStatus={act} />
     </div>
   );

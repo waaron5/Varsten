@@ -15,7 +15,7 @@ from app.models.eval import EvalRun, EvalSampleResult, ReplaySample
 from app.models.pricing import ModelCatalog, ModelPrice, OrgModelPriceOverride
 from app.models.project import Project
 from app.models.proxy_cache import ProxyCacheEntry
-from app.models.proxy_routing import ProxyRoutingRule
+from app.models.proxy_policy import ROUTING_LEVERS, ProxyPolicy
 from app.models.recommendation import Recommendation
 from app.models.tenant import Organization, OrgMembership, User
 from app.models.usage_event import UsageEvent
@@ -37,7 +37,8 @@ __all__ = [
     "Organization",
     "Project",
     "ProxyCacheEntry",
-    "ProxyRoutingRule",
+    "ProxyPolicy",
+    "ROUTING_LEVERS",
     "ProviderConnection",
     "QualityGuardrail",
     "Recommendation",

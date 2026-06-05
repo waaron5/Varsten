@@ -187,6 +187,24 @@ def _add_token_trim_recommendation(
             continue
         target = _target_name(row.request_type, row.feature)
         savings = _run_rate(spend * Decimal("0.15"), now)
+        # The proxy resolves the trim transform by model, so carry the route's
+        # dominant model (most input tokens) as the execution target.
+        top = db.execute(
+            select(
+                UsageEvent.provider,
+                UsageEvent.model,
+                func.coalesce(func.sum(UsageEvent.input_tokens), 0).label("input_tokens"),
+            )
+            .where(
+                UsageEvent.project_id == project.id,
+                UsageEvent.received_at >= start,
+                UsageEvent.request_type.is_not_distinct_from(row.request_type),
+                UsageEvent.feature.is_not_distinct_from(row.feature),
+            )
+            .group_by(UsageEvent.provider, UsageEvent.model)
+            .order_by(func.coalesce(func.sum(UsageEvent.input_tokens), 0).desc())
+            .limit(1)
+        ).first()
         _upsert(
             db,
             project,
@@ -203,6 +221,8 @@ def _add_token_trim_recommendation(
                 confidence="medium",
                 target_type="route",
                 target_key=_route_key(row.request_type, row.feature),
+                related_provider=top.provider if top else None,
+                related_model=top.model if top else None,
                 related_feature=row.feature,
             ),
         )

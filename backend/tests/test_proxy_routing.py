@@ -18,7 +18,7 @@ from app.models import (
     EvalRun,
     ModelPrice,
     Project,
-    ProxyRoutingRule,
+    ProxyPolicy,
     Recommendation,
     UsageEvent,
 )
@@ -37,6 +37,19 @@ from app.proxy.routing import (
 
 INCUMBENT = "gpt-4o"
 CANDIDATE = "gpt-4o-mini"
+
+
+def _policy(project, *, incumbent=INCUMBENT, candidate=CANDIDATE, lever="cheaper_model", **kw):
+    """Build a routing-lever execution policy in the unified proxy_policies table."""
+    return ProxyPolicy(
+        organization_id=project.organization_id,
+        project_id=project.id,
+        lever=lever,
+        target_type="model",
+        target_key=incumbent,
+        params={"candidate_model": candidate},
+        **kw,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -93,10 +106,7 @@ def _seed_prices(db, project):
 
 def test_resolve_effective_model_only_when_enabled(client, provision, db_session):
     project = _project(db_session, provision)
-    rule = ProxyRoutingRule(
-        organization_id=project.organization_id, project_id=project.id,
-        incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
-    )
+    rule = _policy(project, enabled=True)
     db_session.add(rule)
     db_session.commit()
     assert resolve_effective_model(db_session, project.id, INCUMBENT) == CANDIDATE
@@ -112,7 +122,7 @@ def test_activate_then_deactivate(client, provision, db_session):
     rec = _mk_rec(db_session, project)
     activate_rule(db_session, project, rec, CANDIDATE)
     db_session.commit()
-    rule = db_session.scalar(select(ProxyRoutingRule).where(ProxyRoutingRule.project_id == project.id))
+    rule = db_session.scalar(select(ProxyPolicy).where(ProxyPolicy.project_id == project.id))
     assert rule.enabled and rule.candidate_model == CANDIDATE and rule.incumbent_model == INCUMBENT
 
     deactivate_rules_for_recommendation(db_session, rec)
@@ -141,7 +151,7 @@ def test_apply_through_engine_activates_rule(client, provision, db_session):
         json={"status": "applied"},
     )
     assert resp.status_code == 200
-    rule = db_session.scalar(select(ProxyRoutingRule).where(ProxyRoutingRule.project_id == project.id))
+    rule = db_session.scalar(select(ProxyPolicy).where(ProxyPolicy.project_id == project.id))
     assert rule is not None and rule.enabled and rule.candidate_model == CANDIDATE
 
 
@@ -187,11 +197,7 @@ def test_proxy_routes_request_to_candidate(client, provision, db_session, monkey
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
     _seed_prices(db_session, project)
     db_session.add(
-        ProxyRoutingRule(
-            organization_id=project.organization_id, project_id=project.id,
-            incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
-            holdback_percent=Decimal("0"),  # no holdback: deterministically treatment
-        )
+        _policy(project, enabled=True, holdback_percent=Decimal("0"))  # no holdback: deterministically treatment
     )
     db_session.commit()
 
@@ -229,11 +235,7 @@ def test_engine_routes_reports_holdback_ab(client, provision, db_session):
     project = _project(db_session, provision)
     _seed_prices(db_session, project)
     db_session.add(
-        ProxyRoutingRule(
-            organization_id=project.organization_id, project_id=project.id,
-            incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
-            holdback_percent=Decimal("0.1"), activated_at=datetime.now(timezone.utc),
-        )
+        _policy(project, enabled=True, holdback_percent=Decimal("0.1"), activated_at=datetime.now(timezone.utc))
     )
     # Concurrent arms: control stays on the incumbent, treatment routes to candidate.
     for _ in range(2):
@@ -261,11 +263,7 @@ def test_engine_routes_reports_holdback_ab(client, provision, db_session):
 
 def test_engine_route_patch_pauses_and_sets_holdback(client, provision, db_session):
     project = _project(db_session, provision)
-    rule = ProxyRoutingRule(
-        organization_id=project.organization_id, project_id=project.id,
-        incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
-        holdback_percent=Decimal("0.05"),
-    )
+    rule = _policy(project, enabled=True, holdback_percent=Decimal("0.05"))
     db_session.add(rule)
     db_session.commit()
 
@@ -312,11 +310,7 @@ def _record_q(db, project, arm, model, ok):
 
 def _rule_with_rec(db, project):
     rec = _mk_rec(db, project)
-    rule = ProxyRoutingRule(
-        organization_id=project.organization_id, project_id=project.id,
-        incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
-        holdback_percent=Decimal("0.1"), source_recommendation_id=rec.id,
-    )
+    rule = _policy(project, enabled=True, holdback_percent=Decimal("0.1"), source_recommendation_id=rec.id)
     db.add(rule)
     db.commit()
     return rule, rec
@@ -402,11 +396,7 @@ def test_holdback_keeps_control_on_incumbent(client, provision, db_session, monk
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
     _seed_prices(db_session, project)
     db_session.add(
-        ProxyRoutingRule(
-            organization_id=project.organization_id, project_id=project.id,
-            incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
-            holdback_percent=Decimal("1.0"),  # always control
-        )
+        _policy(project, enabled=True, holdback_percent=Decimal("1.0"))  # always control
     )
     db_session.commit()
 
@@ -434,12 +424,7 @@ def test_bypass_disables_routing(client, provision, db_session, monkeypatch):
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
     project.proxy_bypass_enabled = True
-    db_session.add(
-        ProxyRoutingRule(
-            organization_id=project.organization_id, project_id=project.id,
-            incumbent_model=INCUMBENT, candidate_model=CANDIDATE, enabled=True,
-        )
-    )
+    db_session.add(_policy(project, enabled=True))
     db_session.commit()
 
     seen: dict = {}

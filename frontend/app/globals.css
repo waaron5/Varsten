@@ -308,6 +308,177 @@ a { color: inherit; text-decoration: none; }
   width: 8px; height: 8px; margin-top: 6px; border-radius: 999px;
   background: var(--brand); flex: 0 0 auto;
 }
+
+/* Command center */
+.content:has(.command-center-view) { overflow: hidden; }
+.command-center-view {
+  height: calc(100vh - var(--header-h));
+  max-width: 1340px;
+  padding: 24px 26px 40px;
+  overflow: hidden;
+}
+.command-center-stack {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(132px, 286px);
+  gap: 16px;
+}
+.command-kpi-row {
+  margin-bottom: 0;
+}
+.command-kpi-row .kpi {
+  min-width: 0;
+  padding: 14px 16px;
+}
+.command-kpi-row .kpi .value { font-size: 26px; margin-top: 9px; }
+.command-kpi-row .kpi .foot {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-main-grid {
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.62fr) minmax(320px, 1fr);
+}
+.command-card {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.command-card .card-head {
+  min-height: 50px;
+  padding: 13px 18px;
+  flex: 0 0 auto;
+}
+.command-card .card-head h3 { font-size: 14px; }
+.cc-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.cc-decision-scroll {
+  flex: 1;
+  max-height: calc((82px * 3) + 1px);
+}
+.cc-rec-row {
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 104px auto;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.cc-rec-row:first-child { border-top: 0; }
+.cc-rec-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-press);
+  background: var(--brand-soft);
+  flex: 0 0 auto;
+}
+.cc-rec-icon svg { width: 17px; height: 17px; }
+.cc-rec-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.cc-rec-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.cc-rec-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.cc-rec-amount {
+  text-align: right;
+  white-space: nowrap;
+}
+.cc-rec-amount div {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.cc-rec-amount span {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.cc-rec-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 154px;
+}
+.cc-actions-scroll {
+  flex: 1;
+  max-height: calc((82px * 3) + 1px);
+  padding: 0;
+}
+.cc-actions-scroll .action-row {
+  min-height: 50px;
+  padding: 10px 18px;
+}
+.cc-actions-scroll .action-title {
+  gap: 8px;
+}
+.cc-actions-scroll .action-title b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.cc-actions-scroll .action-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-table-scroll {
+  flex: 1;
+  max-height: 234px;
+}
+.cc-waste-table { min-width: 760px; }
+.cc-waste-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.cc-waste-table td {
+  height: 47px;
+}
+.cc-waste-table td:first-child b,
+.cc-waste-table td:first-child span { display: block; }
+.cc-waste-table td:first-child span {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.cc-waste-table td:nth-child(2) {
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.cc-waste-table .emphasis {
+  color: var(--brand-press);
+  font-weight: 700;
+}
 .mini-title { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
 .muted-copy { color: var(--text-2); }
 
