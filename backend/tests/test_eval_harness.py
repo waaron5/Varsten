@@ -97,7 +97,7 @@ def _run(db, rec, project, candidate, replay_fn, judge_fn=None) -> EvalRun:
     db.refresh(run)
 
     async def default_judge(prompt, inc, cand, key):
-        return "tie"
+        return "tie", ""
 
     asyncio.run(run_eval(db, run, key="sk-test", replay_fn=replay_fn, judge_fn=judge_fn or default_judge))
     db.refresh(run)
@@ -185,7 +185,7 @@ def test_subjective_route_needs_human_never_auto(client, provision, db_session, 
         return _completion("A different but plausible long explanation of the topic.")
 
     async def judge_candidate_wins(prompt, inc, cand, key):
-        return "candidate"
+        return "candidate", ""
 
     run = _run(db_session, rec, project, "gpt-4o-mini", replay_prose, judge_candidate_wins)
     # Even when the judge likes the candidate, a subjective route can only be

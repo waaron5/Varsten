@@ -3,16 +3,21 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api import deps
+from app.core.config import settings
 from app.db.session import engine, get_db
 from app.main import app
 
 
 @pytest.fixture(autouse=True)
-def stub_token_verification(monkeypatch):
+def stub_token_verification(monkeypatch, tmp_path):
     """Treat a non-key bearer token as the Auth0 subject, so tests can drive the
     session-auth endpoints without a live tenant. API-key auth is unaffected: it
-    short-circuits on the vk_ prefix before any token verification."""
+    short-circuits on the vk_ prefix before any token verification.
+
+    Also redirects the failure registry to a per-test temp file so test losses
+    never pollute the production golden dataset."""
     monkeypatch.setattr(deps, "verify_access_token", lambda token: {"sub": token})
+    monkeypatch.setattr(settings, "eval_failure_registry_path", str(tmp_path / "test_failures.jsonl"))
 
 
 def auth_headers(token: str) -> dict:

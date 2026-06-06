@@ -551,7 +551,8 @@ async def capture_incumbent(
 
 
 async def run_validation(
-    db, project: Project, conversations: list[list[dict]], key: str, request_delay: float = 1.5
+    db, project: Project, conversations: list[list[dict]], key: str, request_delay: float = 1.5,
+    source_dataset: str = "unknown",
 ) -> EvalRun:
     """Capture real incumbent responses, then run the actual eval harness: it
     replays each prompt through the candidate (cheap) model live and grades
@@ -571,7 +572,7 @@ async def run_validation(
     )
     db.add(run)
     db.commit()
-    await run_eval(db, run, key=key)
+    await run_eval(db, run, key=key, source_dataset=source_dataset)
     db.refresh(run)
     return run
 
@@ -682,7 +683,7 @@ def main() -> int:
             if not args.keep:
                 reset_eval(db, project)
             convs = load_dataset(args.source, args.dataset, args.sharegpt_dataset, args.limit)
-            run = asyncio.run(run_validation(db, project, convs, key, request_delay=args.request_delay))
+            run = asyncio.run(run_validation(db, project, convs, key, request_delay=args.request_delay, source_dataset=args.source))
             report_validation(db, run)
         finally:
             db.close()

@@ -64,7 +64,7 @@ _JUDGE_SYSTEM = (
     "You are a strict evaluator. Two assistant answers, FIRST and SECOND, respond "
     "to the same user prompt. Decide which answer is better on correctness, "
     "completeness, and helpfulness. If they are equivalent, say tie. Reply with "
-    'only JSON: {"winner": "first" | "second" | "tie"}.'
+    'only JSON: {"winner": "first" | "second" | "tie", "reasoning": "<one sentence>"}.'
 )
 
 
@@ -88,7 +88,8 @@ async def replay_candidate(messages: list[dict], params: dict, model: str, key: 
         return None
 
 
-async def _judge_once(prompt: str, first: str, second: str, key: str) -> str:
+async def _judge_once(prompt: str, first: str, second: str, key: str) -> tuple[str, str]:
+    """Returns (winner, reasoning). winner is 'first' | 'second' | 'tie'."""
     body = {
         "model": settings.eval_judge_model,
         "messages": [
@@ -109,27 +110,30 @@ async def _judge_once(prompt: str, first: str, second: str, key: str) -> str:
         settings.proxy_upstream_timeout_seconds,
     )
     resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
-    return (json.loads(content).get("winner") or "tie").lower()
+    data = json.loads(resp.json()["choices"][0]["message"]["content"])
+    winner = (data.get("winner") or "tie").lower()
+    reasoning = data.get("reasoning") or ""
+    return winner, reasoning
 
 
-async def judge_pairwise(prompt: str, incumbent: str, candidate: str, key: str) -> str:
+async def judge_pairwise(prompt: str, incumbent: str, candidate: str, key: str) -> tuple[str, str]:
     """Position-swapped pairwise judge. Calls twice (incumbent-first, then
-    candidate-first) and resolves to incumbent | candidate | tie. Disagreement
-    between the two orderings is a tie, which is the conservative outcome (no
-    false win for the candidate). Any failure resolves to tie."""
+    candidate-first) and resolves to (winner, reasoning) where winner is
+    incumbent | candidate | tie. Disagreement between orderings resolves to tie.
+    Any failure resolves to tie with an empty reasoning string."""
     try:
         # Round 1: incumbent is FIRST, candidate is SECOND.
-        r1 = await _judge_once(prompt, incumbent, candidate, key)
+        r1, reason1 = await _judge_once(prompt, incumbent, candidate, key)
         # Round 2: candidate is FIRST, incumbent is SECOND (positions swapped).
-        r2 = await _judge_once(prompt, candidate, incumbent, key)
+        r2, reason2 = await _judge_once(prompt, candidate, incumbent, key)
     except Exception:
         logger.exception("judge failed; recording tie")
-        return "tie"
+        return "tie", ""
 
     # Translate each round to who won, accounting for the swap.
     win1 = {"first": "incumbent", "second": "candidate"}.get(r1, "tie")
     win2 = {"first": "candidate", "second": "incumbent"}.get(r2, "tie")
     if win1 == win2:
-        return win1
-    return "tie"
+        # Use the reasoning from the round that agreed with the consensus.
+        return win1, reason1
+    return "tie", ""

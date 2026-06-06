@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     # Judge model for the subjective (pairwise) tier. Runs off-path only; its
     # verdict drives approve-mode and never triggers auto-rollback.
     eval_judge_model: str = "gpt-4o-mini"
+    # Append-only JSONL file for candidate loss records (golden dataset).
+    # Relative paths are resolved from the repo root; override via env var.
+    eval_failure_registry_path: str = "data/eval/golden_dataset_failures.jsonl"
 
     # --- Live quality-drift guard on the holdback ---
     # A routed (treatment) arm whose objective quality drops more than this below

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.eval import scoring
+from app.eval.failure_registry import record_failure
 from app.eval.openai_ops import judge_pairwise, replay_candidate
 from app.models import EvalRun, EvalSampleResult, Project, Recommendation, ReplaySample
 from app.models.eval import (
@@ -104,6 +105,7 @@ async def run_eval(
     replay_fn=replay_candidate,
     judge_fn=judge_pairwise,
     now: datetime | None = None,
+    source_dataset: str = "unknown",
 ) -> EvalRun:
     at = now or datetime.now(UTC)
     run.status = RUN_RUNNING
@@ -131,9 +133,12 @@ async def run_eval(
 
             scorer, score, obj = scoring.score_sample(sample, inc_text, cand_text)
             winner: str | None = None
+            judge_reasoning: str = ""
             if obj is None:
                 # No objective signal: fall back to the pairwise judge (approve-only).
-                winner = await judge_fn(_prompt_text(sample.request_messages), inc_text, cand_text, key)
+                winner, judge_reasoning = await judge_fn(
+                    _prompt_text(sample.request_messages), inc_text, cand_text, key
+                )
                 score, _ = scoring.judge_score(winner)
                 scorer = scoring.SCORER_JUDGE
             else:
@@ -165,6 +170,22 @@ async def run_eval(
                     incumbent_cost_usd=inc_cost,
                 )
             )
+
+            # Failure registry: append a structured record for every candidate loss.
+            if score < 0:
+                record_failure(
+                    incumbent_model=run.incumbent_model,
+                    candidate_model=run.candidate_model,
+                    messages=sample.request_messages or [],
+                    incumbent_response=sample.incumbent_response,
+                    candidate_response=cand_payload,
+                    judge_reasoning=judge_reasoning or (f"objective_fail:{scorer}" if obj is False else ""),
+                    incumbent_score=1.0 if score < 0 else 0.0,
+                    candidate_score=float(score),
+                    source_dataset=source_dataset,
+                    input_tokens=sample.input_tokens or 0,
+                    output_tokens=sample.output_tokens or 0,
+                )
 
         _finalize(db, run, scores, scorers, obj_total, obj_pass, cost_deltas, at)
     except Exception as exc:
