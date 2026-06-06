@@ -59,11 +59,14 @@ async def chat_completions(
     bypass = _is_bypassed(project)
     cache_key = cache.compute_cache_key(body)
 
-    # --- cache: exact-hash fast path, then semantic. Skipped when bypassed. ---
-    # Fail-open throughout: a cache/embedding failure must never block forwarding.
+    # --- cache: exact-hash fast path, then the optional semantic layer. Skipped
+    # when bypassed. Fail-open throughout: a cache/embedding failure must never
+    # block forwarding. ---
     embedding: list[float] | None = None
-    if not bypass and settings.semantic_cache_enabled:
+    cache_on = not bypass and settings.proxy_cache_enabled
+    if cache_on:
         # 1) Exact hash: byte-identical repeats serve instantly, no embedding call.
+        # This is the Day One lever and adds zero latency to a miss.
         try:
             entry = cache.get_cached(db, project.id, cache_key)
         except Exception:
@@ -72,16 +75,19 @@ async def chat_completions(
         if entry is not None:
             return _serve_cache_hit(db, project, api_key_id, entry, stream, "hit")
 
-        # 2) Semantic: embed the prompt and find the nearest cached answer. The
-        # embedding is reused for storage on a miss, so we embed at most once.
-        try:
-            embedding = await embed(embedding_input(body), client_key)
-            sem = cache.semantic_search(db, project.id, model, embedding, settings.semantic_cache_threshold)
-        except Exception:
-            logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
-            sem = None
-        if sem is not None:
-            return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
+        # 2) Semantic layer (optional, on top of exact hash): embed the prompt and
+        # find the nearest cached answer. Off by default so there is no embedding
+        # round-trip on the miss path. When on, the embedding is reused for storage
+        # on a miss, so we embed at most once.
+        if settings.semantic_cache_enabled:
+            try:
+                embedding = await embed(embedding_input(body), client_key)
+                sem = cache.semantic_search(db, project.id, model, embedding, settings.semantic_cache_threshold)
+            except Exception:
+                logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
+                sem = None
+            if sem is not None:
+                return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
 
     # --- cheaper-model routing with a live holdback A/B. If an applied+eval-passed
     # rule maps this model to a cheaper candidate, randomly assign the request to
@@ -252,7 +258,9 @@ def _capture(
             experiment_to=exp_to,
             quality_ok=quality_ok,
         )
-        if store_cache and settings.semantic_cache_enabled and response_payload:
+        if store_cache and settings.proxy_cache_enabled and response_payload:
+            # embedding is None unless the semantic layer is on; the entry still
+            # serves exact-hash hits either way.
             cache.store(db, project.id, cache_key, cache_model, response_payload, in_tok, out_tok, embedding=embedding)
     except Exception:
         logger.exception("proxy ledger/cache write failed", extra={"project_id": str(project.id)})
@@ -339,11 +347,18 @@ async def _stream_through(
         assembled = openai.assemble_stream(openai.parse_sse_events(buffer.decode("utf-8", errors="replace")))
         in_tok, out_tok, cached_tok = openai.usage_tokens(assembled["usage"])
         out_model = assembled["model"] or model
+        # Build (and thus meter + cache) the payload when the assistant returned
+        # either content or tool calls. A tool-only response has empty content but
+        # must still be captured, or the agent workload's calls are silently lost.
         payload = (
             openai.build_completion_object(
-                out_model, assembled["content"], assembled["usage"], assembled["finish_reason"]
+                out_model,
+                assembled["content"],
+                assembled["usage"],
+                assembled["finish_reason"],
+                tool_calls=assembled["tool_calls"],
             )
-            if assembled["content"]
+            if (assembled["content"] or assembled["tool_calls"])
             else {}
         )
         _capture(

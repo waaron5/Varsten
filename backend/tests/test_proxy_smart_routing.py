@@ -189,7 +189,7 @@ def _mock_openai(monkeypatch, seen: dict):
 
 
 def _setup_proxy(provision, db_session, monkeypatch, sub):
-    monkeypatch.setattr(settings, "semantic_cache_enabled", False)
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
     ws = provision(sub=sub, email=f"{sub}@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})

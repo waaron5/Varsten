@@ -195,7 +195,7 @@ def _redundant_messages() -> list[dict]:
 
 
 def test_proxy_trims_treatment_body(client, provision, db_session, monkeypatch):
-    monkeypatch.setattr(settings, "semantic_cache_enabled", False)
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
     ws = provision(sub="auth0|trim2", email="trim2@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
@@ -227,7 +227,7 @@ def test_proxy_trims_treatment_body(client, provision, db_session, monkeypatch):
 
 
 def test_proxy_holdback_leaves_control_untrimmed(client, provision, db_session, monkeypatch):
-    monkeypatch.setattr(settings, "semantic_cache_enabled", False)
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
     ws = provision(sub="auth0|trim3", email="trim3@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})

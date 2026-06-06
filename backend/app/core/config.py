@@ -30,8 +30,17 @@ class Settings(BaseSettings):
     # as JSON in PROXY_OPENAI_KEYS, e.g. {"<project-uuid>": "sk-..."}. A real
     # per-tenant KMS-backed vault replaces this later.
     proxy_openai_keys: dict[str, str] = {}
-    # The only active optimization lever in Phase 1. The other four are bypassed.
-    semantic_cache_enabled: bool = True
+    # Master switch for the proxy cache (exact-hash lookup + store). This is the
+    # Day One lever: byte-identical repeats serve from the store at $0 with zero
+    # added latency (no embedding call). Turn this off to disable caching entirely.
+    proxy_cache_enabled: bool = True
+    # The semantic layer ON TOP of the exact-hash cache: embed the prompt and match
+    # the nearest stored answer within a distance threshold. Requires
+    # proxy_cache_enabled. Off by default for Client #1 because (a) it adds an
+    # embedding round-trip on the miss path and (b) near-identical tool-call JSON
+    # arguments are prone to false-positive matches. Enable once an in-process
+    # embedding model removes the latency and a per-route threshold is tuned.
+    semantic_cache_enabled: bool = False
     # Embedding model + dimensionality for semantic-cache matching.
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536

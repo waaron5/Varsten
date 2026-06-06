@@ -376,6 +376,7 @@ def test_semantic_hit_on_near_duplicate(client, db_session, provision, mock_open
     ws = provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     hdr = _b(ws["api_key"])
+    monkeypatch.setattr(settings, "semantic_cache_enabled", True)
 
     # First phrasing: a miss, forwarded, embedded, and cached.
     first = client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather today?"))
@@ -395,6 +396,7 @@ def test_semantic_miss_below_threshold(client, provision, mock_openai, monkeypat
     ws = provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     hdr = _b(ws["api_key"])
+    monkeypatch.setattr(settings, "semantic_cache_enabled", True)
 
     # Unrelated prompts embed to orthogonal vectors -> no match, both forwarded.
     client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather?"))
@@ -407,6 +409,7 @@ def test_exact_repeat_skips_embedding(client, provision, mock_openai, monkeypatc
     ws = provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     hdr = _b(ws["api_key"])
+    monkeypatch.setattr(settings, "semantic_cache_enabled", True)
     body = _msg("what is the weather?")
 
     client.post("/v1/chat/completions", headers=hdr, json=body)  # miss: 1 embed + 1 completion
@@ -421,6 +424,7 @@ def test_embedding_failure_fails_open(client, provision, mock_openai, monkeypatc
     ws = provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     hdr = _b(ws["api_key"])
+    monkeypatch.setattr(settings, "semantic_cache_enabled", True)
 
     async def no_embedding(text, client_key):
         return None

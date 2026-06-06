@@ -222,7 +222,7 @@ def _mock_openai(monkeypatch, seen: dict):
 
 
 def test_proxy_routes_request_to_candidate(client, provision, db_session, monkeypatch):
-    monkeypatch.setattr(settings, "semantic_cache_enabled", False)  # skip embeddings
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)  # skip embeddings
     ws = provision(sub="auth0|route2", email="route2@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
@@ -435,7 +435,7 @@ def test_drift_needs_enough_samples(client, provision, db_session, monkeypatch):
 
 
 def test_holdback_keeps_control_on_incumbent(client, provision, db_session, monkeypatch):
-    monkeypatch.setattr(settings, "semantic_cache_enabled", False)
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
     ws = provision(sub="auth0|route4", email="route4@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
@@ -462,7 +462,7 @@ def test_holdback_keeps_control_on_incumbent(client, provision, db_session, monk
 
 
 def test_bypass_disables_routing(client, provision, db_session, monkeypatch):
-    monkeypatch.setattr(settings, "semantic_cache_enabled", False)
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
     ws = provision(sub="auth0|route3", email="route3@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
