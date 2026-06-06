@@ -20,7 +20,9 @@ Upstream modes:
 
 Usage:
   uv run python -m scripts.benchmark_runner --limit 600 --dup-rate 0.25
-  uv run python -m scripts.benchmark_runner --dataset sharegpt.json --real
+  # Real validation: live APIs + eval harness, cost savings + quality retention.
+  OPENAI_API_KEY=sk-... uv run python -m scripts.benchmark_runner --validate \
+      --source sharegpt --limit 50
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import random
 import sys
 from dataclasses import dataclass, field
@@ -42,19 +45,25 @@ from sqlalchemy import delete, select
 from app.core.config import settings
 from app.core.security import hash_api_key
 from app.db.session import SessionLocal
+from app.eval.openai_ops import replay_candidate
+from app.eval.runner import run_eval
 from app.main import app
 from app.models import (
     ApiKey,
+    EvalRun,
+    EvalSampleResult,
     LeverConfig,
     Organization,
     OrgMembership,
     Project,
     ProxyCacheEntry,
     ProxyPolicy,
+    ReplaySample,
     UsageEvent,
     User,
 )
-from app.proxy import experiment
+from app.models.eval import SOURCE_TRAFFIC
+from app.proxy import experiment, openai
 from app.proxy.embedding import embedding_input
 from app.proxy.predicate import DEFAULT_PREDICATE
 from app.savings import month_start
@@ -493,6 +502,132 @@ def report(db, project: Project, tally: Tally) -> None:
     print()
 
 
+# --- real validation pass (live APIs + eval harness) ----------------------------
+
+
+def reset_eval(db, project: Project) -> None:
+    """Clear prior validation state for an idempotent re-run."""
+    run_ids = list(db.scalars(select(EvalRun.id).where(EvalRun.project_id == project.id)))
+    if run_ids:
+        db.execute(delete(EvalSampleResult).where(EvalSampleResult.eval_run_id.in_(run_ids)))
+        db.execute(delete(EvalRun).where(EvalRun.project_id == project.id))
+    db.execute(delete(ReplaySample).where(ReplaySample.project_id == project.id))
+    db.commit()
+
+
+async def capture_incumbent(db, project: Project, conversations: list[list[dict]], key: str) -> int:
+    """Call the incumbent (expensive) model live for each prompt and store the real
+    response + token usage as a replay sample. These are the baseline the candidate
+    is graded against."""
+    captured = 0
+    for messages in conversations:
+        payload = await replay_candidate(messages, {}, INCUMBENT, key)
+        if payload is None:
+            continue
+        in_tok, out_tok, _ = openai.usage_tokens(payload.get("usage") or {})
+        db.add(
+            ReplaySample(
+                organization_id=project.organization_id,
+                project_id=project.id,
+                route_key=INCUMBENT,
+                source=SOURCE_TRAFFIC,
+                incumbent_model=INCUMBENT,
+                request_messages=messages,
+                request_params={},
+                incumbent_response=payload,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+            )
+        )
+        captured += 1
+    db.commit()
+    return captured
+
+
+async def run_validation(db, project: Project, conversations: list[list[dict]], key: str) -> EvalRun:
+    """Capture real incumbent responses, then run the actual eval harness: it
+    replays each prompt through the candidate (cheap) model live and grades
+    candidate vs incumbent with the position-swapped pairwise judge."""
+    print(f"Calling incumbent {INCUMBENT} live for {len(conversations)} prompts…", file=sys.stderr)
+    captured = await capture_incumbent(db, project, conversations, key)
+    print(f"Captured {captured} incumbent responses. Running the eval harness "
+          f"(replay {CANDIDATE} + position-swapped judge)…", file=sys.stderr)
+    run = EvalRun(
+        organization_id=project.organization_id,
+        project_id=project.id,
+        recommendation_id=None,
+        lever="cheaper_model",
+        route_key=INCUMBENT,
+        incumbent_model=INCUMBENT,
+        candidate_model=CANDIDATE,
+    )
+    db.add(run)
+    db.commit()
+    await run_eval(db, run, key=key)
+    db.refresh(run)
+    return run
+
+
+def report_validation(db, run: EvalRun) -> None:
+    results = list(db.scalars(select(EvalSampleResult).where(EvalSampleResult.eval_run_id == run.id)))
+    inc_cost = sum((_d(r.incumbent_cost_usd) for r in results), Decimal("0"))
+    cand_cost = sum((_d(r.candidate_cost_usd) for r in results), Decimal("0"))
+    savings_pct = ((inc_cost - cand_cost) / inc_cost * 100) if inc_cost > 0 else Decimal("0")
+    graded = run.sample_count or 0
+    # Quality retention: share of prompts where the cheap candidate matched or beat
+    # the expensive incumbent (win or tie) under the position-swapped judge.
+    retention = ((run.win_count + run.tie_count) / graded * 100) if graded else Decimal("0")
+
+    ci = ""
+    if run.score_delta_ci_low is not None and run.score_delta_ci_high is not None:
+        ci = f" (95% CI {run.score_delta_ci_low}, {run.score_delta_ci_high})"
+
+    print("\n" + "=" * 60)
+    print("  VARSTEN --real VALIDATION  (live APIs + eval harness)")
+    print("=" * 60)
+    print(f"  Swap                 {INCUMBENT} -> {CANDIDATE}")
+    print(f"  Judge model          {settings.eval_judge_model} (position-swapped)")
+    print(f"  Prompts graded       {graded}")
+    print(f"  Scoring              {run.scorer_type or '-'}")
+    print(f"  Verdict              {run.verdict}")
+    print("-" * 60)
+    print("  COST")
+    print(f"    Incumbent spend    ${inc_cost:.6f}")
+    print(f"    Candidate spend    ${cand_cost:.6f}")
+    print(f"    COST SAVINGS       {savings_pct:.1f}%")
+    print("-" * 60)
+    print("  QUALITY (candidate vs incumbent)")
+    print(f"    Win / Tie / Loss   {run.win_count} / {run.tie_count} / {run.loss_count}")
+    print(f"    Mean score delta   {run.score_delta}{ci}")
+    if run.objective_pass_rate is not None:
+        print(f"    Objective parity   {run.objective_pass_rate}")
+    print(f"    QUALITY RETENTION  {retention:.1f}%  (candidate matched-or-beat incumbent)")
+    print("=" * 60)
+    if run.notes:
+        print(f"  Harness note: {run.notes}")
+    print()
+
+
+def _resolve_real_key() -> str:
+    """The OpenAI key for the live pass, from the environment. Never fabricated."""
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raw = os.environ.get("PROXY_OPENAI_KEYS")
+        if raw:
+            try:
+                key = next(iter(json.loads(raw).values()), None)
+            except json.JSONDecodeError:
+                key = None
+    if not key:
+        print(
+            "ERROR: --validate needs a live OpenAI key. Set OPENAI_API_KEY in the "
+            "environment, e.g.\n  OPENAI_API_KEY=sk-... uv run python -m scripts.benchmark_runner --validate",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return key
+
+
 # --- entrypoint -----------------------------------------------------------------
 
 
@@ -513,9 +648,33 @@ def main() -> int:
     parser.add_argument("--holdback", type=float, default=0.15, help="Holdback fraction per policy (control arm)")
     parser.add_argument("--concurrency", type=int, default=8, help="Concurrent in-flight requests")
     parser.add_argument("--real", action="store_true", help="Use real OpenAI instead of the fake upstream")
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Real validation pass: call both models live, grade with the eval harness "
+        "(position-swapped judge), report cost savings + quality retention. Needs OPENAI_API_KEY.",
+    )
     parser.add_argument("--keep", action="store_true", help="Keep prior benchmark traffic (default resets)")
     args = parser.parse_args()
 
+    # --- real validation pass: live APIs + eval harness, no fake upstream ---
+    if args.validate:
+        key = _resolve_real_key()
+        if not settings.openai_base_url:
+            settings.openai_base_url = "https://api.openai.com"
+        db = SessionLocal()
+        try:
+            project = setup_workspace(db, Decimal(str(args.holdback)))
+            if not args.keep:
+                reset_eval(db, project)
+            convs = load_dataset(args.source, args.dataset, args.sharegpt_dataset, args.limit)
+            run = asyncio.run(run_validation(db, project, convs, key))
+            report_validation(db, run)
+        finally:
+            db.close()
+        return 0
+
+    # --- savings benchmark (fake upstream by default, or --real completions) ---
     if not args.real:
         install_fake_upstream()
 
