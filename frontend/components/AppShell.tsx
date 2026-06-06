@@ -88,7 +88,13 @@ function initials(nameOrEmail: string | null | undefined): string {
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   const active = pathname.startsWith(item.match);
   return (
-    <Link href={item.href} className={`nav-item${active ? " active" : ""}`}>
+    <Link
+      href={item.href}
+      className={`nav-item${active ? " active" : ""}`}
+      title={item.label}
+      aria-label={item.label}
+      data-label={item.label}
+    >
       <Icon path={item.icon} />
       <span>{item.label}</span>
       {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
@@ -99,7 +105,6 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 function NavGroup({ group, pathname }: { group: { label: string; items: NavItem[] }; pathname: string }) {
   return (
     <div className="nav-group">
-      <div className="nav-group-label">{group.label}</div>
       {group.items.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
     </div>
   );
@@ -108,6 +113,7 @@ function NavGroup({ group, pathname }: { group: { label: string; items: NavItem[
 function AccountPanel({
   accountOpen,
   displayName,
+  isSidebarCollapsed,
   isLoading,
   orgName,
   setAccountOpen,
@@ -115,6 +121,7 @@ function AccountPanel({
 }: {
   accountOpen: boolean;
   displayName: string;
+  isSidebarCollapsed: boolean;
   isLoading: boolean;
   orgName: string;
   setAccountOpen: Dispatch<SetStateAction<boolean>>;
@@ -129,6 +136,8 @@ function AccountPanel({
         type="button"
         aria-haspopup="menu"
         aria-expanded={accountOpen}
+        aria-label={`Account: ${displayName}`}
+        title={isSidebarCollapsed ? `Account: ${displayName}` : undefined}
         onClick={() => setAccountOpen((open) => !open)}
       >
         <span className="account-avatar">{initials(displayName)}</span>
@@ -151,7 +160,9 @@ function AccountPanel({
 function Sidebar({
   accountOpen,
   displayName,
+  isCollapsed,
   isLoading,
+  onToggleCollapse,
   orgName,
   pathname,
   setAccountOpen,
@@ -159,7 +170,9 @@ function Sidebar({
 }: {
   accountOpen: boolean;
   displayName: string;
+  isCollapsed: boolean;
   isLoading: boolean;
+  onToggleCollapse: () => void;
   orgName: string;
   pathname: string;
   setAccountOpen: Dispatch<SetStateAction<boolean>>;
@@ -168,10 +181,22 @@ function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <Link href="/command-center" aria-label="Go to Command Center">
+        <Link href="/command-center" className="brand-link" aria-label="Go to Command Center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
         </Link>
+        <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label={isCollapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-expanded={!isCollapsed}
+          title={isCollapsed ? "Expand navigation" : "Collapse navigation"}
+          onClick={onToggleCollapse}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" aria-hidden="true">
+            <path d="M5 7h14M5 12h14M5 17h14" />
+          </svg>
+        </button>
       </div>
       <nav className="nav">
         {NAV_GROUPS.map((group) => <NavGroup key={group.label} group={group} pathname={pathname} />)}
@@ -180,6 +205,7 @@ function Sidebar({
         <AccountPanel
           accountOpen={accountOpen}
           displayName={displayName}
+          isSidebarCollapsed={isCollapsed}
           isLoading={isLoading}
           orgName={orgName}
           setAccountOpen={setAccountOpen}
@@ -237,6 +263,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useUser();
   const { activeProjectId, profile, projects } = useSession();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const currentRoute = routeLabel(pathname);
   const activeProject = activeProjectFor(projects, activeProjectId);
   const { displayName, orgName } = accountNames({
@@ -247,11 +274,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <div className="app">
+    <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <Sidebar
         accountOpen={accountOpen}
         displayName={displayName}
+        isCollapsed={sidebarCollapsed}
         isLoading={isLoading}
+        onToggleCollapse={() => {
+          setSidebarCollapsed((collapsed) => !collapsed);
+          setAccountOpen(false);
+        }}
         orgName={orgName}
         pathname={pathname}
         setAccountOpen={setAccountOpen}

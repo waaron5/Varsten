@@ -6,6 +6,10 @@ This is the product source of truth for Varsten. It describes the finished, sell
 
 Varsten is first and foremost an AI cost-optimization engine. It is second an analytics dashboard. That ordering is the most important thing in this document. Everything else follows from it.
 
+The target should be:
+
+“Change your AI base URL to Varsten, use your Varsten key, and keep your existing provider SDK mostly unchanged. save up to 40% on AI costs automatically.”
+
 ## What Varsten is
 
 Varsten cuts a company's AI bill and proves how much it cut. A customer connects their AI providers and traffic, Varsten finds specific cuts worth real money, applies the safe ones automatically, holds output quality with guardrails, and reports a verified savings number that a CFO will trust. The customer pays a percentage of the savings Varsten verifiably produces.
