@@ -8,9 +8,11 @@ session (async_provision / async_db_session). The one pure control-plane test
 (toggle tenant scoping) stays on the sync session/client.
 """
 
+import asyncio
 import json
 import time
 import uuid
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -458,3 +460,86 @@ async def test_embedding_failure_fails_open(async_client, async_provision, mock_
     first = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather?"))
     assert first.status_code == 200
     assert first.headers["x-varsten-cache"] == "miss"
+
+
+# --- hardening: stream-hang protection + cache-hit TTFB -------------------------
+
+
+class _HangingStream:
+    status_code = 200
+
+    async def aiter_bytes(self):
+        await asyncio.sleep(30)  # never delivers within the test's tiny total cap
+        yield b""
+
+    async def aread(self):
+        return b""
+
+
+class _HangingClient:
+    """Stand-in httpx.AsyncClient whose streamed response never sends bytes, to
+    simulate an upstream that connects then hangs mid-stream."""
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    def stream(self, *a, **k):
+        class _CM:
+            async def __aenter__(self):
+                return _HangingStream()
+
+            async def __aexit__(self, *a):
+                return False
+
+        return _CM()
+
+
+@pytest.mark.anyio
+async def test_streaming_upstream_hang_is_cut_by_timeout(async_client, async_provision, monkeypatch):
+    ws = await async_provision(sub="auth0|hang", email="hang@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
+    # Tiny total cap so the hang is cut fast instead of pinning the slot.
+    monkeypatch.setattr(settings, "proxy_stream_total_timeout_seconds", 0.2)
+    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: _HangingClient())
+
+    start = perf_counter()
+    res = await async_client.post(
+        "/v1/chat/completions",
+        headers=_b(ws["api_key"]),
+        json={"model": CHAT, "messages": [{"role": "user", "content": "hi"}], "stream": True},
+    )
+    elapsed = perf_counter() - start
+    # The hung stream was cut well before its 30s sleep: a clean SSE error, not a hang.
+    assert res.status_code == 200
+    assert "varsten_upstream_error" in res.text and "[DONE]" in res.text
+    assert elapsed < 5  # nowhere near the 30s upstream sleep
+
+
+@pytest.mark.anyio
+async def test_cache_hit_ttfb_lower_than_miss(async_client, async_provision, mock_openai, monkeypatch):
+    ws = await async_provision(sub="auth0|ttfb", email="ttfb@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    hdr = _b(ws["api_key"])
+    body = _msg("ttfb probe")
+
+    t0 = perf_counter()
+    miss = await async_client.post("/v1/chat/completions", headers=hdr, json=body)
+    miss_ms = (perf_counter() - t0) * 1000
+    assert miss.status_code == 200 and miss.headers["x-varsten-cache"] == "miss"
+
+    t0 = perf_counter()
+    hit = await async_client.post("/v1/chat/completions", headers=hdr, json=body)
+    hit_ms = (perf_counter() - t0) * 1000
+    assert hit.headers["x-varsten-cache"] == "hit"
+
+    print(f"\nTTFB  miss={miss_ms:.2f}ms  hit={hit_ms:.2f}ms")
+    # The hit avoids the upstream call AND defers all metering to a background task,
+    # so it returns faster than the miss.
+    assert hit_ms < miss_ms

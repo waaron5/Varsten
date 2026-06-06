@@ -8,9 +8,10 @@ stable when prices change and lets new prices land via a sync, not a deploy.
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from cachetools import TTLCache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,20 @@ from app.models import ModelPrice, OrgModelPriceOverride
 
 # usage_events.cost_usd is Numeric(18, 8); quantize calculated costs to match.
 COST_QUANTUM = Decimal("0.00000001")
+
+# In-memory TTL cache for resolved prices, to keep the two catalog/override queries
+# off the hot path. Keyed by (org, model, provider); only near-current lookups are
+# cached (see resolve_price) so backfilled historical events still read the
+# period-correct rate. Prices change at most daily, so a 1h TTL is safe; the sync
+# loader and override writes call clear_price_cache() to take effect immediately.
+_PRICE_CACHE_TTL_SECONDS = 3600
+_price_cache: TTLCache = TTLCache(maxsize=4096, ttl=_PRICE_CACHE_TTL_SECONDS)
+
+
+def clear_price_cache() -> None:
+    """Drop all cached prices. Call after a catalog sync or override change so new
+    rates apply at once instead of after the TTL. Tests call it for isolation."""
+    _price_cache.clear()
 
 
 @dataclass(frozen=True)
@@ -91,10 +106,24 @@ async def resolve_price(
     at: datetime,
 ) -> ResolvedPrice | None:
     """The price to apply, override taking precedence over the public catalog.
-    Returns None when nothing covers the model at that time."""
-    return await _override_for(db, organization_id, model_key, provider, at) or await _catalog_price_for(
+    Returns None when nothing covers the model at that time.
+
+    Near-current lookups are served from an in-memory TTL cache to keep the two
+    DB queries off the hot path. Historical lookups (a backfilled event whose `at`
+    is older than the cache TTL) bypass the cache and read the versioned catalog
+    directly, so they get the rate that was in effect then, not today's."""
+    now = datetime.now(at.tzinfo) if at.tzinfo else datetime.now(UTC).replace(tzinfo=None)
+    cacheable = at >= now - timedelta(seconds=_PRICE_CACHE_TTL_SECONDS)
+    key = (organization_id, model_key, provider)
+    if cacheable and key in _price_cache:
+        return _price_cache[key]
+
+    price = await _override_for(db, organization_id, model_key, provider, at) or await _catalog_price_for(
         db, model_key, provider, at
     )
+    if cacheable:
+        _price_cache[key] = price  # negative results cached too, to skip repeated misses
+    return price
 
 
 def compute_cost(

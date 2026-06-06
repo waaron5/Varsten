@@ -88,6 +88,10 @@ def init_sentry() -> bool:
             LoggingIntegration(level=None, event_level="ERROR"),
         ],
         traces_sample_rate=0.0,
+        # Never attach request headers (the vk_ key), cookies, or request bodies
+        # (prompt content) to error events. Keeps Sentry consistent with the
+        # metadata-only posture. This is Sentry's default; we set it explicitly.
+        send_default_pii=False,
     )
     logger.info("sentry initialized", extra={"environment": settings.sentry_environment})
     return True

@@ -10,6 +10,16 @@ from app.core.security import generate_api_key
 from app.db.session import async_engine, engine, get_async_db, get_db
 from app.main import app
 from app.models import ApiKey, Organization, Project
+from app.pricing.service import clear_price_cache
+
+
+@pytest.fixture(autouse=True)
+def _isolate_price_cache():
+    """The pricing TTL cache is process-global; clear it around each test so a
+    price resolved in one test never leaks into another."""
+    clear_price_cache()
+    yield
+    clear_price_cache()
 
 
 @pytest.fixture(autouse=True)

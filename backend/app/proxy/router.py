@@ -8,8 +8,10 @@ POST /v1/chat/completions
     row and (optionally) cache the result
 """
 
+import asyncio
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +43,7 @@ def _is_bypassed(project: Project) -> bool:
 @router.post("/chat/completions")
 async def chat_completions(
     request: Request,
+    background_tasks: BackgroundTasks,
     api_context: ApiKeyContext = Depends(require_api_key_context_async),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -79,7 +82,7 @@ async def chat_completions(
             logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
             entry = None
         if entry is not None:
-            return await _serve_cache_hit(db, project, api_key_id, entry, stream, "hit")
+            return _serve_cache_hit(db, project, api_key_id, entry, stream, "hit", background_tasks)
 
         # 2) Semantic layer (optional, on top of exact hash): embed the prompt and
         # find the nearest cached answer. Off by default so there is no embedding
@@ -93,7 +96,7 @@ async def chat_completions(
                 logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
                 sem = None
             if sem is not None:
-                return await _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
+                return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic", background_tasks)
 
     # --- cheaper-model routing with a live holdback A/B. If an applied+eval-passed
     # rule maps this model to a cheaper candidate, randomly assign the request to
@@ -191,8 +194,12 @@ async def chat_completions(
     )
 
 
-async def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label):
-    """Serve a cache entry (exact or semantic), record the hit and the $0 ledger row."""
+async def _meter_cache_hit(db, project, api_key_id, entry) -> None:
+    """Record the hit and the $0 ledger row. Runs in a BackgroundTask after the
+    response is sent (but before the request session is torn down), so the cache
+    hit's time-to-first-byte never includes these DB commits. Best-effort: a
+    failure here is logged, never surfaced to the client whose response already
+    went out."""
     try:
         await cache.record_hit(db, entry)
         await record_proxy_usage(
@@ -206,7 +213,14 @@ async def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label):
             cache_hit=True,
         )
     except Exception:
-        logger.exception("cache-hit bookkeeping failed", extra={"project_id": str(project.id)})
+        logger.exception("cache-hit metering failed", extra={"project_id": str(project.id)})
+
+
+def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label, background_tasks: BackgroundTasks):
+    """Serve a cache entry (exact or semantic) immediately. Hit accounting and the
+    $0 ledger row are deferred to a BackgroundTask so no DB commit sits on the
+    critical path; the cached bytes are already in memory."""
+    background_tasks.add_task(_meter_cache_hit, db, project, api_key_id, entry)
     headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": cache_label}
     if stream:
         return StreamingResponse(
@@ -316,35 +330,45 @@ async def _stream_through(
     (unless bypassed) cache after the client has its bytes."""
     upstream_body = adapter.prepare_request(body, model=upstream_model or model, stream=True)
     translator = adapter.stream_translator()
+    # Finite timeouts so a hung upstream cannot pin this event-loop slot forever:
+    # read = max gap between chunks, plus connect/write/pool. A wall-clock total cap
+    # wraps the whole consumption as a backstop.
+    timeout = httpx.Timeout(
+        settings.proxy_stream_read_timeout_seconds,
+        connect=settings.proxy_stream_connect_timeout_seconds,
+    )
     ok = False
 
     try:
-        async with (
-            httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0)) as client,
-            client.stream(
-                "POST",
-                adapter.endpoint(),
-                headers=adapter.headers(client_key),
-                json=upstream_body,
-            ) as resp,
-        ):
-            ok = resp.status_code == 200
-            if not ok:
-                # The upstream responded but with an error. Trip the breaker on
-                # provider failures (5xx/429); a 4xx is the client's mistake.
-                if is_upstream_failure(resp.status_code):
-                    breaker.record_failure()
-                else:
-                    breaker.record_success()
-                yield await resp.aread()
-                return
-            breaker.record_success()
-            async for chunk in resp.aiter_bytes():
-                for out in translator.push(chunk):
-                    yield out
-    except httpx.RequestError as exc:
-        # OpenAI unreachable/slow: count it against the breaker and emit a clean
-        # SSE error instead of a stack trace.
+        async with asyncio.timeout(settings.proxy_stream_total_timeout_seconds):
+            async with (
+                httpx.AsyncClient(timeout=timeout) as client,
+                client.stream(
+                    "POST",
+                    adapter.endpoint(),
+                    headers=adapter.headers(client_key),
+                    json=upstream_body,
+                ) as resp,
+            ):
+                ok = resp.status_code == 200
+                if not ok:
+                    # The upstream responded but with an error. Trip the breaker on
+                    # provider failures (5xx/429); a 4xx is the client's mistake.
+                    if is_upstream_failure(resp.status_code):
+                        breaker.record_failure()
+                    else:
+                        breaker.record_success()
+                    yield await resp.aread()
+                    return
+                breaker.record_success()
+                async for chunk in resp.aiter_bytes():
+                    for out in translator.push(chunk):
+                        yield out
+    except (httpx.RequestError, TimeoutError) as exc:
+        # OpenAI unreachable/slow/hung (httpx read timeout or the wall-clock cap):
+        # count it against the breaker and emit a clean SSE error instead of a
+        # stack trace. httpx.ReadTimeout is an httpx.RequestError; the wall-clock
+        # cap raises the builtin TimeoutError.
         breaker.record_failure()
         logger.warning("upstream stream failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__})
         yield f'data: {{"error":{{"message":"upstream request failed: {exc.__class__.__name__}","type":"varsten_upstream_error"}}}}\n\n'.encode()

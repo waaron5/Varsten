@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = 2.0
     # Upstream request timeout (seconds) for the non-streaming path.
     proxy_upstream_timeout_seconds: float = 60.0
+    # Streaming-path timeouts. read = max gap between chunks before we treat the
+    # upstream as hung (the guard against pinning an event-loop slot indefinitely);
+    # total = wall-clock cap on a single stream as a backstop. connect mirrors the
+    # non-stream connect budget. Generous total so legitimate long generations are
+    # not truncated; tighten per deployment if needed.
+    proxy_stream_connect_timeout_seconds: float = 10.0
+    proxy_stream_read_timeout_seconds: float = 30.0
+    proxy_stream_total_timeout_seconds: float = 600.0
     # Global kill switch. When true, every project's traffic bypasses all Varsten
     # optimization and forwards straight to OpenAI (still metered). The operator's
     # emergency lever; a per-project switch lives on the project row.
