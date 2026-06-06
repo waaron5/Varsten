@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     recommendations_max_age_seconds: int = 600
 
     # --- Phase 1 inline proxy (OpenAI only) ---
+    # Upstream provider for proxied traffic. Resolved through the provider adapter
+    # registry. Phase 1 ships only "openai"; the routing policy will select this
+    # per-request once multiple providers are registered.
+    proxy_default_provider: str = "openai"
     # Upstream OpenAI base URL (overridable to point at a mock in tests).
     openai_base_url: str = "https://api.openai.com"
     # Temporary env-vaulted provider keys: project_id -> OpenAI API key. Supplied

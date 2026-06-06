@@ -11,9 +11,13 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.proxy import openai
+from app.proxy.providers import get_adapter
 
 logger = get_logger("varsten.proxy.openai_batch")
+
+# The batching lever is OpenAI-specific (OpenAI Batch API). Reuse the OpenAI
+# adapter's auth headers so there is one source of truth for upstream auth.
+_openai = get_adapter("openai")
 
 # OpenAI batch statuses that mean the job is done (no more polling).
 TERMINAL_STATUSES = {"completed", "failed", "expired", "cancelled"}
@@ -42,7 +46,7 @@ async def create_batch(input_file_id: str, endpoint: str, completion_window: str
     async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
         resp = await client.post(
             f"{_base()}/v1/batches",
-            headers={**openai.upstream_headers(key)},
+            headers={**_openai.headers(key)},
             json={
                 "input_file_id": input_file_id,
                 "endpoint": endpoint,
@@ -58,7 +62,7 @@ async def get_batch(batch_id: str, key: str) -> dict:
     async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
         resp = await client.get(
             f"{_base()}/v1/batches/{batch_id}",
-            headers=openai.upstream_headers(key),
+            headers=_openai.headers(key),
         )
     resp.raise_for_status()
     return resp.json()

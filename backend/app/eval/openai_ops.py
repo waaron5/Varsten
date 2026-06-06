@@ -10,16 +10,20 @@ rather than crashing it.
 import asyncio
 import json
 import random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
 import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.proxy import openai
+from app.proxy.providers import get_adapter
 
 logger = get_logger("varsten.eval.ops")
+
+# The eval harness replays/judges against OpenAI off the hot path; reuse the
+# OpenAI adapter for the upstream URL and auth headers.
+_openai = get_adapter("openai")
 
 _MAX_RETRIES = 5
 _BASE_BACKOFF_S = 1.0
@@ -36,7 +40,7 @@ def _parse_retry_after(header: str | None, attempt: int) -> float:
             pass
         try:
             dt = parsedate_to_datetime(header)
-            return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
+            return max(0.0, (dt - datetime.now(UTC)).total_seconds())
         except Exception:
             pass
     cap = min(_MAX_BACKOFF_S, _BASE_BACKOFF_S * (2**attempt))
@@ -74,8 +78,8 @@ async def replay_candidate(messages: list[dict], params: dict, model: str, key: 
     body = {**(params or {}), "model": model, "messages": messages, "stream": False}
     try:
         resp = await _post_with_retry(
-            openai.upstream_url(),
-            openai.upstream_headers(key),
+            _openai.endpoint(),
+            _openai.headers(key),
             body,
             settings.proxy_upstream_timeout_seconds,
         )
@@ -104,8 +108,8 @@ async def _judge_once(prompt: str, first: str, second: str, key: str) -> tuple[s
         "stream": False,
     }
     resp = await _post_with_retry(
-        openai.upstream_url(),
-        openai.upstream_headers(key),
+        _openai.endpoint(),
+        _openai.headers(key),
         body,
         settings.proxy_upstream_timeout_seconds,
     )
@@ -124,8 +128,9 @@ async def judge_pairwise(prompt: str, incumbent: str, candidate: str, key: str) 
     try:
         # Round 1: incumbent is FIRST, candidate is SECOND.
         r1, reason1 = await _judge_once(prompt, incumbent, candidate, key)
-        # Round 2: candidate is FIRST, incumbent is SECOND (positions swapped).
-        r2, reason2 = await _judge_once(prompt, candidate, incumbent, key)
+        # Round 2: candidate is FIRST, incumbent is SECOND (positions swapped). The
+        # consensus reasoning comes from round 1, so round 2's reasoning is unused.
+        r2, _ = await _judge_once(prompt, candidate, incumbent, key)
     except Exception:
         logger.exception("judge failed; recording tie")
         return "tie", ""

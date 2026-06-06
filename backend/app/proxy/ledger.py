@@ -26,6 +26,7 @@ def record_proxy_usage(
     output_tokens: int,
     cached_input_tokens: int,
     cache_hit: bool,
+    provider: str = "openai",
     naive_model: str | None = None,
     arm: str | None = None,
     experiment_from: str | None = None,
@@ -40,7 +41,7 @@ def record_proxy_usage(
         db,
         organization_id=project.organization_id,
         model_key=model,
-        provider="openai",
+        provider=provider,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cached_input_tokens=cached_input_tokens,
@@ -65,7 +66,7 @@ def record_proxy_usage(
             db,
             organization_id=project.organization_id,
             model_key=naive_model,
-            provider="openai",
+            provider=provider,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cached_input_tokens=cached_input_tokens,
@@ -87,6 +88,12 @@ def record_proxy_usage(
         cost_usd = used_cost or Decimal("0")
         metadata = {"proxy": True, "cache": "miss"}
 
+    # Provider-native prompt-cache discount. This is the PROVIDER's saving, never
+    # Varsten's, so it is labelled distinctly and deliberately kept out of
+    # saved_usd. Keeps the Proof page unassailable: Varsten only claims its levers.
+    if cached_input_tokens:
+        metadata["provider_cached_input_tokens"] = cached_input_tokens
+
     # Live holdback A/B tags. The control arm carries no savings (it is the
     # baseline); both arms carry the experiment pair so the rigorous A/B can group
     # them straight from the ledger, with no separate experiment table.
@@ -104,7 +111,7 @@ def record_proxy_usage(
         project_id=project.id,
         organization_id=project.organization_id,
         api_key_id=api_key_id,
-        provider="openai",
+        provider=provider,
         model=model,
         operation="chat_completion",
         request_type="chat_completion",

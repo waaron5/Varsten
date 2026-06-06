@@ -11,13 +11,14 @@ import json
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.models import ProxyCacheEntry, UsageEvent
 from app.proxy import circuit
-from app.proxy import openai as openai_ops
 from app.proxy import router as proxy_router
+from app.proxy.providers import canonical
+from app.proxy.providers import openai as openai_ops
 
 
 @pytest.fixture(autouse=True)
@@ -77,16 +78,18 @@ def test_assemble_stream_reconstructs_fragmented_tool_call():
     events = openai_ops.parse_sse_events(TOOL_STREAM_BODY)
     assembled = openai_ops.assemble_stream(events)
 
-    assert assembled["content"] == ""
-    assert assembled["finish_reason"] == "tool_calls"
-    assert assembled["tool_calls"] is not None
-    assert len(assembled["tool_calls"]) == 1
-    call = assembled["tool_calls"][0]
+    assert assembled.content == ""
+    assert assembled.finish_reason == "tool_calls"
+    assert assembled.tool_calls is not None
+    assert len(assembled.tool_calls) == 1
+    call = assembled.tool_calls[0]
     assert call["id"] == "call_1"
     assert call["type"] == "function"
     assert call["function"]["name"] == "get_weather"
     # The fragmented argument string is concatenated back to valid JSON.
     assert json.loads(call["function"]["arguments"]) == {"city": "Paris"}
+    # Usage is carried in canonical form.
+    assert assembled.usage.input_tokens == 20 and assembled.usage.output_tokens == 8
 
 
 def test_assemble_stream_reconstructs_parallel_tool_calls():
@@ -99,7 +102,7 @@ def test_assemble_stream_reconstructs_parallel_tool_calls():
         "data: [DONE]\n\n"
     )
     assembled = openai_ops.assemble_stream(openai_ops.parse_sse_events(body))
-    calls = assembled["tool_calls"]
+    calls = assembled.tool_calls
     assert [c["id"] for c in calls] == ["a", "b"]  # ordered by index
     assert [c["function"]["name"] for c in calls] == ["f0", "f1"]
 
@@ -112,8 +115,8 @@ def test_assemble_stream_handles_mixed_content_and_tool_calls():
         "data: [DONE]\n\n"
     )
     assembled = openai_ops.assemble_stream(openai_ops.parse_sse_events(body))
-    assert assembled["content"] == "Let me check. "
-    assert assembled["tool_calls"][0]["function"]["name"] == "lookup"
+    assert assembled.content == "Let me check. "
+    assert assembled.tool_calls[0]["function"]["name"] == "lookup"
 
 
 def test_assemble_stream_plain_content_has_no_tool_calls():
@@ -122,27 +125,21 @@ def test_assemble_stream_plain_content_has_no_tool_calls():
         "data: [DONE]\n\n"
     )
     assembled = openai_ops.assemble_stream(openai_ops.parse_sse_events(body))
-    assert assembled["content"] == "hi"
-    assert assembled["tool_calls"] is None
+    assert assembled.content == "hi"
+    assert assembled.tool_calls is None
 
 
-def test_build_completion_object_carries_tool_calls_and_null_content():
+def test_completion_payload_carries_tool_calls_and_null_content():
     assembled = openai_ops.assemble_stream(openai_ops.parse_sse_events(TOOL_STREAM_BODY))
-    obj = openai_ops.build_completion_object(
-        "gpt-4o",
-        assembled["content"],
-        assembled["usage"],
-        assembled["finish_reason"],
-        tool_calls=assembled["tool_calls"],
-    )
+    obj = canonical.completion_payload(assembled)
     msg = obj["choices"][0]["message"]
     assert msg["content"] is None
     assert msg["tool_calls"][0]["function"]["name"] == "get_weather"
     assert obj["choices"][0]["finish_reason"] == "tool_calls"
 
 
-def test_completion_to_sse_emits_tool_calls_and_preserves_finish_reason():
-    chunks = list(openai_ops.completion_to_sse(TOOL_NONSTREAM_RESPONSE))
+def test_to_openai_sse_emits_tool_calls_and_preserves_finish_reason():
+    chunks = list(canonical.to_openai_sse(TOOL_NONSTREAM_RESPONSE))
     events = openai_ops.parse_sse_events(b"".join(chunks).decode())
     # First event carries the tool_calls delta.
     delta = events[0]["choices"][0]["delta"]
@@ -154,11 +151,8 @@ def test_completion_to_sse_emits_tool_calls_and_preserves_finish_reason():
 
 def test_full_round_trip_stream_to_cache_to_sse_preserves_tool_calls():
     assembled = openai_ops.assemble_stream(openai_ops.parse_sse_events(TOOL_STREAM_BODY))
-    cached = openai_ops.build_completion_object(
-        "gpt-4o", assembled["content"], assembled["usage"], assembled["finish_reason"],
-        tool_calls=assembled["tool_calls"],
-    )
-    replayed = openai_ops.parse_sse_events(b"".join(openai_ops.completion_to_sse(cached)).decode())
+    cached = canonical.completion_payload(assembled)
+    replayed = openai_ops.parse_sse_events(b"".join(canonical.to_openai_sse(cached)).decode())
     call = replayed[0]["choices"][0]["delta"]["tool_calls"][0]
     assert json.loads(call["function"]["arguments"]) == {"city": "Paris"}
 

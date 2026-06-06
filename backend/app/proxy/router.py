@@ -19,11 +19,12 @@ from app.core.logging import get_logger
 from app.db.session import get_db
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import cache, openai, quality, routing, trim
+from app.proxy import cache, quality, routing, trim
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.embedding import embed, embedding_input
 from app.proxy.keys import openai_key_for_project
 from app.proxy.ledger import record_proxy_usage
+from app.proxy.providers import canonical, get_adapter
 
 router = APIRouter(tags=["proxy"])
 logger = get_logger("varsten.proxy")
@@ -46,11 +47,16 @@ async def chat_completions(
     project = api_context.project
     api_key_id = api_context.api_key.id
 
+    # The upstream provider is resolved through the adapter registry. Phase 1 is
+    # OpenAI-only; the routing policy will select this per-request once more
+    # providers are registered. The router below is provider-agnostic.
+    adapter = get_adapter(settings.proxy_default_provider)
+
     client_key = openai_key_for_project(project.id)
     if not client_key:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="no OpenAI key configured for this project",
+            detail="no provider key configured for this project",
         )
 
     body = await request.json()
@@ -148,6 +154,7 @@ async def chat_completions(
                 project,
                 api_key_id,
                 client_key,
+                adapter,
                 body,
                 model,
                 cache_key,
@@ -168,6 +175,7 @@ async def chat_completions(
         project,
         api_key_id,
         client_key,
+        adapter,
         body,
         model,
         cache_key,
@@ -202,7 +210,7 @@ def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label):
     headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": cache_label}
     if stream:
         return StreamingResponse(
-            iter(list(openai.completion_to_sse(entry.response_payload))),
+            iter(list(canonical.to_openai_sse(entry.response_payload))),
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
         )
@@ -214,6 +222,7 @@ def _capture(
     project: Project,
     api_key_id,
     *,
+    provider: str,
     model: str,
     cache_model: str,
     response_payload: dict,
@@ -247,6 +256,7 @@ def _capture(
             db,
             project,
             api_key_id,
+            provider=provider,
             model=model,
             input_tokens=in_tok,
             output_tokens=out_tok,
@@ -286,6 +296,7 @@ async def _stream_through(
     project,
     api_key_id,
     client_key,
+    adapter,
     body,
     model,
     cache_key,
@@ -298,15 +309,11 @@ async def _stream_through(
     exp_from=None,
     exp_to=None,
 ):
-    """Pass the OpenAI SSE stream through verbatim, buffering a copy in memory to
-    bill and (unless bypassed) cache after the client has its bytes."""
-    upstream_body = {
-        **body,
-        "model": upstream_model or model,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }
-    buffer = bytearray()
+    """Pass the provider's stream through to the client via the adapter's stream
+    translator (verbatim for an OpenAI upstream), accumulating a copy to bill and
+    (unless bypassed) cache after the client has its bytes."""
+    upstream_body = adapter.prepare_request(body, model=upstream_model or model, stream=True)
+    translator = adapter.stream_translator()
     ok = False
 
     try:
@@ -314,8 +321,8 @@ async def _stream_through(
             httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0)) as client,
             client.stream(
                 "POST",
-                openai.upstream_url(),
-                headers=openai.upstream_headers(client_key),
+                adapter.endpoint(),
+                headers=adapter.headers(client_key),
                 json=upstream_body,
             ) as resp,
         ):
@@ -331,8 +338,8 @@ async def _stream_through(
                 return
             breaker.record_success()
             async for chunk in resp.aiter_bytes():
-                buffer.extend(chunk)
-                yield chunk
+                for out in translator.push(chunk):
+                    yield out
     except httpx.RequestError as exc:
         # OpenAI unreachable/slow: count it against the breaker and emit a clean
         # SSE error instead of a stack trace.
@@ -344,27 +351,20 @@ async def _stream_through(
 
     # Stream finished and the client has every byte. Best-effort bookkeeping.
     try:
-        assembled = openai.assemble_stream(openai.parse_sse_events(buffer.decode("utf-8", errors="replace")))
-        in_tok, out_tok, cached_tok = openai.usage_tokens(assembled["usage"])
-        out_model = assembled["model"] or model
+        result = translator.finish()
+        in_tok = result.usage.input_tokens
+        out_tok = result.usage.output_tokens
+        cached_tok = result.usage.provider_cached_input_tokens
+        out_model = result.model or model
         # Build (and thus meter + cache) the payload when the assistant returned
         # either content or tool calls. A tool-only response has empty content but
         # must still be captured, or the agent workload's calls are silently lost.
-        payload = (
-            openai.build_completion_object(
-                out_model,
-                assembled["content"],
-                assembled["usage"],
-                assembled["finish_reason"],
-                tool_calls=assembled["tool_calls"],
-            )
-            if (assembled["content"] or assembled["tool_calls"])
-            else {}
-        )
+        payload = canonical.completion_payload(result) if (result.content or result.tool_calls) else {}
         _capture(
             db,
             project,
             api_key_id,
+            provider=adapter.provider,
             model=out_model,
             cache_model=model,
             response_payload=payload,
@@ -390,6 +390,7 @@ async def _forward_once(
     project,
     api_key_id,
     client_key,
+    adapter,
     body,
     model,
     cache_key,
@@ -403,12 +404,13 @@ async def _forward_once(
     exp_from=None,
     exp_to=None,
 ) -> JSONResponse:
+    upstream_body = adapter.prepare_request(body, model=upstream_model or model, stream=False)
     try:
         async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
             resp = await client.post(
-                openai.upstream_url(),
-                headers=openai.upstream_headers(client_key),
-                json={**body, "model": upstream_model or model},
+                adapter.endpoint(),
+                headers=adapter.headers(client_key),
+                json=upstream_body,
             )
     except httpx.RequestError as exc:
         # OpenAI unreachable/slow: count it against the breaker, clean 502.
@@ -441,20 +443,23 @@ async def _forward_once(
 
     breaker.record_success()
 
-    data = resp.json()
-    in_tok, out_tok, cached_tok = openai.usage_tokens(data.get("usage") or {})
-    out_model = data.get("model") or model
+    result = adapter.parse_completion(resp.json())
+    # The client always gets the OpenAI dialect; for an OpenAI upstream this is the
+    # original payload reused verbatim, for any other provider it is the canonical
+    # form rendered to OpenAI shape.
+    payload = canonical.completion_payload(result)
     _capture(
         db,
         project,
         api_key_id,
-        model=out_model,
+        provider=adapter.provider,
+        model=result.model or model,
         cache_model=model,
-        response_payload=data,
+        response_payload=payload,
         cache_key=cache_key,
-        in_tok=in_tok,
-        out_tok=out_tok,
-        cached_tok=cached_tok,
+        in_tok=result.usage.input_tokens,
+        out_tok=result.usage.output_tokens,
+        cached_tok=result.usage.provider_cached_input_tokens,
         store_cache=store_cache,
         embedding=embedding,
         body=body,
@@ -463,4 +468,4 @@ async def _forward_once(
         exp_from=exp_from,
         exp_to=exp_to,
     )
-    return JSONResponse(data, headers=headers)
+    return JSONResponse(payload, headers=headers)

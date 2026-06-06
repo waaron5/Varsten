@@ -63,9 +63,10 @@ from app.models import (
     User,
 )
 from app.models.eval import SOURCE_TRAFFIC
-from app.proxy import experiment, openai
+from app.proxy import experiment
 from app.proxy.embedding import embedding_input
 from app.proxy.predicate import DEFAULT_PREDICATE
+from app.proxy.providers import openai
 from app.savings import month_start
 from scripts.seed_demo import _seed_prices
 
@@ -530,7 +531,8 @@ async def capture_incumbent(
         payload = await replay_candidate(messages, {}, INCUMBENT, key)
         if payload is None:
             continue
-        in_tok, out_tok, _ = openai.usage_tokens(payload.get("usage") or {})
+        _usage = openai.usage_from(payload.get("usage") or {})
+        in_tok, out_tok = _usage.input_tokens, _usage.output_tokens
         db.add(
             ReplaySample(
                 organization_id=project.organization_id,
