@@ -15,12 +15,11 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.models import ModelPrice, Project, ProxyPolicy, Recommendation
+from app.models import ModelPrice, Project, ProxyPolicy, Recommendation, UsageEvent
 from app.proxy import circuit
 from app.proxy import drift as drift_mod
 from app.proxy import router as proxy_router
 from app.proxy.execution import activate_execution, deactivate_execution
-from app.proxy.ledger import record_proxy_usage
 from app.proxy.trim import LEVER, apply_trim, resolve_trim, trim_messages
 
 MODEL = "gpt-4o"
@@ -116,8 +115,10 @@ def test_apply_trim_does_not_mutate_original():
 # --- policy lifecycle -----------------------------------------------------------
 
 
-def test_resolve_trim_only_when_enabled(client, provision, db_session):
-    project = _project(db_session, provision)
+@pytest.mark.anyio
+async def test_resolve_trim_only_when_enabled(async_provision, async_db_session):
+    ws = await async_provision(sub="auth0|trim", email="trim@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     policy = ProxyPolicy(
         organization_id=project.organization_id,
         project_id=project.id,
@@ -127,14 +128,14 @@ def test_resolve_trim_only_when_enabled(client, provision, db_session):
         enabled=True,
         holdback_percent=Decimal("0.1"),
     )
-    db_session.add(policy)
-    db_session.commit()
-    assert resolve_trim(db_session, project.id, MODEL) is not None
-    assert resolve_trim(db_session, project.id, "other") is None
+    async_db_session.add(policy)
+    await async_db_session.flush()
+    assert await resolve_trim(async_db_session, project.id, MODEL) is not None
+    assert await resolve_trim(async_db_session, project.id, "other") is None
 
     policy.enabled = False
-    db_session.commit()
-    assert resolve_trim(db_session, project.id, MODEL) is None
+    await async_db_session.flush()
+    assert await resolve_trim(async_db_session, project.id, MODEL) is None
 
 
 def test_activate_then_deactivate_trim(client, provision, db_session):
@@ -194,12 +195,13 @@ def _redundant_messages() -> list[dict]:
     return msgs
 
 
-def test_proxy_trims_treatment_body(client, provision, db_session, monkeypatch):
+@pytest.mark.anyio
+async def test_proxy_trims_treatment_body(async_client, async_provision, async_db_session, monkeypatch):
     monkeypatch.setattr(settings, "proxy_cache_enabled", False)
-    ws = provision(sub="auth0|trim2", email="trim2@example.com")
-    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    ws = await async_provision(sub="auth0|trim2", email="trim2@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
-    db_session.add(
+    async_db_session.add(
         ProxyPolicy(
             organization_id=project.organization_id,
             project_id=project.id,
@@ -210,11 +212,11 @@ def test_proxy_trims_treatment_body(client, provision, db_session, monkeypatch):
             holdback_percent=Decimal("0"),  # always treatment
         )
     )
-    db_session.commit()
+    await async_db_session.flush()
 
     seen: dict = {}
     _mock_openai(monkeypatch, seen)
-    resp = client.post(
+    resp = await async_client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {ws['api_key']}"},
         json={"model": MODEL, "messages": _redundant_messages(), "stream": False},
@@ -226,12 +228,13 @@ def test_proxy_trims_treatment_body(client, provision, db_session, monkeypatch):
     assert len(seen["messages"]) < 31
 
 
-def test_proxy_holdback_leaves_control_untrimmed(client, provision, db_session, monkeypatch):
+@pytest.mark.anyio
+async def test_proxy_holdback_leaves_control_untrimmed(async_client, async_provision, async_db_session, monkeypatch):
     monkeypatch.setattr(settings, "proxy_cache_enabled", False)
-    ws = provision(sub="auth0|trim3", email="trim3@example.com")
-    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    ws = await async_provision(sub="auth0|trim3", email="trim3@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
-    db_session.add(
+    async_db_session.add(
         ProxyPolicy(
             organization_id=project.organization_id,
             project_id=project.id,
@@ -242,11 +245,11 @@ def test_proxy_holdback_leaves_control_untrimmed(client, provision, db_session, 
             holdback_percent=Decimal("1.0"),  # always control
         )
     )
-    db_session.commit()
+    await async_db_session.flush()
 
     seen: dict = {}
     _mock_openai(monkeypatch, seen)
-    resp = client.post(
+    resp = await async_client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {ws['api_key']}"},
         json={"model": MODEL, "messages": _redundant_messages(), "stream": False},
@@ -262,19 +265,46 @@ def test_proxy_holdback_leaves_control_untrimmed(client, provision, db_session, 
 
 
 def _record_trim_arm(db, project, arm, input_tokens, ok):
-    record_proxy_usage(
-        db,
-        project,
-        None,
-        model=MODEL,
-        input_tokens=input_tokens,
-        output_tokens=10,
-        cached_input_tokens=0,
-        cache_hit=False,
-        arm=arm,
-        experiment_from=MODEL,
-        experiment_to=MODEL,
-        quality_ok=ok,
+    # Sync ORM seed mirroring record_proxy_usage for a trim experiment (from == to
+    # == MODEL), so the sync drift/reporting endpoints can read it. Cost is derived
+    # from the token counts at the MODEL catalog rate these tests seed
+    # (0.00001 in / 0.00003 out), so the reporting A/B numbers line up.
+    cost = (Decimal(input_tokens) * Decimal("0.00001") + Decimal(10) * Decimal("0.00003")).quantize(
+        Decimal("0.00000001")
+    )
+    meta = {
+        "proxy": True,
+        "cache": "miss",
+        "holdback": True,
+        "arm": arm,
+        "experiment_from": MODEL,
+        "experiment_to": MODEL,
+        "quality_ok": ok,
+    }
+    db.add(
+        UsageEvent(
+            project_id=project.id,
+            organization_id=project.organization_id,
+            api_key_id=None,
+            provider="openai",
+            model=MODEL,
+            operation="chat_completion",
+            request_type="chat_completion",
+            feature="proxy",
+            environment="production",
+            input_tokens=input_tokens,
+            output_tokens=10,
+            cached_input_tokens=0,
+            total_tokens=input_tokens + 10,
+            cost_usd=cost,
+            cost_source="catalog",
+            pricing_status="priced",
+            currency="USD",
+            status="success",
+            success=True,
+            event_metadata=meta,
+            occurred_at=datetime.now(UTC),
+        )
     )
 
 

@@ -11,12 +11,12 @@ POST /v1/chat/completions
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApiKeyContext, require_api_key_context
+from app.api.deps import ApiKeyContext, require_api_key_context_async
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.session import get_db
+from app.db.session import get_async_db
 from app.eval import capture as eval_capture
 from app.models import Project
 from app.proxy import cache, quality, routing, trim
@@ -41,8 +41,8 @@ def _is_bypassed(project: Project) -> bool:
 @router.post("/chat/completions")
 async def chat_completions(
     request: Request,
-    api_context: ApiKeyContext = Depends(require_api_key_context),
-    db: Session = Depends(get_db),
+    api_context: ApiKeyContext = Depends(require_api_key_context_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     project = api_context.project
     api_key_id = api_context.api_key.id
@@ -74,12 +74,12 @@ async def chat_completions(
         # 1) Exact hash: byte-identical repeats serve instantly, no embedding call.
         # This is the Day One lever and adds zero latency to a miss.
         try:
-            entry = cache.get_cached(db, project.id, cache_key)
+            entry = await cache.get_cached(db, project.id, cache_key)
         except Exception:
             logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
             entry = None
         if entry is not None:
-            return _serve_cache_hit(db, project, api_key_id, entry, stream, "hit")
+            return await _serve_cache_hit(db, project, api_key_id, entry, stream, "hit")
 
         # 2) Semantic layer (optional, on top of exact hash): embed the prompt and
         # find the nearest cached answer. Off by default so there is no embedding
@@ -88,12 +88,12 @@ async def chat_completions(
         if settings.semantic_cache_enabled:
             try:
                 embedding = await embed(embedding_input(body), client_key)
-                sem = cache.semantic_search(db, project.id, model, embedding, settings.semantic_cache_threshold)
+                sem = await cache.semantic_search(db, project.id, model, embedding, settings.semantic_cache_threshold)
             except Exception:
                 logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
                 sem = None
             if sem is not None:
-                return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
+                return await _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic")
 
     # --- cheaper-model routing with a live holdback A/B. If an applied+eval-passed
     # rule maps this model to a cheaper candidate, randomly assign the request to
@@ -111,7 +111,7 @@ async def chat_completions(
     exp_to: str | None = None
     trim_applied = False
     if not bypass:
-        decision = routing.resolve_route(db, project.id, model, body)
+        decision = await routing.resolve_route(db, project.id, model, body)
         if decision and decision.candidate_model and decision.candidate_model != model:
             exp_from, exp_to = model, decision.candidate_model
             arm = routing.assign_arm(decision.holdback_percent)
@@ -119,7 +119,7 @@ async def chat_completions(
                 routed_from = model
                 upstream_model = decision.candidate_model
         else:
-            tdecision = trim.resolve_trim(db, project.id, model)
+            tdecision = await trim.resolve_trim(db, project.id, model)
             if tdecision:
                 # Same-model experiment: from == to marks a token-trim A/B.
                 exp_from = exp_to = model
@@ -191,11 +191,11 @@ async def chat_completions(
     )
 
 
-def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label):
+async def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label):
     """Serve a cache entry (exact or semantic), record the hit and the $0 ledger row."""
     try:
-        cache.record_hit(db, entry)
-        record_proxy_usage(
+        await cache.record_hit(db, entry)
+        await record_proxy_usage(
             db,
             project,
             api_key_id,
@@ -217,8 +217,8 @@ def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label):
     return JSONResponse(entry.response_payload, headers=headers)
 
 
-def _capture(
-    db: Session,
+async def _capture(
+    db: AsyncSession,
     project: Project,
     api_key_id,
     *,
@@ -252,7 +252,7 @@ def _capture(
     # drift guard can compare the treatment arm against the control arm.
     quality_ok = quality.response_quality_ok(response_payload, quality.wants_json(body or {})) if arm else None
     try:
-        record_proxy_usage(
+        await record_proxy_usage(
             db,
             project,
             api_key_id,
@@ -271,7 +271,9 @@ def _capture(
         if store_cache and settings.proxy_cache_enabled and response_payload:
             # embedding is None unless the semantic layer is on; the entry still
             # serves exact-hash hits either way.
-            cache.store(db, project.id, cache_key, cache_model, response_payload, in_tok, out_tok, embedding=embedding)
+            await cache.store(
+                db, project.id, cache_key, cache_model, response_payload, in_tok, out_tok, embedding=embedding
+            )
     except Exception:
         logger.exception("proxy ledger/cache write failed", extra={"project_id": str(project.id)})
 
@@ -280,7 +282,7 @@ def _capture(
     # bypassed). Keyed on the requested model so a cheaper-model recommendation on
     # that route can later replay it. Best-effort and off the response path.
     if store_cache and body is not None and response_payload:
-        eval_capture.capture_sample(
+        await eval_capture.capture_sample(
             db,
             project,
             body=body,
@@ -360,7 +362,7 @@ async def _stream_through(
         # either content or tool calls. A tool-only response has empty content but
         # must still be captured, or the agent workload's calls are silently lost.
         payload = canonical.completion_payload(result) if (result.content or result.tool_calls) else {}
-        _capture(
+        await _capture(
             db,
             project,
             api_key_id,
@@ -448,7 +450,7 @@ async def _forward_once(
     # original payload reused verbatim, for any other provider it is the canonical
     # form rendered to OpenAI shape.
     payload = canonical.completion_payload(result)
-    _capture(
+    await _capture(
         db,
         project,
         api_key_id,

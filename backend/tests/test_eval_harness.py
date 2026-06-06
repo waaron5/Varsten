@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -280,16 +281,19 @@ def test_non_gated_lever_applies_without_eval(client, provision, db_session):
 # --- capture tap ----------------------------------------------------------------
 
 
-def test_capture_respects_optin(client, provision, db_session, monkeypatch):
+@pytest.mark.anyio
+async def test_capture_respects_optin(async_provision, async_db_session, monkeypatch):
     monkeypatch.setattr(settings, "eval_capture_enabled", True)
     monkeypatch.setattr(settings, "eval_sample_rate", 1.0)
-    project = _project(db_session, provision)
+    ws = await async_provision(sub="auth0|cap1", email="cap1@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
 
     body = {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}
     # Opted out: nothing captured.
     project.eval_capture_enabled = False
-    eval_capture.capture_sample(
-        db_session,
+    await async_db_session.flush()
+    await eval_capture.capture_sample(
+        async_db_session,
         project,
         body=body,
         response_payload=_completion("hello"),
@@ -297,13 +301,13 @@ def test_capture_respects_optin(client, provision, db_session, monkeypatch):
         input_tokens=10,
         output_tokens=2,
     )
-    assert db_session.scalar(select(ReplaySample).where(ReplaySample.project_id == project.id)) is None
+    assert await async_db_session.scalar(select(ReplaySample).where(ReplaySample.project_id == project.id)) is None
 
     # Opted in: captured with a TTL.
     project.eval_capture_enabled = True
-    db_session.commit()
-    eval_capture.capture_sample(
-        db_session,
+    await async_db_session.flush()
+    await eval_capture.capture_sample(
+        async_db_session,
         project,
         body=body,
         response_payload=_completion("hello"),
@@ -311,22 +315,24 @@ def test_capture_respects_optin(client, provision, db_session, monkeypatch):
         input_tokens=10,
         output_tokens=2,
     )
-    sample = db_session.scalar(select(ReplaySample).where(ReplaySample.project_id == project.id))
+    sample = await async_db_session.scalar(select(ReplaySample).where(ReplaySample.project_id == project.id))
     assert sample is not None and sample.source == SOURCE_TRAFFIC and sample.expires_at is not None
 
 
-def test_capture_enforces_route_cap(client, provision, db_session, monkeypatch):
+@pytest.mark.anyio
+async def test_capture_enforces_route_cap(async_provision, async_db_session, monkeypatch):
     monkeypatch.setattr(settings, "eval_capture_enabled", True)
     monkeypatch.setattr(settings, "eval_sample_rate", 1.0)
     monkeypatch.setattr(settings, "eval_max_samples_per_route", 3)
-    project = _project(db_session, provision)
+    ws = await async_provision(sub="auth0|cap2", email="cap2@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     project.eval_capture_enabled = True
-    db_session.commit()
+    await async_db_session.flush()
 
     body = {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}
     for _ in range(6):
-        eval_capture.capture_sample(
-            db_session,
+        await eval_capture.capture_sample(
+            async_db_session,
             project,
             body=body,
             response_payload=_completion("hi"),
@@ -334,7 +340,7 @@ def test_capture_enforces_route_cap(client, provision, db_session, monkeypatch):
             input_tokens=10,
             output_tokens=2,
         )
-    total = len(list(db_session.scalars(select(ReplaySample).where(ReplaySample.project_id == project.id))))
+    total = len((await async_db_session.scalars(select(ReplaySample).where(ReplaySample.project_id == project.id))).all())
     assert total == 3
 
 

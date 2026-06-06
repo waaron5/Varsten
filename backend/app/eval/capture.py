@@ -15,6 +15,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -52,8 +53,8 @@ def _route_key(model: str) -> str:
     return model
 
 
-def capture_sample(
-    db: Session,
+async def capture_sample(
+    db: AsyncSession,
     project: Project,
     *,
     body: dict,
@@ -96,18 +97,18 @@ def capture_sample(
             expires_at=at + timedelta(days=settings.eval_sample_ttl_days),
         )
         db.add(sample)
-        db.commit()
-        _enforce_route_cap(db, project.id, route_key)
+        await db.commit()
+        await _enforce_route_cap(db, project.id, route_key)
     except Exception:
-        db.rollback()
+        await db.rollback()
         logger.exception("replay capture failed", extra={"project_id": str(project.id)})
 
 
-def _enforce_route_cap(db: Session, project_id: uuid.UUID, route_key: str) -> None:
+async def _enforce_route_cap(db: AsyncSession, project_id: uuid.UUID, route_key: str) -> None:
     """Keep at most eval_max_samples_per_route traffic samples per route, evicting
     the oldest. Golden samples are never evicted (they are not source=traffic)."""
     cap = settings.eval_max_samples_per_route
-    count = db.scalar(
+    count = await db.scalar(
         select(func.count())
         .select_from(ReplaySample)
         .where(
@@ -129,7 +130,7 @@ def _enforce_route_cap(db: Session, project_id: uuid.UUID, route_key: str) -> No
         .order_by(ReplaySample.created_at.desc())
         .limit(cap)
     )
-    db.execute(
+    await db.execute(
         delete(ReplaySample).where(
             ReplaySample.project_id == project_id,
             ReplaySample.route_key == route_key,
@@ -137,7 +138,7 @@ def _enforce_route_cap(db: Session, project_id: uuid.UUID, route_key: str) -> No
             ReplaySample.id.not_in(keep),
         )
     )
-    db.commit()
+    await db.commit()
 
 
 def purge_expired(db: Session, now: datetime | None = None) -> int:

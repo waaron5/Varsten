@@ -12,6 +12,7 @@ and idempotency values prevent duplicate demo records.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_api_key
-from app.db.session import SessionLocal
+from app.db.session import AsyncSessionLocal, SessionLocal
 from app.models import (
     AlertRule,
     ApiKey,
@@ -346,17 +347,23 @@ def _event(
         )
     )
 
-    cost, cost_source, pricing_status, price_version_id = price_usage_event(
-        db,
-        organization_id=org.id,
-        model_key=model,
-        provider=provider,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cached_input_tokens=0,
-        reported_cost_usd=None,
-        at=occurred_at,
-    )
+    # pricing is async-only; this seed script is synchronous, so bridge with
+    # asyncio.run over a scoped async session (caller-level bridge for a sync script).
+    async def _price() -> tuple:
+        async with AsyncSessionLocal() as adb:
+            return await price_usage_event(
+                adb,
+                organization_id=org.id,
+                model_key=model,
+                provider=provider,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_input_tokens=0,
+                reported_cost_usd=None,
+                at=occurred_at,
+            )
+
+    cost, cost_source, pricing_status, price_version_id = asyncio.run(_price())
     values = {
         "organization_id": org.id,
         "project_id": project.id,

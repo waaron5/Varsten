@@ -1,12 +1,15 @@
 import pytest
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core.config import settings
-from app.db.session import async_engine, engine, get_db
+from app.core.security import generate_api_key
+from app.db.session import async_engine, engine, get_async_db, get_db
 from app.main import app
+from app.models import ApiKey, Organization, Project
 
 
 @pytest.fixture(autouse=True)
@@ -113,3 +116,43 @@ async def async_db_session():
         await session.close()
         await transaction.rollback()
         await connection.close()
+
+
+@pytest.fixture
+async def async_client(async_db_session):
+    """httpx AsyncClient over the ASGI app, with the async DB dependency pointed at
+    the test's savepoint-isolated session so endpoint writes and test assertions
+    share one transaction. For endpoints on the async stack (the inline proxy)."""
+    app.dependency_overrides[get_async_db] = lambda: async_db_session
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def async_provision(async_db_session):
+    """Provision an org + project + API key directly through the async session.
+    The sync HTTP provisioning runs on a separate connection the async route cannot
+    see (sync and async psycopg connections do not share a transaction), so async
+    endpoint tests must provision on the same async session they assert on."""
+
+    async def _provision(sub: str | None = None, email: str | None = None, project_name: str = "prod") -> dict:
+        org = Organization(name="async-test-org")
+        async_db_session.add(org)
+        await async_db_session.flush()
+        project = Project(organization_id=org.id, name=project_name)
+        async_db_session.add(project)
+        await async_db_session.flush()
+        plaintext, prefix, key_hash = generate_api_key()
+        api_key = ApiKey(project_id=project.id, name="ingest", key_prefix=prefix, key_hash=key_hash)
+        async_db_session.add(api_key)
+        await async_db_session.flush()
+        return {
+            "org_id": str(org.id),
+            "project_id": str(project.id),
+            "api_key": plaintext,
+            "api_key_id": api_key.id,
+        }
+
+    return _provision

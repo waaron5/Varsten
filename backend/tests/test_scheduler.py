@@ -8,17 +8,17 @@ start/stop and error-swallowing behaviour. OpenAI is mocked.
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
 
 from app.core.config import settings
-from app.models import Project, ProxyPolicy, Recommendation
+from app.models import Project, ProxyPolicy, Recommendation, UsageEvent
 from app.models.batch import STATUS_FINALIZED
 from app.proxy import batch as batch_service
 from app.proxy import drift as drift_mod
 from app.proxy import openai_batch
-from app.proxy.ledger import record_proxy_usage
 from app.scheduler import Scheduler
 
 INCUMBENT = "gpt-4o"
@@ -29,20 +29,43 @@ CANDIDATE = "gpt-4o-mini"
 
 
 def _record_q(db, project, arm, model, ok):
-    record_proxy_usage(
-        db,
-        project,
-        None,
-        model=model,
-        input_tokens=1000,
-        output_tokens=500,
-        cached_input_tokens=0,
-        cache_hit=False,
-        naive_model=INCUMBENT if arm == "treatment" else None,
-        arm=arm,
-        experiment_from=INCUMBENT,
-        experiment_to=CANDIDATE,
-        quality_ok=ok,
+    # Seed a ledger row via sync ORM (the drift sweep is sync and reads from the
+    # same sync session; record_proxy_usage is async-only now).
+    meta = {
+        "proxy": True,
+        "cache": "miss",
+        "holdback": True,
+        "arm": arm,
+        "experiment_from": INCUMBENT,
+        "experiment_to": CANDIDATE,
+        "quality_ok": ok,
+    }
+    if arm == "treatment":
+        meta.update({"routed": True, "routed_from": INCUMBENT, "routed_to": CANDIDATE, "saved_usd": "0.0107"})
+    db.add(
+        UsageEvent(
+            project_id=project.id,
+            organization_id=project.organization_id,
+            api_key_id=None,
+            provider="openai",
+            model=model,
+            operation="chat_completion",
+            request_type="chat_completion",
+            feature="proxy",
+            environment="production",
+            input_tokens=1000,
+            output_tokens=500,
+            cached_input_tokens=0,
+            total_tokens=1500,
+            cost_usd=Decimal("0.0018") if arm == "treatment" else Decimal("0.0125"),
+            cost_source="catalog",
+            pricing_status="priced",
+            currency="USD",
+            status="success",
+            success=True,
+            event_metadata=meta,
+            occurred_at=datetime.now(UTC),
+        )
     )
 
 

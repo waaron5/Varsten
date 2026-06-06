@@ -10,14 +10,15 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.models import Project, UsageEvent
 from app.pricing import price_usage_event
 
 
-def record_proxy_usage(
-    db: Session,
+async def record_proxy_usage(
+    db: AsyncSession,
     project: Project,
     api_key_id: uuid.UUID | None,
     *,
@@ -37,7 +38,7 @@ def record_proxy_usage(
 ) -> UsageEvent:
     at = now or datetime.now(UTC)
     # Cost of these tokens at catalog price for the model actually used.
-    used_cost, cost_source, pricing_status, price_version_id = price_usage_event(
+    used_cost, cost_source, pricing_status, price_version_id = await price_usage_event(
         db,
         organization_id=project.organization_id,
         model_key=model,
@@ -62,7 +63,7 @@ def record_proxy_usage(
         # Routed to a cheaper model. Actual spend is the candidate's cost; the
         # naive baseline is what the incumbent would have cost for the same tokens
         # (the direct method). The difference is measured savings.
-        naive_cost, _, _, _ = price_usage_event(
+        naive_cost, _, _, _ = await price_usage_event(
             db,
             organization_id=project.organization_id,
             model_key=naive_model,
@@ -133,7 +134,7 @@ def record_proxy_usage(
         occurred_at=at,
     )
     db.add(event)
-    db.commit()
+    await db.commit()
     return event
 
 

@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import NamedTuple
 
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -41,22 +42,24 @@ class TrimDecision(NamedTuple):
     params: dict
 
 
-def resolve_trim(db: Session, project_id: uuid.UUID, requested_model: str) -> TrimDecision | None:
+async def resolve_trim(db: AsyncSession, project_id: uuid.UUID, requested_model: str) -> TrimDecision | None:
     """The enabled token-trim policy for this model, or None. Fail-open: any error
     returns None (forward the body untouched)."""
     if not requested_model:
         return None
     try:
-        policy = db.scalars(
-            select(ProxyPolicy)
-            .where(
-                ProxyPolicy.project_id == project_id,
-                ProxyPolicy.lever == LEVER,
-                ProxyPolicy.target_key == requested_model,
-                ProxyPolicy.enabled.is_(True),
+        policy = (
+            await db.scalars(
+                select(ProxyPolicy)
+                .where(
+                    ProxyPolicy.project_id == project_id,
+                    ProxyPolicy.lever == LEVER,
+                    ProxyPolicy.target_key == requested_model,
+                    ProxyPolicy.enabled.is_(True),
+                )
+                .order_by(ProxyPolicy.activated_at.desc().nullslast())
+                .limit(1)
             )
-            .order_by(ProxyPolicy.activated_at.desc().nullslast())
-            .limit(1)
         ).first()
         if policy is None:
             return None

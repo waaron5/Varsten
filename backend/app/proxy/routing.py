@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import NamedTuple
 
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -39,24 +40,26 @@ class RouteDecision(NamedTuple):
     holdback_percent: Decimal
 
 
-def _routing_policy_for_model(db: Session, project_id: uuid.UUID, requested_model: str) -> ProxyPolicy | None:
+async def _routing_policy_for_model(db: AsyncSession, project_id: uuid.UUID, requested_model: str) -> ProxyPolicy | None:
     """The enabled routing-lever policy that applies to this incumbent model, if
     any. At most one is expected; the most recently activated wins if not."""
-    return db.scalars(
-        select(ProxyPolicy)
-        .where(
-            ProxyPolicy.project_id == project_id,
-            ProxyPolicy.lever.in_(ROUTING_LEVERS),
-            ProxyPolicy.target_key == requested_model,
-            ProxyPolicy.enabled.is_(True),
+    return (
+        await db.scalars(
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project_id,
+                ProxyPolicy.lever.in_(ROUTING_LEVERS),
+                ProxyPolicy.target_key == requested_model,
+                ProxyPolicy.enabled.is_(True),
+            )
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
+            .limit(1)
         )
-        .order_by(ProxyPolicy.activated_at.desc().nullslast())
-        .limit(1)
     ).first()
 
 
-def resolve_route(
-    db: Session, project_id: uuid.UUID, requested_model: str, body: dict | None = None
+async def resolve_route(
+    db: AsyncSession, project_id: uuid.UUID, requested_model: str, body: dict | None = None
 ) -> RouteDecision | None:
     """The candidate model and holdback fraction for an enabled routing policy on
     this model, or None when none applies. For smart_routing the per-request
@@ -66,7 +69,7 @@ def resolve_route(
     if not requested_model:
         return None
     try:
-        policy = _routing_policy_for_model(db, project_id, requested_model)
+        policy = await _routing_policy_for_model(db, project_id, requested_model)
         if policy is None or not policy.candidate_model:
             return None
         if policy.lever == SMART_ROUTING:
@@ -89,11 +92,22 @@ def assign_arm(holdback_percent: Decimal) -> str:
 
 def resolve_effective_model(db: Session, project_id: uuid.UUID, requested_model: str) -> str | None:
     """The candidate model an enabled routing policy routes this request to, or
-    None when none applies. Fail-open: on any error, return None."""
+    None when none applies. Sync (control-plane callers); uses its own query rather
+    than the async hot-path helper. Fail-open: on any error, return None."""
     if not requested_model:
         return None
     try:
-        policy = _routing_policy_for_model(db, project_id, requested_model)
+        policy = db.scalars(
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project_id,
+                ProxyPolicy.lever.in_(ROUTING_LEVERS),
+                ProxyPolicy.target_key == requested_model,
+                ProxyPolicy.enabled.is_(True),
+            )
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
+            .limit(1)
+        ).first()
         return policy.candidate_model if policy is not None else None
     except Exception:
         logger.exception("routing lookup failed; forwarding original model", extra={"project_id": str(project_id)})

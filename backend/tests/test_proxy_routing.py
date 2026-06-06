@@ -86,7 +86,7 @@ def _mk_rec(db, project) -> Recommendation:
     return rec
 
 
-def _seed_prices(db, project):
+async def _seed_prices(db, project):
     at = datetime.now(UTC) - timedelta(days=1)
     db.add_all(
         [
@@ -110,7 +110,7 @@ def _seed_prices(db, project):
             ),
         ]
     )
-    db.commit()
+    await db.flush()
 
 
 # --- rule lifecycle -------------------------------------------------------------
@@ -176,11 +176,13 @@ def test_apply_through_engine_activates_rule(client, provision, db_session):
 # --- metering -------------------------------------------------------------------
 
 
-def test_routed_usage_meters_measured_savings(client, provision, db_session):
-    project = _project(db_session, provision)
-    _seed_prices(db_session, project)
-    event = record_proxy_usage(
-        db_session,
+@pytest.mark.anyio
+async def test_routed_usage_meters_measured_savings(async_provision, async_db_session):
+    ws = await async_provision(sub="auth0|routed", email="routed@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
+    await _seed_prices(async_db_session, project)
+    event = await record_proxy_usage(
+        async_db_session,
         project,
         None,
         model=CANDIDATE,
@@ -221,21 +223,22 @@ def _mock_openai(monkeypatch, seen: dict):
     monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
 
 
-def test_proxy_routes_request_to_candidate(client, provision, db_session, monkeypatch):
+@pytest.mark.anyio
+async def test_proxy_routes_request_to_candidate(async_client, async_provision, async_db_session, monkeypatch):
     monkeypatch.setattr(settings, "proxy_cache_enabled", False)  # skip embeddings
-    ws = provision(sub="auth0|route2", email="route2@example.com")
-    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    ws = await async_provision(sub="auth0|route2", email="route2@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
-    _seed_prices(db_session, project)
-    db_session.add(
+    await _seed_prices(async_db_session, project)
+    async_db_session.add(
         _policy(project, enabled=True, holdback_percent=Decimal("0"))  # no holdback: deterministically treatment
     )
-    db_session.commit()
+    await async_db_session.flush()
 
     seen: dict = {}
     _mock_openai(monkeypatch, seen)
 
-    resp = client.post(
+    resp = await async_client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {ws['api_key']}"},
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
@@ -246,32 +249,77 @@ def test_proxy_routes_request_to_candidate(client, provision, db_session, monkey
     assert resp.headers.get("X-Varsten-Routed") == f"{INCUMBENT}->{CANDIDATE}"
     assert resp.headers.get("X-Varsten-Arm") == "treatment"
 
-    event = db_session.scalar(
+    event = await async_db_session.scalar(
         select(UsageEvent).where(UsageEvent.project_id == project.id, UsageEvent.model == CANDIDATE)
     )
     assert event is not None and event.event_metadata.get("routed") is True
 
 
-def _record_arm(db, project, arm, model):
-    record_proxy_usage(
-        db,
-        project,
-        None,
+def _usage_row(project, model, cost, meta):
+    """A ledger row mirroring what record_proxy_usage writes, built via sync ORM so
+    the sync drift/reporting endpoints (a separate connection from the async proxy)
+    can read it. Costs match the seeded catalog rates for 1000 in / 500 out."""
+    return UsageEvent(
+        project_id=project.id,
+        organization_id=project.organization_id,
+        api_key_id=None,
+        provider="openai",
         model=model,
+        operation="chat_completion",
+        request_type="chat_completion",
+        feature="proxy",
+        environment="production",
         input_tokens=1000,
         output_tokens=500,
         cached_input_tokens=0,
-        cache_hit=False,
-        naive_model=INCUMBENT if arm == "treatment" else None,
-        arm=arm,
-        experiment_from=INCUMBENT,
-        experiment_to=CANDIDATE,
+        total_tokens=1500,
+        cost_usd=cost,
+        cost_source="catalog",
+        pricing_status="priced",
+        currency="USD",
+        status="success",
+        success=True,
+        event_metadata=meta,
+        occurred_at=datetime.now(UTC),
     )
+
+
+def _arm_meta(arm: str, *, quality_ok: bool | None = None) -> dict:
+    if arm == "treatment":
+        meta = {
+            "proxy": True,
+            "cache": "miss",
+            "routed": True,
+            "routed_from": INCUMBENT,
+            "routed_to": CANDIDATE,
+            "naive_cost_usd": "0.0125",
+            "saved_usd": "0.0107",
+            "holdback": True,
+            "arm": "treatment",
+            "experiment_from": INCUMBENT,
+            "experiment_to": CANDIDATE,
+        }
+    else:
+        meta = {
+            "proxy": True,
+            "cache": "miss",
+            "holdback": True,
+            "arm": "control",
+            "experiment_from": INCUMBENT,
+            "experiment_to": CANDIDATE,
+        }
+    if quality_ok is not None:
+        meta["quality_ok"] = quality_ok
+    return meta
+
+
+def _record_arm(db, project, arm, model):
+    cost = Decimal("0.0018") if arm == "treatment" else Decimal("0.0125")
+    db.add(_usage_row(project, model, cost, _arm_meta(arm)))
 
 
 def test_engine_routes_reports_holdback_ab(client, provision, db_session):
     project = _project(db_session, provision)
-    _seed_prices(db_session, project)
     db_session.add(_policy(project, enabled=True, holdback_percent=Decimal("0.1"), activated_at=datetime.now(UTC)))
     # Concurrent arms: control stays on the incumbent, treatment routes to candidate.
     for _ in range(2):
@@ -336,21 +384,8 @@ def test_response_quality_ok_objective_signal():
 
 
 def _record_q(db, project, arm, model, ok):
-    record_proxy_usage(
-        db,
-        project,
-        None,
-        model=model,
-        input_tokens=1000,
-        output_tokens=500,
-        cached_input_tokens=0,
-        cache_hit=False,
-        naive_model=INCUMBENT if arm == "treatment" else None,
-        arm=arm,
-        experiment_from=INCUMBENT,
-        experiment_to=CANDIDATE,
-        quality_ok=ok,
-    )
+    cost = Decimal("0.0018") if arm == "treatment" else Decimal("0.0125")
+    db.add(_usage_row(project, model, cost, _arm_meta(arm, quality_ok=ok)))
 
 
 def _rule_with_rec(db, project):
@@ -434,20 +469,21 @@ def test_drift_needs_enough_samples(client, provision, db_session, monkeypatch):
     assert rule.enabled is True
 
 
-def test_holdback_keeps_control_on_incumbent(client, provision, db_session, monkeypatch):
+@pytest.mark.anyio
+async def test_holdback_keeps_control_on_incumbent(async_client, async_provision, async_db_session, monkeypatch):
     monkeypatch.setattr(settings, "proxy_cache_enabled", False)
-    ws = provision(sub="auth0|route4", email="route4@example.com")
-    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    ws = await async_provision(sub="auth0|route4", email="route4@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
-    _seed_prices(db_session, project)
-    db_session.add(
+    await _seed_prices(async_db_session, project)
+    async_db_session.add(
         _policy(project, enabled=True, holdback_percent=Decimal("1.0"))  # always control
     )
-    db_session.commit()
+    await async_db_session.flush()
 
     seen: dict = {}
     _mock_openai(monkeypatch, seen)
-    resp = client.post(
+    resp = await async_client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {ws['api_key']}"},
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
@@ -457,22 +493,23 @@ def test_holdback_keeps_control_on_incumbent(client, provision, db_session, monk
     assert seen["model"] == INCUMBENT
     assert resp.headers.get("X-Varsten-Arm") == "control"
     assert "X-Varsten-Routed" not in resp.headers
-    event = db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == project.id))
+    event = await async_db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == project.id))
     assert event.event_metadata.get("arm") == "control" and event.event_metadata.get("holdback") is True
 
 
-def test_bypass_disables_routing(client, provision, db_session, monkeypatch):
+@pytest.mark.anyio
+async def test_bypass_disables_routing(async_client, async_provision, async_db_session, monkeypatch):
     monkeypatch.setattr(settings, "proxy_cache_enabled", False)
-    ws = provision(sub="auth0|route3", email="route3@example.com")
-    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    ws = await async_provision(sub="auth0|route3", email="route3@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
     project.proxy_bypass_enabled = True
-    db_session.add(_policy(project, enabled=True))
-    db_session.commit()
+    async_db_session.add(_policy(project, enabled=True))
+    await async_db_session.flush()
 
     seen: dict = {}
     _mock_openai(monkeypatch, seen)
-    resp = client.post(
+    resp = await async_client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {ws['api_key']}"},
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},

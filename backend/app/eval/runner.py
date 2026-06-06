@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.db.session import AsyncSessionLocal
 from app.eval import scoring
 from app.eval.failure_registry import record_failure
 from app.eval.openai_ops import judge_pairwise, replay_candidate
@@ -58,18 +59,22 @@ def _usage_tokens(payload: dict) -> tuple[int, int]:
     return int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
 
 
-def _price(db: Session, org_id: uuid.UUID, model: str, in_tok: int, out_tok: int, at: datetime) -> Decimal | None:
-    cost, _, _, _ = price_usage_event(
-        db,
-        organization_id=org_id,
-        model_key=model,
-        provider="openai",
-        input_tokens=in_tok,
-        output_tokens=out_tok,
-        cached_input_tokens=0,
-        reported_cost_usd=None,
-        at=at,
-    )
+async def _price(org_id: uuid.UUID, model: str, in_tok: int, out_tok: int, at: datetime) -> Decimal | None:
+    # pricing is async; run_eval is a coroutine, so bridge by opening a scoped
+    # AsyncSession here rather than threading one through run_eval's sync session.
+    # Pricing reads stable catalog data, so a separate session is consistent.
+    async with AsyncSessionLocal() as adb:
+        cost, _, _, _ = await price_usage_event(
+            adb,
+            organization_id=org_id,
+            model_key=model,
+            provider="openai",
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            cached_input_tokens=0,
+            reported_cost_usd=None,
+            at=at,
+        )
     return cost
 
 
@@ -148,11 +153,11 @@ async def run_eval(
             scores.append(score)
 
             cand_in, cand_out = _usage_tokens(cand_payload)
-            inc_cost = _price(
-                db, run.organization_id, run.incumbent_model, sample.input_tokens, sample.output_tokens, at
+            inc_cost = await _price(
+                run.organization_id, run.incumbent_model, sample.input_tokens, sample.output_tokens, at
             )
-            cand_cost = _price(
-                db, run.organization_id, run.candidate_model, cand_in or sample.input_tokens, cand_out, at
+            cand_cost = await _price(
+                run.organization_id, run.candidate_model, cand_in or sample.input_tokens, cand_out, at
             )
             if inc_cost is not None and cand_cost is not None:
                 cost_deltas.append(inc_cost - cand_cost)

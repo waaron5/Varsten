@@ -137,12 +137,15 @@ def _b(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_new_provider_nonstream_needs_zero_router_changes(client, db_session, provision, echo_provider, monkeypatch):
-    ws = provision(sub="auth0|echo", email="echo@example.com")
+@pytest.mark.anyio
+async def test_new_provider_nonstream_needs_zero_router_changes(
+    async_client, async_db_session, async_provision, echo_provider, monkeypatch
+):
+    ws = await async_provision(sub="auth0|echo", email="echo@example.com")
     monkeypatch.setattr(settings, "proxy_openai_keys", {ws["project_id"]: "sk-echo"})
     _mock_echo_upstream(monkeypatch, stream=False)
 
-    res = client.post(
+    res = await async_client.post(
         "/v1/chat/completions",
         headers=_b(ws["api_key"]),
         json={"model": "echo-1", "messages": [{"role": "user", "content": "hi"}]},
@@ -153,17 +156,20 @@ def test_new_provider_nonstream_needs_zero_router_changes(client, db_session, pr
     assert msg["role"] == "assistant" and msg["content"] == "hello world"
 
     # The ledger recorded the fake provider and its tokens via the same code path.
-    event = db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]))
+    event = await async_db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]))
     assert event.provider == "echo"
     assert event.input_tokens == 5 and event.output_tokens == 2
 
 
-def test_new_provider_stream_translates_to_openai_sse(client, db_session, provision, echo_provider, monkeypatch):
-    ws = provision(sub="auth0|echo", email="echo@example.com")
+@pytest.mark.anyio
+async def test_new_provider_stream_translates_to_openai_sse(
+    async_client, async_db_session, async_provision, echo_provider, monkeypatch
+):
+    ws = await async_provision(sub="auth0|echo", email="echo@example.com")
     monkeypatch.setattr(settings, "proxy_openai_keys", {ws["project_id"]: "sk-echo"})
     _mock_echo_upstream(monkeypatch, stream=True)
 
-    res = client.post(
+    res = await async_client.post(
         "/v1/chat/completions",
         headers=_b(ws["api_key"]),
         json={"model": "echo-1", "messages": [{"role": "user", "content": "hi"}], "stream": True},
@@ -179,5 +185,5 @@ def test_new_provider_stream_translates_to_openai_sse(client, db_session, provis
     content = "".join(e["choices"][0]["delta"].get("content", "") for e in events)
     assert content == "hello world"
 
-    event = db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]))
+    event = await async_db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]))
     assert event.provider == "echo" and event.output_tokens == 2

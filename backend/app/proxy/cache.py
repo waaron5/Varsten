@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ProxyCacheEntry
 
@@ -39,8 +39,8 @@ def compute_cache_key(body: dict) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def get_cached(db: Session, project_id: uuid.UUID, cache_key: str) -> ProxyCacheEntry | None:
-    return db.scalar(
+async def get_cached(db: AsyncSession, project_id: uuid.UUID, cache_key: str) -> ProxyCacheEntry | None:
+    return await db.scalar(
         select(ProxyCacheEntry).where(
             ProxyCacheEntry.project_id == project_id,
             ProxyCacheEntry.cache_key == cache_key,
@@ -48,8 +48,8 @@ def get_cached(db: Session, project_id: uuid.UUID, cache_key: str) -> ProxyCache
     )
 
 
-def semantic_search(
-    db: Session,
+async def semantic_search(
+    db: AsyncSession,
     project_id: uuid.UUID,
     model: str,
     embedding: list[float] | None,
@@ -61,15 +61,17 @@ def semantic_search(
     if embedding is None:
         return None
     distance = ProxyCacheEntry.embedding.cosine_distance(embedding).label("distance")
-    row = db.execute(
-        select(ProxyCacheEntry, distance)
-        .where(
-            ProxyCacheEntry.project_id == project_id,
-            ProxyCacheEntry.model == model,
-            ProxyCacheEntry.embedding.is_not(None),
+    row = (
+        await db.execute(
+            select(ProxyCacheEntry, distance)
+            .where(
+                ProxyCacheEntry.project_id == project_id,
+                ProxyCacheEntry.model == model,
+                ProxyCacheEntry.embedding.is_not(None),
+            )
+            .order_by(distance)
+            .limit(1)
         )
-        .order_by(distance)
-        .limit(1)
     ).first()
     if row is None:
         return None
@@ -79,14 +81,14 @@ def semantic_search(
     return None
 
 
-def record_hit(db: Session, entry: ProxyCacheEntry) -> None:
+async def record_hit(db: AsyncSession, entry: ProxyCacheEntry) -> None:
     entry.hit_count += 1
     entry.last_hit_at = datetime.now(UTC)
-    db.commit()
+    await db.commit()
 
 
-def store(
-    db: Session,
+async def store(
+    db: AsyncSession,
     project_id: uuid.UUID,
     cache_key: str,
     model: str,
@@ -95,7 +97,7 @@ def store(
     output_tokens: int,
     embedding: list[float] | None = None,
 ) -> ProxyCacheEntry:
-    existing = get_cached(db, project_id, cache_key)
+    existing = await get_cached(db, project_id, cache_key)
     if existing is not None:
         return existing
     entry = ProxyCacheEntry(
@@ -108,5 +110,5 @@ def store(
         embedding=embedding,
     )
     db.add(entry)
-    db.commit()
+    await db.commit()
     return entry

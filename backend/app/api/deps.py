@@ -6,11 +6,12 @@ import jwt
 from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.auth.auth0 import Auth0NotConfigured, verify_access_token
 from app.core.security import hash_api_key
-from app.db.session import get_db
+from app.db.session import get_async_db, get_db
 from app.models import ApiKey, Organization, OrgMembership, Project, User
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -99,6 +100,50 @@ def require_api_key_context(
             headers=_UNAUTHENTICATED,
         )
     return _api_key_context(token, db)
+
+
+# --- async API key auth (the hot-path proxy; control-plane uses the sync ones) ---
+
+
+async def _api_key_context_async(token: str, db: AsyncSession) -> ApiKeyContext:
+    key_hash = hash_api_key(token)
+    api_key = await db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
+    if api_key is None or api_key.revoked_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid api key",
+            headers=_UNAUTHENTICATED,
+        )
+
+    now = datetime.now(UTC)
+    if api_key.last_used_at is None or now - api_key.last_used_at > LAST_USED_REFRESH:
+        api_key.last_used_at = now
+        await db.commit()
+
+    project = await db.get(Project, api_key.project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid api key",
+            headers=_UNAUTHENTICATED,
+        )
+    return ApiKeyContext(project=project, api_key=api_key)
+
+
+async def require_api_key_context_async(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
+) -> ApiKeyContext:
+    """Async resolver of the project + API key for a Bearer API key, for endpoints
+    on the async DB stack (the inline proxy)."""
+    token = _bearer_token(credentials)
+    if not token.startswith(API_KEY_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="expected an api key",
+            headers=_UNAUTHENTICATED,
+        )
+    return await _api_key_context_async(token, db)
 
 
 # --- Auth0 session auth (dashboard) -------------------------------------------

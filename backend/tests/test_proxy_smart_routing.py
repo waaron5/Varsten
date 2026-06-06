@@ -88,21 +88,25 @@ def test_predicate_none_means_always_eligible():
 # --- resolution honours the predicate ------------------------------------------
 
 
-def test_resolve_route_routes_eligible_request(client, provision, db_session):
-    project = _project(db_session, provision)
-    db_session.add(_smart_policy(project, enabled=True))
-    db_session.commit()
+@pytest.mark.anyio
+async def test_resolve_route_routes_eligible_request(async_provision, async_db_session):
+    ws = await async_provision(sub="auth0|sr1", email="sr1@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
+    async_db_session.add(_smart_policy(project, enabled=True))
+    await async_db_session.flush()
     easy = {"messages": [{"role": "user", "content": "hi"}]}
-    decision = resolve_route(db_session, project.id, INCUMBENT, easy)
+    decision = await resolve_route(async_db_session, project.id, INCUMBENT, easy)
     assert decision is not None and decision.candidate_model == CANDIDATE
 
 
-def test_resolve_route_skips_ineligible_request(client, provision, db_session):
-    project = _project(db_session, provision)
-    db_session.add(_smart_policy(project, enabled=True))
-    db_session.commit()
+@pytest.mark.anyio
+async def test_resolve_route_skips_ineligible_request(async_provision, async_db_session):
+    ws = await async_provision(sub="auth0|sr2", email="sr2@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
+    async_db_session.add(_smart_policy(project, enabled=True))
+    await async_db_session.flush()
     hard = {"messages": [{"role": "user", "content": "x" * 9000}]}
-    assert resolve_route(db_session, project.id, INCUMBENT, hard) is None
+    assert await resolve_route(async_db_session, project.id, INCUMBENT, hard) is None
 
 
 # --- activation seeds the predicate --------------------------------------------
@@ -142,7 +146,7 @@ def test_activation_seeds_default_predicate(client, provision, db_session):
 # --- hot path -------------------------------------------------------------------
 
 
-def _seed_prices(db):
+async def _seed_prices(db):
     at = datetime.now(UTC) - timedelta(days=1)
     db.add_all(
         [
@@ -166,7 +170,7 @@ def _seed_prices(db):
             ),
         ]
     )
-    db.commit()
+    await db.flush()
 
 
 def _mock_openai(monkeypatch, seen: dict):
@@ -188,22 +192,23 @@ def _mock_openai(monkeypatch, seen: dict):
     monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
 
 
-def _setup_proxy(provision, db_session, monkeypatch, sub):
+async def _setup_proxy(async_provision, async_db_session, monkeypatch, sub):
     monkeypatch.setattr(settings, "proxy_cache_enabled", False)
-    ws = provision(sub=sub, email=f"{sub}@example.com")
-    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    ws = await async_provision(sub=sub, email=f"{sub}@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
-    _seed_prices(db_session)
-    db_session.add(_smart_policy(project, enabled=True, holdback_percent=Decimal("0")))
-    db_session.commit()
+    await _seed_prices(async_db_session)
+    async_db_session.add(_smart_policy(project, enabled=True, holdback_percent=Decimal("0")))
+    await async_db_session.flush()
     return ws
 
 
-def test_proxy_routes_easy_request_to_candidate(client, provision, db_session, monkeypatch):
-    ws = _setup_proxy(provision, db_session, monkeypatch, "auth0|smart2")
+@pytest.mark.anyio
+async def test_proxy_routes_easy_request_to_candidate(async_client, async_provision, async_db_session, monkeypatch):
+    ws = await _setup_proxy(async_provision, async_db_session, monkeypatch, "auth0|smart2")
     seen: dict = {}
     _mock_openai(monkeypatch, seen)
-    resp = client.post(
+    resp = await async_client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {ws['api_key']}"},
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
@@ -213,11 +218,12 @@ def test_proxy_routes_easy_request_to_candidate(client, provision, db_session, m
     assert resp.headers.get("X-Varsten-Routed") == f"{INCUMBENT}->{CANDIDATE}"
 
 
-def test_proxy_keeps_hard_request_on_incumbent(client, provision, db_session, monkeypatch):
-    ws = _setup_proxy(provision, db_session, monkeypatch, "auth0|smart3")
+@pytest.mark.anyio
+async def test_proxy_keeps_hard_request_on_incumbent(async_client, async_provision, async_db_session, monkeypatch):
+    ws = await _setup_proxy(async_provision, async_db_session, monkeypatch, "auth0|smart3")
     seen: dict = {}
     _mock_openai(monkeypatch, seen)
-    resp = client.post(
+    resp = await async_client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {ws['api_key']}"},
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "x" * 9000}], "stream": False},
@@ -240,7 +246,6 @@ def test_eval_filters_corpus_to_eligible_subset(client, provision, db_session, m
     from app.models.eval import SOURCE_TRAFFIC
 
     project = _project(db_session, provision)
-    _seed_prices(db_session)
 
     def _sample(content, **params):
         return ReplaySample(

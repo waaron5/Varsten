@@ -6,7 +6,34 @@ the endpoint can derive cost; the client and db_session share one transaction.
 
 from decimal import Decimal
 
+import pytest
+
+from app.db.session import SessionLocal
 from app.models import ModelCatalog, ModelPrice
+
+# The ingestion endpoint derives cost via an async pricing bridge that runs on a
+# separate connection, so a price flushed into the test's savepoint transaction is
+# invisible to it. Seed prices with a real commit (visible across connections under
+# READ COMMITTED) and delete them after the test. Catalog rows are read by the sync
+# control plane on the test's own connection, so they stay on the savepoint.
+_seeded_price_ids: list = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_committed_prices():
+    yield
+    if not _seeded_price_ids:
+        return
+    s = SessionLocal()
+    try:
+        for pid in _seeded_price_ids:
+            row = s.get(ModelPrice, pid)
+            if row is not None:
+                s.delete(row)
+        s.commit()
+    finally:
+        s.close()
+        _seeded_price_ids.clear()
 
 
 def _key(client) -> str:
@@ -33,8 +60,11 @@ def _seed_price(
     batch_input_cost=None,
     batch_output_cost=None,
 ):
-    db.add(
-        ModelPrice(
+    # Commit on a real connection so the async pricing bridge sees it; tracked for
+    # cleanup by the autouse fixture. (db param kept for call-site compatibility.)
+    s = SessionLocal()
+    try:
+        row = ModelPrice(
             model_key=model_key,
             provider=provider,
             input_cost_per_token=Decimal(input_cost),
@@ -42,8 +72,12 @@ def _seed_price(
             input_cost_per_token_batch=(Decimal(batch_input_cost) if batch_input_cost is not None else None),
             output_cost_per_token_batch=(Decimal(batch_output_cost) if batch_output_cost is not None else None),
         )
-    )
-    db.flush()
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+        _seeded_price_ids.append(row.id)
+    finally:
+        s.close()
 
 
 def _seed_catalog(

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime
 
@@ -7,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import ApiKeyContext, require_api_key_context, resolve_project
-from app.db.session import get_db
+from app.db.session import AsyncSessionLocal, get_db
 from app.models import Project, UsageEvent
 from app.pricing import price_usage_event
 from app.schemas import UsageEventCreate, UsageEventOut, UsageEventPage
@@ -37,17 +38,28 @@ def create_usage_event(
 
     # occurred_at picks the price version that was live when the call happened.
     at = payload.occurred_at or datetime.now(UTC)
-    cost_usd, cost_source, pricing_status, price_version_id = price_usage_event(
-        db,
-        organization_id=project.organization_id,
-        model_key=payload.model,
-        provider=payload.provider,
-        input_tokens=payload.input_tokens,
-        output_tokens=payload.output_tokens,
-        cached_input_tokens=payload.cached_input_tokens,
-        reported_cost_usd=payload.cost_usd,
-        at=at,
-    )
+
+    # Pricing is async-only. This endpoint stays sync because it shares a request
+    # transaction with the sync control-plane reads (overview, recommendations)
+    # that read back what it writes, and it is not on Client #1's inline path. A
+    # sync endpoint runs in a threadpool (no running loop), so bridge the one
+    # pricing read with asyncio.run over a scoped async session. The whole ingestion
+    # + control-plane surface converts to async together in a later step.
+    async def _price() -> tuple:
+        async with AsyncSessionLocal() as adb:
+            return await price_usage_event(
+                adb,
+                organization_id=project.organization_id,
+                model_key=payload.model,
+                provider=payload.provider,
+                input_tokens=payload.input_tokens,
+                output_tokens=payload.output_tokens,
+                cached_input_tokens=payload.cached_input_tokens,
+                reported_cost_usd=payload.cost_usd,
+                at=at,
+            )
+
+    cost_usd, cost_source, pricing_status, price_version_id = asyncio.run(_price())
 
     event = UsageEvent(
         project_id=project.id,
