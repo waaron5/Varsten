@@ -6,9 +6,6 @@ POST /v1/chat/completions
   - on a miss, stream the OpenAI response straight through (SSE preserved) while
     capturing token/billing metadata in volatile memory, then write the ledger
     row and (optionally) cache the result
-
-Only the semantic-cache lever is active. The other four levers are not wired and
-stay bypassed by config.
 """
 
 import httpx
