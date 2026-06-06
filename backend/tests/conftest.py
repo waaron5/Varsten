@@ -1,10 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core.config import settings
-from app.db.session import engine, get_db
+from app.db.session import async_engine, engine, get_db
 from app.main import app
 
 
@@ -80,3 +81,35 @@ def client(db_session):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+# --- async DB stack (Step 1 of the async migration) ---------------------------
+
+
+@pytest.fixture
+def anyio_backend():
+    """Pin anyio-marked async tests to asyncio (trio is not a dependency)."""
+    return "asyncio"
+
+
+@pytest.fixture
+async def async_db_session():
+    """Async analogue of db_session. An AsyncSession bound to a connection wrapped
+    in an outer transaction that is rolled back after each test, with
+    join_transaction_mode="create_savepoint" so a session.commit() inside an
+    endpoint lands as a savepoint and never touches committed data. This is the
+    async stack the proxy hot path migrates onto in Step 2; proving it here first
+    de-risks the repo-wide conversion."""
+    connection = await async_engine.connect()
+    transaction = await connection.begin()
+    session = AsyncSession(
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+        expire_on_commit=False,
+    )
+    try:
+        yield session
+    finally:
+        await session.close()
+        await transaction.rollback()
+        await connection.close()
