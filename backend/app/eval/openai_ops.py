@@ -7,7 +7,11 @@ best-effort from the runner's view: a None / "tie" on failure degrades the run
 rather than crashing it.
 """
 
+import asyncio
 import json
+import random
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -16,6 +20,43 @@ from app.core.logging import get_logger
 from app.proxy import openai
 
 logger = get_logger("varsten.eval.ops")
+
+_MAX_RETRIES = 5
+_BASE_BACKOFF_S = 1.0
+_MAX_BACKOFF_S = 60.0
+
+
+def _parse_retry_after(header: str | None, attempt: int) -> float:
+    """Return seconds to wait before the next retry. Respects Retry-After when
+    present (seconds or HTTP-date); falls back to full-jitter exponential backoff."""
+    if header:
+        try:
+            return max(0.0, float(header))
+        except ValueError:
+            pass
+        try:
+            dt = parsedate_to_datetime(header)
+            return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
+        except Exception:
+            pass
+    cap = min(_MAX_BACKOFF_S, _BASE_BACKOFF_S * (2**attempt))
+    return random.uniform(0, cap)
+
+
+async def _post_with_retry(url: str, headers: dict, body: dict, timeout: float) -> httpx.Response:
+    """POST with exponential backoff on 429. Respects Retry-After headers."""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(_MAX_RETRIES + 1):
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code != 429 or attempt == _MAX_RETRIES:
+                return resp
+            wait = _parse_retry_after(resp.headers.get("retry-after"), attempt)
+            logger.warning(
+                "upstream 429; retrying",
+                extra={"attempt": attempt + 1, "wait_s": round(wait, 2)},
+            )
+            await asyncio.sleep(wait)
+    return resp  # type: ignore[return-value]
 
 # Pairwise judge. Position-swapping is handled by the runner (it calls twice with
 # the answers swapped), so the judge only ever names "first" or "second".
@@ -32,8 +73,12 @@ async def replay_candidate(messages: list[dict], params: dict, model: str, key: 
     completion payload, or None on failure so the runner can skip the sample."""
     body = {**(params or {}), "model": model, "messages": messages, "stream": False}
     try:
-        async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
-            resp = await client.post(openai.upstream_url(), headers=openai.upstream_headers(key), json=body)
+        resp = await _post_with_retry(
+            openai.upstream_url(),
+            openai.upstream_headers(key),
+            body,
+            settings.proxy_upstream_timeout_seconds,
+        )
         if resp.status_code != 200:
             logger.warning("replay candidate non-200", extra={"status": resp.status_code, "model": model})
             return None
@@ -57,8 +102,12 @@ async def _judge_once(prompt: str, first: str, second: str, key: str) -> str:
         "response_format": {"type": "json_object"},
         "stream": False,
     }
-    async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
-        resp = await client.post(openai.upstream_url(), headers=openai.upstream_headers(key), json=body)
+    resp = await _post_with_retry(
+        openai.upstream_url(),
+        openai.upstream_headers(key),
+        body,
+        settings.proxy_upstream_timeout_seconds,
+    )
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"]
     return (json.loads(content).get("winner") or "tie").lower()

@@ -515,12 +515,18 @@ def reset_eval(db, project: Project) -> None:
     db.commit()
 
 
-async def capture_incumbent(db, project: Project, conversations: list[list[dict]], key: str) -> int:
+async def capture_incumbent(
+    db, project: Project, conversations: list[list[dict]], key: str, request_delay: float = 1.5
+) -> int:
     """Call the incumbent (expensive) model live for each prompt and store the real
     response + token usage as a replay sample. These are the baseline the candidate
-    is graded against."""
+    is graded against.
+
+    request_delay: seconds to sleep between calls to stay under the RPM ceiling."""
     captured = 0
-    for messages in conversations:
+    for i, messages in enumerate(conversations):
+        if i > 0:
+            await asyncio.sleep(request_delay)
         payload = await replay_candidate(messages, {}, INCUMBENT, key)
         if payload is None:
             continue
@@ -544,12 +550,14 @@ async def capture_incumbent(db, project: Project, conversations: list[list[dict]
     return captured
 
 
-async def run_validation(db, project: Project, conversations: list[list[dict]], key: str) -> EvalRun:
+async def run_validation(
+    db, project: Project, conversations: list[list[dict]], key: str, request_delay: float = 1.5
+) -> EvalRun:
     """Capture real incumbent responses, then run the actual eval harness: it
     replays each prompt through the candidate (cheap) model live and grades
     candidate vs incumbent with the position-swapped pairwise judge."""
     print(f"Calling incumbent {INCUMBENT} live for {len(conversations)} prompts…", file=sys.stderr)
-    captured = await capture_incumbent(db, project, conversations, key)
+    captured = await capture_incumbent(db, project, conversations, key, request_delay=request_delay)
     print(f"Captured {captured} incumbent responses. Running the eval harness "
           f"(replay {CANDIDATE} + position-swapped judge)…", file=sys.stderr)
     run = EvalRun(
@@ -654,6 +662,12 @@ def main() -> int:
         help="Real validation pass: call both models live, grade with the eval harness "
         "(position-swapped judge), report cost savings + quality retention. Needs OPENAI_API_KEY.",
     )
+    parser.add_argument(
+        "--request-delay",
+        type=float,
+        default=1.5,
+        help="Seconds between sequential live requests in --validate mode (default 1.5, keeps under Tier-1 RPM)",
+    )
     parser.add_argument("--keep", action="store_true", help="Keep prior benchmark traffic (default resets)")
     args = parser.parse_args()
 
@@ -668,7 +682,7 @@ def main() -> int:
             if not args.keep:
                 reset_eval(db, project)
             convs = load_dataset(args.source, args.dataset, args.sharegpt_dataset, args.limit)
-            run = asyncio.run(run_validation(db, project, convs, key))
+            run = asyncio.run(run_validation(db, project, convs, key, request_delay=args.request_delay))
             report_validation(db, run)
         finally:
             db.close()
