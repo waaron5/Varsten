@@ -5,9 +5,10 @@ routed to the candidate, a hard one stays on the incumbent and never enters the
 A/B), predicate seeding on activation, and the eval harness filtering its replay
 corpus to the predicate-eligible subset.
 """
+
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -41,13 +42,18 @@ def _project(db, provision) -> Project:
 def _smart_policy(project, **kw) -> ProxyPolicy:
     params = {"candidate_model": CANDIDATE, "predicate": dict(DEFAULT_PREDICATE)}
     return ProxyPolicy(
-        organization_id=project.organization_id, project_id=project.id,
-        lever=SMART_ROUTING, target_type="model", target_key=INCUMBENT,
-        params=params, **kw,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        lever=SMART_ROUTING,
+        target_type="model",
+        target_key=INCUMBENT,
+        params=params,
+        **kw,
     )
 
 
 # --- pure predicate -------------------------------------------------------------
+
 
 def test_predicate_routes_small_plain_prompt():
     body = {"messages": [{"role": "user", "content": "short question"}]}
@@ -81,6 +87,7 @@ def test_predicate_none_means_always_eligible():
 
 # --- resolution honours the predicate ------------------------------------------
 
+
 def test_resolve_route_routes_eligible_request(client, provision, db_session):
     project = _project(db_session, provision)
     db_session.add(_smart_policy(project, enabled=True))
@@ -100,13 +107,22 @@ def test_resolve_route_skips_ineligible_request(client, provision, db_session):
 
 # --- activation seeds the predicate --------------------------------------------
 
+
 def test_activation_seeds_default_predicate(client, provision, db_session):
     project = _project(db_session, provision)
     rec = Recommendation(
-        organization_id=project.organization_id, project_id=project.id,
-        dedupe_key=f"sr-{uuid.uuid4()}", type="smart_routing", lever="smart_routing",
-        title="Route some traffic", description="x", risk_level="medium", confidence="medium",
-        related_model=INCUMBENT, related_provider="openai", monthly_request_volume=1000,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        dedupe_key=f"sr-{uuid.uuid4()}",
+        type="smart_routing",
+        lever="smart_routing",
+        title="Route some traffic",
+        description="x",
+        risk_level="medium",
+        confidence="medium",
+        related_model=INCUMBENT,
+        related_provider="openai",
+        monthly_request_volume=1000,
     )
     db_session.add(rec)
     db_session.commit()
@@ -125,16 +141,31 @@ def test_activation_seeds_default_predicate(client, provision, db_session):
 
 # --- hot path -------------------------------------------------------------------
 
+
 def _seed_prices(db):
-    at = datetime.now(timezone.utc) - timedelta(days=1)
-    db.add_all([
-        ModelPrice(model_key=INCUMBENT, provider="openai", currency="USD",
-                   input_cost_per_token=Decimal("0.000005"), output_cost_per_token=Decimal("0.000015"),
-                   source="catalog", effective_at=at),
-        ModelPrice(model_key=CANDIDATE, provider="openai", currency="USD",
-                   input_cost_per_token=Decimal("0.0000006"), output_cost_per_token=Decimal("0.0000024"),
-                   source="catalog", effective_at=at),
-    ])
+    at = datetime.now(UTC) - timedelta(days=1)
+    db.add_all(
+        [
+            ModelPrice(
+                model_key=INCUMBENT,
+                provider="openai",
+                currency="USD",
+                input_cost_per_token=Decimal("0.000005"),
+                output_cost_per_token=Decimal("0.000015"),
+                source="catalog",
+                effective_at=at,
+            ),
+            ModelPrice(
+                model_key=CANDIDATE,
+                provider="openai",
+                currency="USD",
+                input_cost_per_token=Decimal("0.0000006"),
+                output_cost_per_token=Decimal("0.0000024"),
+                source="catalog",
+                effective_at=at,
+            ),
+        ]
+    )
     db.commit()
 
 
@@ -142,11 +173,16 @@ def _mock_openai(monkeypatch, seen: dict):
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen["model"] = payload["model"]
-        return httpx.Response(200, json={
-            "id": "chatcmpl-x", "object": "chat.completion", "model": payload["model"],
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-x",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+        )
 
     real = httpx.AsyncClient
     monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
@@ -195,6 +231,7 @@ def test_proxy_keeps_hard_request_on_incumbent(client, provision, db_session, mo
 
 # --- eval filters to the eligible subset ----------------------------------------
 
+
 def test_eval_filters_corpus_to_eligible_subset(client, provision, db_session, monkeypatch):
     import asyncio
 
@@ -207,24 +244,37 @@ def test_eval_filters_corpus_to_eligible_subset(client, provision, db_session, m
 
     def _sample(content, **params):
         return ReplaySample(
-            organization_id=project.organization_id, project_id=project.id,
-            route_key=INCUMBENT, source=SOURCE_TRAFFIC, incumbent_model=INCUMBENT,
-            request_messages=[{"role": "user", "content": content}], request_params=params,
-            incumbent_response={"choices": [{"message": {"role": "assistant", "content": "ans"}, "finish_reason": "stop"}]},
-            input_tokens=10, output_tokens=5,
+            organization_id=project.organization_id,
+            project_id=project.id,
+            route_key=INCUMBENT,
+            source=SOURCE_TRAFFIC,
+            incumbent_model=INCUMBENT,
+            request_messages=[{"role": "user", "content": content}],
+            request_params=params,
+            incumbent_response={
+                "choices": [{"message": {"role": "assistant", "content": "ans"}, "finish_reason": "stop"}]
+            },
+            input_tokens=10,
+            output_tokens=5,
         )
 
     # Two eligible (small) samples, two ineligible (huge / tool call).
-    db_session.add_all([
-        _sample("easy one"),
-        _sample("easy two"),
-        _sample("x" * 9000),
-        _sample("hi", tools=[{"type": "function"}]),
-    ])
+    db_session.add_all(
+        [
+            _sample("easy one"),
+            _sample("easy two"),
+            _sample("x" * 9000),
+            _sample("hi", tools=[{"type": "function"}]),
+        ]
+    )
     run = EvalRun(
-        organization_id=project.organization_id, project_id=project.id,
-        recommendation_id=None, lever="smart_routing", route_key=INCUMBENT,
-        incumbent_model=INCUMBENT, candidate_model=CANDIDATE,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        recommendation_id=None,
+        lever="smart_routing",
+        route_key=INCUMBENT,
+        incumbent_model=INCUMBENT,
+        candidate_model=CANDIDATE,
     )
     db_session.add(run)
     db_session.commit()
@@ -233,8 +283,10 @@ def test_eval_filters_corpus_to_eligible_subset(client, provision, db_session, m
 
     async def fake_replay(messages, params, model, key):
         replayed.append(messages)
-        return {"choices": [{"message": {"role": "assistant", "content": "ans"}, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 8, "completion_tokens": 4}}
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "ans"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        }
 
     async def fake_judge(*a, **k):
         return "tie"

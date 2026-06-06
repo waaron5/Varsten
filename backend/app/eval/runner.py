@@ -7,8 +7,9 @@ auditable verdict. Runs in a worker, never in the request hot path.
 The two model-calling steps (replay, judge) are injected so the aggregation and
 verdict logic is unit-testable with no network. Defaults call OpenAI off-path.
 """
+
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -18,7 +19,6 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.eval import scoring
 from app.eval.openai_ops import judge_pairwise, replay_candidate
-from app.proxy import predicate as predicate_mod
 from app.models import EvalRun, EvalSampleResult, Project, Recommendation, ReplaySample
 from app.models.eval import (
     RUN_COMPLETED,
@@ -31,6 +31,7 @@ from app.models.eval import (
     VERDICT_UNSAFE,
 )
 from app.pricing import price_usage_event
+from app.proxy import predicate as predicate_mod
 
 logger = get_logger("varsten.eval.runner")
 
@@ -46,9 +47,7 @@ def _prompt_text(messages: list[dict]) -> str:
     for m in messages or []:
         content = m.get("content", "")
         if isinstance(content, list):
-            content = " ".join(
-                b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
-            )
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
         parts.append(f"{m.get('role', '')}: {content}")
     return "\n".join(parts).strip()
 
@@ -89,10 +88,7 @@ def select_samples(db: Session, run: EvalRun) -> list[ReplaySample]:
             ReplaySample.project_id == run.project_id,
             ReplaySample.route_key == run.route_key,
         )
-        .where(
-            (ReplaySample.source == SOURCE_GOLDEN)
-            | (ReplaySample.incumbent_response.is_not(None))
-        )
+        .where((ReplaySample.source == SOURCE_GOLDEN) | (ReplaySample.incumbent_response.is_not(None)))
         # Golden (expected_output set) first, then most recent traffic.
         .order_by(ReplaySample.expected_output.is_(None), ReplaySample.created_at.desc())
         .limit(settings.eval_replay_max_samples)
@@ -109,7 +105,7 @@ async def run_eval(
     judge_fn=judge_pairwise,
     now: datetime | None = None,
 ) -> EvalRun:
-    at = now or datetime.now(timezone.utc)
+    at = now or datetime.now(UTC)
     run.status = RUN_RUNNING
     db.commit()
 
@@ -127,9 +123,7 @@ async def run_eval(
         cost_deltas: list[Decimal] = []
 
         for sample in samples:
-            cand_payload = await replay_fn(
-                sample.request_messages, sample.request_params, run.candidate_model, key
-            )
+            cand_payload = await replay_fn(sample.request_messages, sample.request_params, run.candidate_model, key)
             if cand_payload is None:
                 continue  # replay failed; skip rather than poison the verdict
             cand_text = scoring.assistant_text(cand_payload)
@@ -149,8 +143,12 @@ async def run_eval(
             scores.append(score)
 
             cand_in, cand_out = _usage_tokens(cand_payload)
-            inc_cost = _price(db, run.organization_id, run.incumbent_model, sample.input_tokens, sample.output_tokens, at)
-            cand_cost = _price(db, run.organization_id, run.candidate_model, cand_in or sample.input_tokens, cand_out, at)
+            inc_cost = _price(
+                db, run.organization_id, run.incumbent_model, sample.input_tokens, sample.output_tokens, at
+            )
+            cand_cost = _price(
+                db, run.organization_id, run.candidate_model, cand_in or sample.input_tokens, cand_out, at
+            )
             if inc_cost is not None and cand_cost is not None:
                 cost_deltas.append(inc_cost - cand_cost)
 
@@ -169,7 +167,7 @@ async def run_eval(
             )
 
         _finalize(db, run, scores, scorers, obj_total, obj_pass, cost_deltas, at)
-    except Exception as exc:  # noqa: BLE001 - a run failure must not crash the worker
+    except Exception as exc:
         db.rollback()
         run.status = RUN_FAILED
         run.error = f"{exc.__class__.__name__}: {exc}"

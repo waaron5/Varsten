@@ -14,14 +14,8 @@ def test_unauthenticated_management_endpoints_rejected(client, provision):
     # (minting an API key, which would otherwise grant a tenant's data).
     assert client.post("/v1/organizations", json={"name": "x"}).status_code == 401
     assert client.get("/v1/organizations").status_code == 401
-    assert (
-        client.post(f"/v1/organizations/{a['org_id']}/projects", json={"name": "x"}).status_code
-        == 401
-    )
-    assert (
-        client.post(f"/v1/projects/{a['project_id']}/api-keys", json={"name": "x"}).status_code
-        == 401
-    )
+    assert client.post(f"/v1/organizations/{a['org_id']}/projects", json={"name": "x"}).status_code == 401
+    assert client.post(f"/v1/projects/{a['project_id']}/api-keys", json={"name": "x"}).status_code == 401
     assert client.get(f"/v1/projects/{a['project_id']}/api-keys").status_code == 401
 
 
@@ -54,15 +48,10 @@ def test_cannot_touch_other_projects_keys_or_data(client, provision):
 
     # Mint, list, and read on A's project, all as B.
     assert (
-        client.post(
-            f"/v1/projects/{a['project_id']}/api-keys", headers=_b("auth0|b"), json={"name": "x"}
-        ).status_code
+        client.post(f"/v1/projects/{a['project_id']}/api-keys", headers=_b("auth0|b"), json={"name": "x"}).status_code
         == 403
     )
-    assert (
-        client.get(f"/v1/projects/{a['project_id']}/api-keys", headers=_b("auth0|b")).status_code
-        == 403
-    )
+    assert client.get(f"/v1/projects/{a['project_id']}/api-keys", headers=_b("auth0|b")).status_code == 403
     assert client.get(f"/v1/projects/{a['project_id']}", headers=_b("auth0|b")).status_code == 403
 
 

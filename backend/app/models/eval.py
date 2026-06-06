@@ -18,6 +18,7 @@ traffic before it can be applied. Three tables:
 Everything that writes EvalRun / EvalSampleResult runs in a worker, off the
 request hot path. Nothing here is ever touched by a live proxied request.
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -72,9 +73,7 @@ class ReplaySample(Base, TimestampMixin):
         Index("ix_replay_samples_expires_at", "expires_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
@@ -88,16 +87,12 @@ class ReplaySample(Base, TimestampMixin):
     # Phase 1 route identity = the requested model. Generalizes to feature/route
     # once the proxy carries per-route metadata.
     route_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    source: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default=text(f"'{SOURCE_TRAFFIC}'")
-    )
+    source: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text(f"'{SOURCE_TRAFFIC}'"))
     incumbent_model: Mapped[str] = mapped_column(String(128), nullable=False)
     # Content. The chat messages and the sampling params needed to replay
     # faithfully through a candidate model.
     request_messages: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
-    request_params: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb")
-    )
+    request_params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # The incumbent's assembled completion (real production answer for traffic
     # samples). Replayed against; never re-run.
     incumbent_response: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
@@ -106,9 +101,7 @@ class ReplaySample(Base, TimestampMixin):
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     # Null for golden samples (no retention limit); set for traffic samples.
-    expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class EvalRun(Base, TimestampMixin):
@@ -120,9 +113,7 @@ class EvalRun(Base, TimestampMixin):
         Index("ix_eval_runs_recommendation", "recommendation_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
@@ -142,9 +133,7 @@ class EvalRun(Base, TimestampMixin):
     route_key: Mapped[str] = mapped_column(String(255), nullable=False)
     incumbent_model: Mapped[str] = mapped_column(String(128), nullable=False)
     candidate_model: Mapped[str] = mapped_column(String(128), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default=text(f"'{RUN_PENDING}'")
-    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text(f"'{RUN_PENDING}'"))
     # objective | judge | golden | mixed: which scoring tier produced the verdict.
     scorer_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sample_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
@@ -163,22 +152,16 @@ class EvalRun(Base, TimestampMixin):
     verdict: Mapped[str | None] = mapped_column(String(20), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class EvalSampleResult(Base):
     """Per-sample outcome behind an EvalRun. The audit trail the customer can read."""
 
     __tablename__ = "eval_sample_results"
-    __table_args__ = (
-        Index("ix_eval_sample_results_run", "eval_run_id"),
-    )
+    __table_args__ = (Index("ix_eval_sample_results_run", "eval_run_id"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     eval_run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("eval_runs.id", ondelete="CASCADE"),
@@ -199,6 +182,4 @@ class EvalSampleResult(Base):
     candidate_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     incumbent_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

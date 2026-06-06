@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,9 +22,7 @@ router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 def list_recommendations(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
-    status_filter: Literal["open", "applied", "dismissed", "rolled_back"] | None = Query(
-        default=None, alias="status"
-    ),
+    status_filter: Literal["open", "applied", "dismissed", "rolled_back"] | None = Query(default=None, alias="status"),
 ) -> list[Recommendation]:
     ensure_recommendations_fresh(db, project)
     stmt = select(Recommendation).where(Recommendation.project_id == project.id)
@@ -59,11 +57,9 @@ def update_recommendation(
 ) -> Recommendation:
     recommendation = db.get(Recommendation, recommendation_id)
     if recommendation is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found")
     _assert_can_update(user, recommendation, db)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if payload.status == "applied":
         # Medium-risk model-swap levers must clear a shadow eval first. The gate
         # raises if the route has not been proven safe; on a passing run it returns
@@ -71,17 +67,13 @@ def update_recommendation(
         try:
             gating_run = assert_appliable(db, recommendation, automated=False)
         except EvalGateError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-            ) from exc
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         apply_measured_savings(recommendation, gating_run)
         project = db.get(Project, recommendation.project_id)
         if project is not None:
             # Execution: activate the lever's policy (routing swap, trim transform, ...).
             activate_execution(db, project, recommendation, gating_run, now=now)
-            record_applied_savings(
-                db, project, recommendation, actor_user_id=user.id, source="user", now=now
-            )
+            record_applied_savings(db, project, recommendation, actor_user_id=user.id, source="user", now=now)
     elif payload.status in {"dismissed", "rolled_back"}:
         # Stop executing this lever; traffic returns to the original behaviour.
         deactivate_execution(db, recommendation)

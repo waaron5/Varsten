@@ -6,6 +6,7 @@ file), then creates a batch referencing the staged input. Varsten streams it to
 OpenAI's Batch API off-path, polls, and serves the results, measuring the ~50%
 batch savings against the synchronous price.
 """
+
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status

@@ -30,9 +30,7 @@ def provision(client):
         email: str = "owner@example.com",
         project_name: str = "prod",
     ) -> dict:
-        user = client.post(
-            "/v1/auth/sync", headers=auth_headers(sub), json={"email": email, "name": None}
-        ).json()
+        user = client.post("/v1/auth/sync", headers=auth_headers(sub), json={"email": email, "name": None}).json()
         org_id = user["organizations"][0]["id"]
         project = client.post(
             f"/v1/organizations/{org_id}/projects",

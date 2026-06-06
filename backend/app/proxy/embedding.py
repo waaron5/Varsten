@@ -5,6 +5,7 @@ key. Best-effort: any failure returns None so the caller degrades to a normal
 cache miss and forwards (fail-open). Embedding the prompt is no new data boundary
 since the prompt is already sent to OpenAI for the completion.
 """
+
 import httpx
 
 from app.core.config import settings
@@ -24,9 +25,7 @@ def embedding_input(body: dict) -> str:
         if isinstance(content, list):
             # Multimodal content blocks: keep the text parts.
             content = " ".join(
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
+                block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
             )
         parts.append(f"{role}: {content}")
     return "\n".join(parts).strip()

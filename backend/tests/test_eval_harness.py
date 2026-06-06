@@ -1,12 +1,11 @@
 """Eval / replay harness: scoring tiers, the shadow-run verdict logic, the apply
 gate, and the capture tap. Model calls (replay, judge) are injected stubs so the
 runner's aggregation and verdict are tested with no network."""
+
 import asyncio
 import uuid
-from datetime import datetime, timezone
 from decimal import Decimal
 
-import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -100,14 +99,13 @@ def _run(db, rec, project, candidate, replay_fn, judge_fn=None) -> EvalRun:
     async def default_judge(prompt, inc, cand, key):
         return "tie"
 
-    asyncio.run(
-        run_eval(db, run, key="sk-test", replay_fn=replay_fn, judge_fn=judge_fn or default_judge)
-    )
+    asyncio.run(run_eval(db, run, key="sk-test", replay_fn=replay_fn, judge_fn=judge_fn or default_judge))
     db.refresh(run)
     return run
 
 
 # --- scoring units (no DB) ------------------------------------------------------
+
 
 def test_score_golden_exact_match_is_parity():
     s = ReplaySample(source=SOURCE_GOLDEN, expected_output="Spam", request_params={})
@@ -142,6 +140,7 @@ def test_mean_ci_basic():
 
 
 # --- runner verdicts ------------------------------------------------------------
+
 
 def test_objective_parity_yields_safe(client, provision, db_session, monkeypatch):
     monkeypatch.setattr(settings, "eval_min_samples", 3)
@@ -223,6 +222,7 @@ def test_golden_samples_scored_first(client, provision, db_session, monkeypatch)
 
 # --- apply gate -----------------------------------------------------------------
 
+
 def test_apply_blocked_without_passing_eval(client, provision, db_session):
     project = _project(db_session, provision)
     rec = _mk_rec(db_session, project)
@@ -279,6 +279,7 @@ def test_non_gated_lever_applies_without_eval(client, provision, db_session):
 
 # --- capture tap ----------------------------------------------------------------
 
+
 def test_capture_respects_optin(client, provision, db_session, monkeypatch):
     monkeypatch.setattr(settings, "eval_capture_enabled", True)
     monkeypatch.setattr(settings, "eval_sample_rate", 1.0)
@@ -288,8 +289,13 @@ def test_capture_respects_optin(client, provision, db_session, monkeypatch):
     # Opted out: nothing captured.
     project.eval_capture_enabled = False
     eval_capture.capture_sample(
-        db_session, project, body=body, response_payload=_completion("hello"),
-        model="gpt-4o", input_tokens=10, output_tokens=2,
+        db_session,
+        project,
+        body=body,
+        response_payload=_completion("hello"),
+        model="gpt-4o",
+        input_tokens=10,
+        output_tokens=2,
     )
     assert db_session.scalar(select(ReplaySample).where(ReplaySample.project_id == project.id)) is None
 
@@ -297,8 +303,13 @@ def test_capture_respects_optin(client, provision, db_session, monkeypatch):
     project.eval_capture_enabled = True
     db_session.commit()
     eval_capture.capture_sample(
-        db_session, project, body=body, response_payload=_completion("hello"),
-        model="gpt-4o", input_tokens=10, output_tokens=2,
+        db_session,
+        project,
+        body=body,
+        response_payload=_completion("hello"),
+        model="gpt-4o",
+        input_tokens=10,
+        output_tokens=2,
     )
     sample = db_session.scalar(select(ReplaySample).where(ReplaySample.project_id == project.id))
     assert sample is not None and sample.source == SOURCE_TRAFFIC and sample.expires_at is not None
@@ -315,17 +326,20 @@ def test_capture_enforces_route_cap(client, provision, db_session, monkeypatch):
     body = {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}
     for _ in range(6):
         eval_capture.capture_sample(
-            db_session, project, body=body, response_payload=_completion("hi"),
-            model="gpt-4o", input_tokens=10, output_tokens=2,
+            db_session,
+            project,
+            body=body,
+            response_payload=_completion("hi"),
+            model="gpt-4o",
+            input_tokens=10,
+            output_tokens=2,
         )
-    count = db_session.scalar(
-        select(ReplaySample).where(ReplaySample.project_id == project.id)
-    )
     total = len(list(db_session.scalars(select(ReplaySample).where(ReplaySample.project_id == project.id))))
     assert total == 3
 
 
 # --- golden upload + capture config API ----------------------------------------
+
 
 def test_golden_upload_and_capture_config(client, provision, db_session):
     ws = provision(sub="auth0|eval2", email="eval2@example.com")
@@ -335,9 +349,9 @@ def test_golden_upload_and_capture_config(client, provision, db_session):
     resp = client.post(
         f"/v1/evals/golden?project_id={pid}",
         headers=headers,
-        json={"samples": [
-            {"route_key": "gpt-4o", "messages": [{"role": "user", "content": "q"}], "expected_output": "a"}
-        ]},
+        json={
+            "samples": [{"route_key": "gpt-4o", "messages": [{"role": "user", "content": "q"}], "expected_output": "a"}]
+        },
     )
     assert resp.status_code == 200 and resp.json()["created"] == 1
 

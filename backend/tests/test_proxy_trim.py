@@ -4,9 +4,10 @@ Covers the pure deterministic transform, policy activation/deactivation via the
 apply path, hot-path execution (the proxy actually forwards a trimmed body and
 tags the holdback arm), and objective drift auto-rollback. OpenAI is mocked.
 """
+
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -61,6 +62,7 @@ def _trim_rec(db, project) -> Recommendation:
 
 # --- pure transform -------------------------------------------------------------
 
+
 def test_trim_prunes_old_turns_keeps_system():
     messages = [{"role": "system", "content": "be helpful"}]
     messages += [{"role": "user", "content": f"msg {i}"} for i in range(20)]
@@ -98,10 +100,13 @@ def test_trim_passes_through_multimodal_content():
 
 
 def test_apply_trim_does_not_mutate_original():
-    body = {"model": MODEL, "messages": [
-        {"role": "user", "content": "a    b"},
-        {"role": "user", "content": "a    b"},
-    ]}
+    body = {
+        "model": MODEL,
+        "messages": [
+            {"role": "user", "content": "a    b"},
+            {"role": "user", "content": "a    b"},
+        ],
+    }
     new_body, changed = apply_trim(body)
     assert changed
     assert len(body["messages"]) == 2  # original untouched
@@ -110,11 +115,16 @@ def test_apply_trim_does_not_mutate_original():
 
 # --- policy lifecycle -----------------------------------------------------------
 
+
 def test_resolve_trim_only_when_enabled(client, provision, db_session):
     project = _project(db_session, provision)
     policy = ProxyPolicy(
-        organization_id=project.organization_id, project_id=project.id,
-        lever=LEVER, target_type="model", target_key=MODEL, enabled=True,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        lever=LEVER,
+        target_type="model",
+        target_key=MODEL,
+        enabled=True,
         holdback_percent=Decimal("0.1"),
     )
     db_session.add(policy)
@@ -157,16 +167,22 @@ def test_apply_through_engine_activates_trim(client, provision, db_session):
 
 # --- hot path -------------------------------------------------------------------
 
+
 def _mock_openai(monkeypatch, seen: dict):
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen["messages"] = payload["messages"]
         seen["model"] = payload["model"]
-        return httpx.Response(200, json={
-            "id": "chatcmpl-x", "object": "chat.completion", "model": payload["model"],
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-x",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
+            },
+        )
 
     real = httpx.AsyncClient
     monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
@@ -185,8 +201,12 @@ def test_proxy_trims_treatment_body(client, provision, db_session, monkeypatch):
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
     db_session.add(
         ProxyPolicy(
-            organization_id=project.organization_id, project_id=project.id,
-            lever=LEVER, target_type="model", target_key=MODEL, enabled=True,
+            organization_id=project.organization_id,
+            project_id=project.id,
+            lever=LEVER,
+            target_type="model",
+            target_key=MODEL,
+            enabled=True,
             holdback_percent=Decimal("0"),  # always treatment
         )
     )
@@ -213,8 +233,12 @@ def test_proxy_holdback_leaves_control_untrimmed(client, provision, db_session, 
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
     db_session.add(
         ProxyPolicy(
-            organization_id=project.organization_id, project_id=project.id,
-            lever=LEVER, target_type="model", target_key=MODEL, enabled=True,
+            organization_id=project.organization_id,
+            project_id=project.id,
+            lever=LEVER,
+            target_type="model",
+            target_key=MODEL,
+            enabled=True,
             holdback_percent=Decimal("1.0"),  # always control
         )
     )
@@ -236,11 +260,21 @@ def test_proxy_holdback_leaves_control_untrimmed(client, provision, db_session, 
 
 # --- drift auto-rollback --------------------------------------------------------
 
+
 def _record_trim_arm(db, project, arm, input_tokens, ok):
     record_proxy_usage(
-        db, project, None, model=MODEL, input_tokens=input_tokens, output_tokens=10,
-        cached_input_tokens=0, cache_hit=False,
-        arm=arm, experiment_from=MODEL, experiment_to=MODEL, quality_ok=ok,
+        db,
+        project,
+        None,
+        model=MODEL,
+        input_tokens=input_tokens,
+        output_tokens=10,
+        cached_input_tokens=0,
+        cache_hit=False,
+        arm=arm,
+        experiment_from=MODEL,
+        experiment_to=MODEL,
+        quality_ok=ok,
     )
 
 
@@ -249,9 +283,14 @@ def test_trim_drift_auto_rollback(client, provision, db_session, monkeypatch):
     project = _project(db_session, provision)
     rec = _trim_rec(db_session, project)
     policy = ProxyPolicy(
-        organization_id=project.organization_id, project_id=project.id,
-        lever=LEVER, target_type="model", target_key=MODEL, enabled=True,
-        holdback_percent=Decimal("0.1"), source_recommendation_id=rec.id,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        lever=LEVER,
+        target_type="model",
+        target_key=MODEL,
+        enabled=True,
+        holdback_percent=Decimal("0.1"),
+        source_recommendation_id=rec.id,
     )
     db_session.add(policy)
     db_session.commit()
@@ -279,8 +318,12 @@ def test_trim_drift_auto_rollback(client, provision, db_session, monkeypatch):
 def test_engine_update_trim_pauses_and_caps_holdback(client, provision, db_session):
     project = _project(db_session, provision)
     policy = ProxyPolicy(
-        organization_id=project.organization_id, project_id=project.id,
-        lever=LEVER, target_type="model", target_key=MODEL, enabled=True,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        lever=LEVER,
+        target_type="model",
+        target_key=MODEL,
+        enabled=True,
         holdback_percent=Decimal("0.05"),
     )
     db_session.add(policy)
@@ -307,19 +350,28 @@ def test_engine_update_trim_pauses_and_caps_holdback(client, provision, db_sessi
 
 def test_engine_trims_reports_ab(client, provision, db_session):
     project = _project(db_session, provision)
-    at = datetime.now(timezone.utc) - timedelta(days=1)
+    at = datetime.now(UTC) - timedelta(days=1)
     db_session.add(
         ModelPrice(
-            model_key=MODEL, provider="openai", currency="USD",
-            input_cost_per_token=Decimal("0.00001"), output_cost_per_token=Decimal("0.00003"),
-            source="catalog", effective_at=at,
+            model_key=MODEL,
+            provider="openai",
+            currency="USD",
+            input_cost_per_token=Decimal("0.00001"),
+            output_cost_per_token=Decimal("0.00003"),
+            source="catalog",
+            effective_at=at,
         )
     )
     db_session.add(
         ProxyPolicy(
-            organization_id=project.organization_id, project_id=project.id,
-            lever=LEVER, target_type="model", target_key=MODEL, enabled=True,
-            holdback_percent=Decimal("0.1"), activated_at=datetime.now(timezone.utc),
+            organization_id=project.organization_id,
+            project_id=project.id,
+            lever=LEVER,
+            target_type="model",
+            target_key=MODEL,
+            enabled=True,
+            holdback_percent=Decimal("0.1"),
+            activated_at=datetime.now(UTC),
         )
     )
     # Control untrimmed (1000 in), treatment trimmed (600 in): measured token delta.

@@ -15,6 +15,7 @@ The tier used depends on what the route's task allows:
 - ``judge``      pairwise LLM-as-judge for open-ended generation. Drives
                  approve-mode only; its noise never earns auto-apply.
 """
+
 import json
 import math
 import re
@@ -40,11 +41,7 @@ def assistant_text(payload: dict[str, Any] | None) -> str:
         choice = payload["choices"][0]
         content = choice.get("message", {}).get("content")
         if isinstance(content, list):
-            content = " ".join(
-                b.get("text", "")
-                for b in content
-                if isinstance(b, dict) and b.get("type") == "text"
-            )
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
         return content or ""
     except (KeyError, IndexError, TypeError):
         return ""
@@ -68,9 +65,7 @@ def _wants_json(sample: ReplaySample) -> bool:
     return False
 
 
-def score_sample(
-    sample: ReplaySample, incumbent_text: str, candidate_text: str
-) -> tuple[str, Decimal, bool | None]:
+def score_sample(sample: ReplaySample, incumbent_text: str, candidate_text: str) -> tuple[str, Decimal, bool | None]:
     """Score one pair. Returns (scorer, score in [-1,1], objective_pass or None).
 
     Objective tiers (golden, JSON, structural equality) return a definite pass/fail.

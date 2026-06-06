@@ -10,6 +10,7 @@ This is deliberately the objective floor (empty, truncated, malformed-JSON, or
 filtered responses fail). Subtle subjective quality loss is not caught here and is
 a judge-based, approve-mode concern, never auto-rollback.
 """
+
 import json
 
 
@@ -37,9 +38,7 @@ def response_quality_ok(payload: dict | None, json_expected: bool) -> bool:
 
     content = message.get("content")
     if isinstance(content, list):
-        content = " ".join(
-            b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
-        )
+        content = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
     if not content or not content.strip():
         return False
 

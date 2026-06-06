@@ -14,6 +14,7 @@ session and wrapped so one failure never kills the loop. Off by default
 (scheduler_enabled); production turns it on. With more than one app instance, run
 it on a single leader or move to external cron so sweeps do not overlap.
 """
+
 import asyncio
 
 from app.core.config import settings
@@ -35,12 +36,8 @@ class Scheduler:
             return
         self._stop = asyncio.Event()
         self._tasks = [
-            asyncio.create_task(
-                self._loop("drift-sweep", settings.drift_sweep_interval_seconds, self._run_drift)
-            ),
-            asyncio.create_task(
-                self._loop("batch-poll", settings.batch_poll_interval_seconds, self._run_batch)
-            ),
+            asyncio.create_task(self._loop("drift-sweep", settings.drift_sweep_interval_seconds, self._run_drift)),
+            asyncio.create_task(self._loop("batch-poll", settings.batch_poll_interval_seconds, self._run_batch)),
         ]
         logger.info("scheduler started", extra={"jobs": len(self._tasks)})
 
@@ -52,13 +49,13 @@ class Scheduler:
         self._tasks = []
         logger.info("scheduler stopped")
 
-    async def _loop(self, name: str, interval: int, fn) -> None:
+    async def _loop(self, name: str, interval: float, fn) -> None:
         # Wait up to `interval`; if stop is signalled meanwhile, exit promptly.
         while not self._stop.is_set():
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=interval)
                 break  # stop signalled
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             await self._run_safe(name, fn)
 

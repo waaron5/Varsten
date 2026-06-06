@@ -4,9 +4,10 @@ Covers rule activation/deactivation on apply/dismiss, hot-path resolution,
 naive-vs-optimized metering, and the proxy actually rewriting the upstream model.
 OpenAI is mocked via httpx MockTransport.
 """
+
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -20,10 +21,10 @@ from app.models import (
     Project,
     ProxyPolicy,
     Recommendation,
+    RecommendationAction,
     UsageEvent,
 )
 from app.models.eval import RUN_COMPLETED, VERDICT_SAFE
-from app.models import RecommendationAction
 from app.proxy import circuit
 from app.proxy import drift as drift_mod
 from app.proxy import router as proxy_router
@@ -86,23 +87,34 @@ def _mk_rec(db, project) -> Recommendation:
 
 
 def _seed_prices(db, project):
-    at = datetime.now(timezone.utc) - timedelta(days=1)
-    db.add_all([
-        ModelPrice(
-            model_key=INCUMBENT, provider="openai", currency="USD",
-            input_cost_per_token=Decimal("0.000005"), output_cost_per_token=Decimal("0.000015"),
-            source="catalog", effective_at=at,
-        ),
-        ModelPrice(
-            model_key=CANDIDATE, provider="openai", currency="USD",
-            input_cost_per_token=Decimal("0.0000006"), output_cost_per_token=Decimal("0.0000024"),
-            source="catalog", effective_at=at,
-        ),
-    ])
+    at = datetime.now(UTC) - timedelta(days=1)
+    db.add_all(
+        [
+            ModelPrice(
+                model_key=INCUMBENT,
+                provider="openai",
+                currency="USD",
+                input_cost_per_token=Decimal("0.000005"),
+                output_cost_per_token=Decimal("0.000015"),
+                source="catalog",
+                effective_at=at,
+            ),
+            ModelPrice(
+                model_key=CANDIDATE,
+                provider="openai",
+                currency="USD",
+                input_cost_per_token=Decimal("0.0000006"),
+                output_cost_per_token=Decimal("0.0000024"),
+                source="catalog",
+                effective_at=at,
+            ),
+        ]
+    )
     db.commit()
 
 
 # --- rule lifecycle -------------------------------------------------------------
+
 
 def test_resolve_effective_model_only_when_enabled(client, provision, db_session):
     project = _project(db_session, provision)
@@ -136,10 +148,16 @@ def test_apply_through_engine_activates_rule(client, provision, db_session):
     rec = _mk_rec(db_session, project)
     db_session.add(
         EvalRun(
-            organization_id=project.organization_id, project_id=project.id,
-            recommendation_id=rec.id, lever="cheaper_model", route_key=INCUMBENT,
-            incumbent_model=INCUMBENT, candidate_model=CANDIDATE,
-            status=RUN_COMPLETED, verdict=VERDICT_SAFE, cost_delta_usd=Decimal("100"),
+            organization_id=project.organization_id,
+            project_id=project.id,
+            recommendation_id=rec.id,
+            lever="cheaper_model",
+            route_key=INCUMBENT,
+            incumbent_model=INCUMBENT,
+            candidate_model=CANDIDATE,
+            status=RUN_COMPLETED,
+            verdict=VERDICT_SAFE,
+            cost_delta_usd=Decimal("100"),
         )
     )
     db_session.commit()
@@ -157,13 +175,20 @@ def test_apply_through_engine_activates_rule(client, provision, db_session):
 
 # --- metering -------------------------------------------------------------------
 
+
 def test_routed_usage_meters_measured_savings(client, provision, db_session):
     project = _project(db_session, provision)
     _seed_prices(db_session, project)
     event = record_proxy_usage(
-        db_session, project, None,
-        model=CANDIDATE, input_tokens=1000, output_tokens=500,
-        cached_input_tokens=0, cache_hit=False, naive_model=INCUMBENT,
+        db_session,
+        project,
+        None,
+        model=CANDIDATE,
+        input_tokens=1000,
+        output_tokens=500,
+        cached_input_tokens=0,
+        cache_hit=False,
+        naive_model=INCUMBENT,
     )
     # Actual spend is the candidate's cost; saved is incumbent minus candidate.
     assert event.model == CANDIDATE
@@ -176,15 +201,21 @@ def test_routed_usage_meters_measured_savings(client, provision, db_session):
 
 # --- proxy rewrites the upstream model ------------------------------------------
 
+
 def _mock_openai(monkeypatch, seen: dict):
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen["model"] = payload["model"]
-        return httpx.Response(200, json={
-            "id": "chatcmpl-x", "object": "chat.completion", "model": payload["model"],
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-x",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500},
+            },
+        )
 
     real = httpx.AsyncClient
     monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
@@ -223,20 +254,25 @@ def test_proxy_routes_request_to_candidate(client, provision, db_session, monkey
 
 def _record_arm(db, project, arm, model):
     record_proxy_usage(
-        db, project, None,
-        model=model, input_tokens=1000, output_tokens=500,
-        cached_input_tokens=0, cache_hit=False,
+        db,
+        project,
+        None,
+        model=model,
+        input_tokens=1000,
+        output_tokens=500,
+        cached_input_tokens=0,
+        cache_hit=False,
         naive_model=INCUMBENT if arm == "treatment" else None,
-        arm=arm, experiment_from=INCUMBENT, experiment_to=CANDIDATE,
+        arm=arm,
+        experiment_from=INCUMBENT,
+        experiment_to=CANDIDATE,
     )
 
 
 def test_engine_routes_reports_holdback_ab(client, provision, db_session):
     project = _project(db_session, provision)
     _seed_prices(db_session, project)
-    db_session.add(
-        _policy(project, enabled=True, holdback_percent=Decimal("0.1"), activated_at=datetime.now(timezone.utc))
-    )
+    db_session.add(_policy(project, enabled=True, holdback_percent=Decimal("0.1"), activated_at=datetime.now(UTC)))
     # Concurrent arms: control stays on the incumbent, treatment routes to candidate.
     for _ in range(2):
         _record_arm(db_session, project, "control", INCUMBENT)
@@ -301,10 +337,19 @@ def test_response_quality_ok_objective_signal():
 
 def _record_q(db, project, arm, model, ok):
     record_proxy_usage(
-        db, project, None, model=model, input_tokens=1000, output_tokens=500,
-        cached_input_tokens=0, cache_hit=False,
+        db,
+        project,
+        None,
+        model=model,
+        input_tokens=1000,
+        output_tokens=500,
+        cached_input_tokens=0,
+        cache_hit=False,
         naive_model=INCUMBENT if arm == "treatment" else None,
-        arm=arm, experiment_from=INCUMBENT, experiment_to=CANDIDATE, quality_ok=ok,
+        arm=arm,
+        experiment_from=INCUMBENT,
+        experiment_to=CANDIDATE,
+        quality_ok=ok,
     )
 
 
@@ -412,9 +457,7 @@ def test_holdback_keeps_control_on_incumbent(client, provision, db_session, monk
     assert seen["model"] == INCUMBENT
     assert resp.headers.get("X-Varsten-Arm") == "control"
     assert "X-Varsten-Routed" not in resp.headers
-    event = db_session.scalar(
-        select(UsageEvent).where(UsageEvent.project_id == project.id)
-    )
+    event = db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == project.id))
     assert event.event_metadata.get("arm") == "control" and event.event_metadata.get("holdback") is True
 
 

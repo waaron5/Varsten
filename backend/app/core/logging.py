@@ -4,10 +4,11 @@ Dependency-free JSON formatter. Every log line carries the current request id
 (bound by the request-context middleware) so logs for one request can be grouped,
 and the proxy's fail-open failures stop being invisible.
 """
+
 import json
 import logging
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.config import settings
 
@@ -15,9 +16,7 @@ from app.core.config import settings
 request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 # Standard LogRecord attributes, so anything else passed via `extra=` is emitted.
-_RESERVED = set(
-    logging.makeLogRecord({}).__dict__.keys()
-) | {"message", "asctime", "taskName"}
+_RESERVED = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "taskName"}
 
 _configured = False
 
@@ -25,7 +24,7 @@ _configured = False
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         data: dict[str, object] = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),

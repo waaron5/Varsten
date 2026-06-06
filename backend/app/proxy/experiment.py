@@ -10,6 +10,7 @@ the realized savings is that times the treatment volume, reported with a
 confidence interval, never a bare point estimate. This is the number that
 survives a CFO.
 """
+
 import math
 from datetime import datetime
 from decimal import Decimal
@@ -76,7 +77,14 @@ def compute_experiment(
         per_request = mean_c - mean_t
         measured = per_request * Decimal(n_t)
         # 95% CI on the difference of means via the standard errors of both arms.
-        if n_c >= 2 and n_t >= 2 and control.var is not None and treatment.var is not None:
+        if (
+            control is not None
+            and treatment is not None
+            and n_c >= 2
+            and n_t >= 2
+            and control.var is not None
+            and treatment.var is not None
+        ):
             se = math.sqrt((float(control.var) / n_c) + (float(treatment.var) / n_t))
             half = Decimal(str(1.96 * se))
             ci_low = per_request - half

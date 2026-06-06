@@ -4,10 +4,11 @@ The cache_key is a hash of the request fields that determine the answer. Phase 1
 matches exactly; real vector similarity replaces compute_cache_key later while the
 rest of this module (lookup, store, hit accounting) stays the same.
 """
+
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,9 +39,7 @@ def compute_cache_key(body: dict) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def get_cached(
-    db: Session, project_id: uuid.UUID, cache_key: str
-) -> ProxyCacheEntry | None:
+def get_cached(db: Session, project_id: uuid.UUID, cache_key: str) -> ProxyCacheEntry | None:
     return db.scalar(
         select(ProxyCacheEntry).where(
             ProxyCacheEntry.project_id == project_id,
@@ -82,7 +81,7 @@ def semantic_search(
 
 def record_hit(db: Session, entry: ProxyCacheEntry) -> None:
     entry.hit_count += 1
-    entry.last_hit_at = datetime.now(timezone.utc)
+    entry.last_hit_at = datetime.now(UTC)
     db.commit()
 
 

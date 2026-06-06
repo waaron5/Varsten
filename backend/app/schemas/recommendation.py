@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict
 
 from app.schemas.eval import EvalRunSummary
 
-
 RecommendationStatus = Literal["open", "applied", "dismissed", "rolled_back"]
 
 

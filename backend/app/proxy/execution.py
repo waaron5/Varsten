@@ -5,6 +5,7 @@ the two apply paths (the plain recommendations API and the engine API the UI
 calls) stay in sync. Model-swap levers need a passing eval (the gating run);
 token-trim is ungated and activates directly.
 """
+
 from datetime import datetime
 
 from sqlalchemy.orm import Session

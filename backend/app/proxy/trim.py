@@ -11,10 +11,11 @@ Anything that could change the answer (summarising context with an LLM, dropping
 unique content) is out: that judgement belongs off-path in the eval harness, not
 in the request path.
 """
+
 import copy
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import NamedTuple
 
@@ -135,7 +136,7 @@ def activate_trim_policy(
     model = recommendation.related_model
     if not model:
         return None
-    at = now or datetime.now(timezone.utc)
+    at = now or datetime.now(UTC)
     policy = db.scalar(
         select(ProxyPolicy).where(
             ProxyPolicy.project_id == project.id,

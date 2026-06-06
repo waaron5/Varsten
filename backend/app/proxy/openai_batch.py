@@ -6,6 +6,7 @@ the poller), never inline. It mirrors the real OpenAI flow: upload the input
 output file when it completes. httpx is used the same way as the chat proxy, so
 tests mock it with MockTransport.
 """
+
 import httpx
 
 from app.core.config import settings

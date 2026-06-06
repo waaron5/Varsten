@@ -4,14 +4,16 @@ price change. Runs against local Postgres (rolled back per test).
 Model keys are synthetic so the global count assertions stay independent of any
 real catalog rows a live `sync_prices` run may have seeded into the dev DB.
 """
+
 from decimal import Decimal
+from typing import Any
 
 from app.models import ModelCatalog, ModelPrice
 from scripts.sync_prices import parse_feed, sync
 
 MODEL = "varsten-test-model"
 
-FEED = {
+FEED: dict[str, dict[str, Any]] = {
     "sample_spec": {"note": "meta entry, must be ignored"},
     MODEL: {
         "litellm_provider": "varsten-test",

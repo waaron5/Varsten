@@ -5,9 +5,10 @@ Covers the storage interface, the full lifecycle (stage input -> upload -> submi
 tenant isolation. OpenAI's Batch/Files API is mocked via httpx MockTransport; the
 local filesystem storage backend stands in for S3.
 """
+
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -17,7 +18,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models import BatchJob, ModelPrice, Project, UsageEvent
 from app.proxy import openai_batch
-from app.storage import LocalStorage, get_storage
+from app.storage import LocalStorage
 
 MODEL = "gpt-4o-mini"
 
@@ -37,13 +38,18 @@ def _ws(provision, db_session, monkeypatch, sub):
 
 
 def _seed_batch_prices(db):
-    at = datetime.now(timezone.utc) - timedelta(days=1)
+    at = datetime.now(UTC) - timedelta(days=1)
     db.add(
         ModelPrice(
-            model_key=MODEL, provider="openai", currency="USD",
-            input_cost_per_token=Decimal("0.0000006"), output_cost_per_token=Decimal("0.0000024"),
-            input_cost_per_token_batch=Decimal("0.0000003"), output_cost_per_token_batch=Decimal("0.0000012"),
-            source="catalog", effective_at=at,
+            model_key=MODEL,
+            provider="openai",
+            currency="USD",
+            input_cost_per_token=Decimal("0.0000006"),
+            output_cost_per_token=Decimal("0.0000024"),
+            input_cost_per_token_batch=Decimal("0.0000003"),
+            output_cost_per_token_batch=Decimal("0.0000012"),
+            source="catalog",
+            effective_at=at,
         )
     )
     db.commit()
@@ -51,10 +57,20 @@ def _seed_batch_prices(db):
 
 def _output_jsonl(model: str = MODEL) -> bytes:
     lines = [
-        {"custom_id": "a", "response": {"status_code": 200, "body": {
-            "model": model, "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}}},
-        {"custom_id": "b", "response": {"status_code": 200, "body": {
-            "model": model, "usage": {"prompt_tokens": 2000, "completion_tokens": 1000}}}},
+        {
+            "custom_id": "a",
+            "response": {
+                "status_code": 200,
+                "body": {"model": model, "usage": {"prompt_tokens": 1000, "completion_tokens": 500}},
+            },
+        },
+        {
+            "custom_id": "b",
+            "response": {
+                "status_code": 200,
+                "body": {"model": model, "usage": {"prompt_tokens": 2000, "completion_tokens": 1000}},
+            },
+        },
     ]
     return ("\n".join(json.dumps(line) for line in lines)).encode()
 
@@ -69,10 +85,15 @@ def _mock_openai_batch(monkeypatch, output: bytes):
         if "/content" in path and method == "GET":
             return httpx.Response(200, content=output)
         if path.startswith("/v1/batches/") and method == "GET":
-            return httpx.Response(200, json={
-                "id": "batch-1", "status": "completed",
-                "output_file_id": "file-out", "request_counts": {"total": 2},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "id": "batch-1",
+                    "status": "completed",
+                    "output_file_id": "file-out",
+                    "request_counts": {"total": 2},
+                },
+            )
         return httpx.Response(404, json={"error": "unhandled"})
 
     real = httpx.AsyncClient
@@ -80,6 +101,7 @@ def _mock_openai_batch(monkeypatch, output: bytes):
 
 
 # --- storage interface ----------------------------------------------------------
+
 
 def test_local_storage_round_trip(tmp_path):
     s = LocalStorage(str(tmp_path / "s"))
@@ -97,6 +119,7 @@ def test_local_storage_rejects_traversal(tmp_path):
 
 
 # --- full lifecycle -------------------------------------------------------------
+
 
 def test_batch_full_lifecycle_measures_savings(client, provision, db_session, monkeypatch):
     ws, project = _ws(provision, db_session, monkeypatch, "auth0|batch")
@@ -138,9 +161,7 @@ def test_batch_full_lifecycle_measures_savings(client, provision, db_session, mo
     assert out.status_code == 200 and "output_url" in out.json()
 
     event = db_session.scalar(
-        select(UsageEvent).where(
-            UsageEvent.project_id == project.id, UsageEvent.request_type == "batch"
-        )
+        select(UsageEvent).where(UsageEvent.project_id == project.id, UsageEvent.request_type == "batch")
     )
     assert event is not None
     assert event.event_metadata["lever"] == "batching"
@@ -159,7 +180,7 @@ def test_create_batch_before_upload_conflicts(client, provision, db_session, mon
 
 
 def test_output_not_ready_conflicts(client, provision, db_session, monkeypatch):
-    ws, project = _ws(provision, db_session, monkeypatch, "auth0|batch3")
+    ws, _project = _ws(provision, db_session, monkeypatch, "auth0|batch3")
     headers = {"Authorization": f"Bearer {ws['api_key']}"}
     info = client.post("/v1/batches/input-files", headers=headers).json()
     resp = client.get(f"/v1/batches/{info['input_file_id']}/output", headers=headers)
@@ -167,7 +188,7 @@ def test_output_not_ready_conflicts(client, provision, db_session, monkeypatch):
 
 
 def test_batch_tenant_isolation(client, provision, db_session, monkeypatch):
-    ws_a, project_a = _ws(provision, db_session, monkeypatch, "auth0|batchA")
+    ws_a, _project_a = _ws(provision, db_session, monkeypatch, "auth0|batchA")
     ws_b, _ = _ws(provision, db_session, monkeypatch, "auth0|batchB")
     info = client.post("/v1/batches/input-files", headers={"Authorization": f"Bearer {ws_a['api_key']}"}).json()
     # B cannot read A's job.
@@ -183,9 +204,7 @@ def test_local_upload_rejects_cross_tenant_key(client, provision, db_session, mo
     ws_b, _ = _ws(provision, db_session, monkeypatch, "auth0|batchD")
     info = client.post("/v1/batches/input-files", headers={"Authorization": f"Bearer {ws_a['api_key']}"}).json()
     # B tries to write to A's storage key.
-    resp = client.put(
-        info["upload_url"], headers={"Authorization": f"Bearer {ws_b['api_key']}"}, content=b"x"
-    )
+    resp = client.put(info["upload_url"], headers={"Authorization": f"Bearer {ws_b['api_key']}"}, content=b"x")
     assert resp.status_code == 403
 
 
@@ -194,10 +213,16 @@ def test_engine_batches_lists_for_dashboard(client, provision, db_session, monke
     # API-key /v1/batches the client uses.
     ws, project = _ws(provision, db_session, monkeypatch, "auth0|batchE")
     job = BatchJob(
-        organization_id=project.organization_id, project_id=project.id,
-        status="finalized", input_storage_key="k", request_count=2,
-        input_tokens=3000, output_tokens=1500,
-        actual_cost_usd=Decimal("0.0027"), naive_cost_usd=Decimal("0.0054"), saved_usd=Decimal("0.0027"),
+        organization_id=project.organization_id,
+        project_id=project.id,
+        status="finalized",
+        input_storage_key="k",
+        request_count=2,
+        input_tokens=3000,
+        output_tokens=1500,
+        actual_cost_usd=Decimal("0.0027"),
+        naive_cost_usd=Decimal("0.0054"),
+        saved_usd=Decimal("0.0027"),
     )
     db_session.add(job)
     db_session.commit()
@@ -216,7 +241,7 @@ def test_engine_batches_lists_for_dashboard(client, provision, db_session, monke
 
 
 def test_unpriced_model_surfaces_no_fabricated_savings(client, provision, db_session, monkeypatch):
-    ws, project = _ws(provision, db_session, monkeypatch, "auth0|batch4")
+    ws, _project = _ws(provision, db_session, monkeypatch, "auth0|batch4")
     # A model the catalog does not cover: savings cannot be measured, must be null
     # not zero (no painted-on savings).
     headers = {"Authorization": f"Bearer {ws['api_key']}"}

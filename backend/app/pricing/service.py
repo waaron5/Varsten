@@ -5,6 +5,7 @@ override first, then the synced public catalog, always choosing the row whose
 effective_at is the latest one at or before the event's time. That keeps history
 stable when prices change and lets new prices land via a sync, not a deploy.
 """
+
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -43,8 +44,7 @@ def _override_for(
         .where(
             OrgModelPriceOverride.organization_id == organization_id,
             OrgModelPriceOverride.model_key == model_key,
-            (OrgModelPriceOverride.provider == provider)
-            | (OrgModelPriceOverride.provider.is_(None)),
+            (OrgModelPriceOverride.provider == provider) | (OrgModelPriceOverride.provider.is_(None)),
             OrgModelPriceOverride.effective_at <= at,
         )
         .order_by(OrgModelPriceOverride.effective_at.desc())
@@ -62,12 +62,8 @@ def _override_for(
     )
 
 
-def _catalog_price_for(
-    db: Session, model_key: str, provider: str, at: datetime
-) -> ResolvedPrice | None:
-    base = select(ModelPrice).where(
-        ModelPrice.model_key == model_key, ModelPrice.effective_at <= at
-    )
+def _catalog_price_for(db: Session, model_key: str, provider: str, at: datetime) -> ResolvedPrice | None:
+    base = select(ModelPrice).where(ModelPrice.model_key == model_key, ModelPrice.effective_at <= at)
     # Prefer an exact (model_key, provider) row. Fall back to the model_key alone,
     # since callers' provider strings ("openai") do not always match the feed's
     # litellm_provider, and most model_keys are globally unique anyway.
@@ -75,9 +71,7 @@ def _catalog_price_for(
         base.where(ModelPrice.provider == provider),
         base,
     ):
-        row = db.scalars(
-            stmt.order_by(ModelPrice.effective_at.desc()).limit(1)
-        ).first()
+        row = db.scalars(stmt.order_by(ModelPrice.effective_at.desc()).limit(1)).first()
         if row is not None:
             return ResolvedPrice(
                 input_cost_per_token=row.input_cost_per_token,
@@ -120,11 +114,7 @@ def compute_cost(
         if price.cache_read_input_token_cost is not None
         else price.input_cost_per_token
     )
-    raw = (
-        uncached * price.input_cost_per_token
-        + cached * cache_rate
-        + output_tokens * price.output_cost_per_token
-    )
+    raw = uncached * price.input_cost_per_token + cached * cache_rate + output_tokens * price.output_cost_per_token
     return raw.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP)
 
 

@@ -28,35 +28,21 @@ class ModelCatalog(Base, TimestampMixin):
     cheaper_substitute_key from this table."""
 
     __tablename__ = "model_catalog"
-    __table_args__ = (
-        UniqueConstraint("model_key", "provider", name="uq_model_catalog_key_provider"),
-    )
+    __table_args__ = (UniqueConstraint("model_key", "provider", name="uq_model_catalog_key_provider"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Matches usage_events.model as it arrives (e.g. "gpt-4o-mini").
     model_key: Mapped[str] = mapped_column(String(128), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Curated coarse class for substitution logic: frontier | mid | small.
     tier: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    supports_vision: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false")
-    )
-    supports_function_calling: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false")
-    )
-    supports_reasoning: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false")
-    )
+    supports_vision: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    supports_function_calling: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    supports_reasoning: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     # Curated cheaper alternative for the optimizer; unused this round.
-    cheaper_substitute_key: Mapped[str | None] = mapped_column(
-        String(128), nullable=True
-    )
-    source: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default=text("'litellm'")
-    )
+    cheaper_substitute_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'litellm'"))
 
 
 class ModelPrice(Base):
@@ -75,41 +61,21 @@ class ModelPrice(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     model_key: Mapped[str] = mapped_column(String(128), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
-    currency: Mapped[str] = mapped_column(
-        String(8), nullable=False, server_default=text("'USD'")
-    )
-    input_cost_per_token: Mapped[Decimal] = mapped_column(
-        TokenCost, nullable=False, server_default=text("0")
-    )
-    output_cost_per_token: Mapped[Decimal] = mapped_column(
-        TokenCost, nullable=False, server_default=text("0")
-    )
-    cache_read_input_token_cost: Mapped[Decimal | None] = mapped_column(
-        TokenCost, nullable=True
-    )
-    cache_write_input_token_cost: Mapped[Decimal | None] = mapped_column(
-        TokenCost, nullable=True
-    )
-    input_cost_per_token_batch: Mapped[Decimal | None] = mapped_column(
-        TokenCost, nullable=True
-    )
-    output_cost_per_token_batch: Mapped[Decimal | None] = mapped_column(
-        TokenCost, nullable=True
-    )
-    source: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default=text("'litellm'")
-    )
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, server_default=text("'USD'"))
+    input_cost_per_token: Mapped[Decimal] = mapped_column(TokenCost, nullable=False, server_default=text("0"))
+    output_cost_per_token: Mapped[Decimal] = mapped_column(TokenCost, nullable=False, server_default=text("0"))
+    cache_read_input_token_cost: Mapped[Decimal | None] = mapped_column(TokenCost, nullable=True)
+    cache_write_input_token_cost: Mapped[Decimal | None] = mapped_column(TokenCost, nullable=True)
+    input_cost_per_token_batch: Mapped[Decimal | None] = mapped_column(TokenCost, nullable=True)
+    output_cost_per_token_batch: Mapped[Decimal | None] = mapped_column(TokenCost, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'litellm'"))
     effective_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class OrgModelPriceOverride(Base):
@@ -128,9 +94,7 @@ class OrgModelPriceOverride(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
@@ -138,24 +102,12 @@ class OrgModelPriceOverride(Base):
     )
     model_key: Mapped[str] = mapped_column(String(128), nullable=False)
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    currency: Mapped[str] = mapped_column(
-        String(8), nullable=False, server_default=text("'USD'")
-    )
-    input_cost_per_token: Mapped[Decimal] = mapped_column(
-        TokenCost, nullable=False, server_default=text("0")
-    )
-    output_cost_per_token: Mapped[Decimal] = mapped_column(
-        TokenCost, nullable=False, server_default=text("0")
-    )
-    cache_read_input_token_cost: Mapped[Decimal | None] = mapped_column(
-        TokenCost, nullable=True
-    )
-    cache_write_input_token_cost: Mapped[Decimal | None] = mapped_column(
-        TokenCost, nullable=True
-    )
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, server_default=text("'USD'"))
+    input_cost_per_token: Mapped[Decimal] = mapped_column(TokenCost, nullable=False, server_default=text("0"))
+    output_cost_per_token: Mapped[Decimal] = mapped_column(TokenCost, nullable=False, server_default=text("0"))
+    cache_read_input_token_cost: Mapped[Decimal | None] = mapped_column(TokenCost, nullable=True)
+    cache_write_input_token_cost: Mapped[Decimal | None] = mapped_column(TokenCost, nullable=True)
     effective_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

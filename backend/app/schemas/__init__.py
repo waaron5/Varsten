@@ -26,7 +26,6 @@ __all__ = [
     "GoldenSampleIn",
     "OrganizationCreate",
     "OrganizationOut",
-    "UserOut",
     "ProjectCreate",
     "ProjectOut",
     "ProjectProxyConfigUpdate",
@@ -35,4 +34,5 @@ __all__ = [
     "UsageEventCreate",
     "UsageEventOut",
     "UsageEventPage",
+    "UserOut",
 ]

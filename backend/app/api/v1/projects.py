@@ -50,11 +50,7 @@ def list_projects(
     org: Organization = Depends(require_org_member),
     db: Session = Depends(get_db),
 ) -> list[Project]:
-    stmt = (
-        select(Project)
-        .where(Project.organization_id == org.id)
-        .order_by(Project.created_at.desc())
-    )
+    stmt = select(Project).where(Project.organization_id == org.id).order_by(Project.created_at.desc())
     return list(db.scalars(stmt))
 
 

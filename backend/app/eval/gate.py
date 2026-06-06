@@ -14,6 +14,7 @@ Verdict -> apply policy:
     insufficient  blocked (gather more samples first)
     no run / pending / failed  blocked (must evaluate first)
 """
+
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -46,9 +47,7 @@ def latest_run(db: Session, recommendation_id) -> EvalRun | None:
     )
 
 
-def assert_appliable(
-    db: Session, recommendation: Recommendation, *, automated: bool
-) -> EvalRun | None:
+def assert_appliable(db: Session, recommendation: Recommendation, *, automated: bool) -> EvalRun | None:
     """Raise EvalGateError unless this recommendation may be applied now. Returns
     the gating run (or None for an ungated lever) so the caller can attach the
     measured savings."""
@@ -70,9 +69,7 @@ def assert_appliable(
                 "automatic apply. Approve it manually."
             )
         return run
-    raise EvalGateError(
-        f"Shadow evaluation did not clear (verdict: {run.verdict}). {run.notes or ''}".strip()
-    )
+    raise EvalGateError(f"Shadow evaluation did not clear (verdict: {run.verdict}). {run.notes or ''}".strip())
 
 
 def apply_measured_savings(recommendation: Recommendation, run: EvalRun | None) -> None:

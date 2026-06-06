@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
@@ -54,11 +54,7 @@ def list_api_keys(
     project: Project = Depends(require_project_member),
     db: Session = Depends(get_db),
 ) -> list[ApiKey]:
-    stmt = (
-        select(ApiKey)
-        .where(ApiKey.project_id == project.id)
-        .order_by(ApiKey.created_at.desc())
-    )
+    stmt = select(ApiKey).where(ApiKey.project_id == project.id).order_by(ApiKey.created_at.desc())
     return list(db.scalars(stmt))
 
 
@@ -71,7 +67,7 @@ def revoke_api_key(
     db: Session = Depends(get_db),
 ) -> ApiKey:
     if api_key.revoked_at is None:
-        api_key.revoked_at = datetime.now(timezone.utc)
+        api_key.revoked_at = datetime.now(UTC)
         db.commit()
         db.refresh(api_key)
     return api_key

@@ -9,7 +9,8 @@ recommendation is marked rolled_back and surfaced as a system action.
 Objective signal only. Subtle subjective drift is a judge-based, approve-mode
 concern and never triggers auto-rollback (CLAUDE.md).
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -73,7 +74,7 @@ def sweep_all_projects(db: Session, *, now: datetime | None = None) -> dict[str,
     """Run the drift sweep for every project that has an enabled holdback-measured
     policy. The scheduler's entry point; idempotent and per-project safe. Returns a
     map of project_id -> rolled-back routes (only projects with rollbacks)."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     project_ids = list(
         db.scalars(
@@ -103,7 +104,7 @@ def check_and_rollback_drift(
     the routes rolled back. The production trigger is a scheduled job (a cron
     calling the endpoint); the function is idempotent (a disabled route is skipped
     next time)."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     rolled: list[dict] = []
     if not settings.drift_auto_rollback_enabled:
         return rolled
@@ -129,12 +130,9 @@ def check_and_rollback_drift(
         if not d["drifted"]:
             continue
         rule.enabled = False
-        route_label = (
-            f"{incumbent} -> {candidate}" if rule.lever in ROUTING_LEVERS else f"{incumbent} (trim)"
-        )
+        route_label = f"{incumbent} -> {candidate}" if rule.lever in ROUTING_LEVERS else f"{incumbent} (trim)"
         title = (
-            f"Auto-rollback {route_label}: quality drift "
-            f"({d['treatment_ok_rate']} vs {d['control_ok_rate']} control)"
+            f"Auto-rollback {route_label}: quality drift ({d['treatment_ok_rate']} vs {d['control_ok_rate']} control)"
         )
         rec = db.get(Recommendation, rule.source_recommendation_id) if rule.source_recommendation_id else None
         if rec is not None:
@@ -157,9 +155,11 @@ def check_and_rollback_drift(
             )
         )
         logger.warning("route auto-rolled back on drift", extra={"project_id": str(project.id), "route": title})
-        rolled.append({
-            "route": route_label,
-            **d,
-        })
+        rolled.append(
+            {
+                "route": route_label,
+                **d,
+            }
+        )
     db.commit()
     return rolled

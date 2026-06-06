@@ -22,6 +22,7 @@ Usage:
   uv run python -m scripts.benchmark_runner --limit 600 --dup-rate 0.25
   uv run python -m scripts.benchmark_runner --dataset sharegpt.json --real
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,7 +32,7 @@ import json
 import random
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -45,16 +46,17 @@ from app.main import app
 from app.models import (
     ApiKey,
     LeverConfig,
-    OrgMembership,
     Organization,
+    OrgMembership,
     Project,
+    ProxyCacheEntry,
     ProxyPolicy,
     UsageEvent,
     User,
 )
 from app.proxy import experiment
-from app.proxy.predicate import DEFAULT_PREDICATE
 from app.proxy.embedding import embedding_input
+from app.proxy.predicate import DEFAULT_PREDICATE
 from app.savings import month_start
 from scripts.seed_demo import _seed_prices
 
@@ -79,9 +81,7 @@ def setup_workspace(db, holdback: Decimal) -> Project:
         org = Organization(name=BENCH_ORG)
         db.add(org)
         db.flush()
-    project = db.scalar(
-        select(Project).where(Project.organization_id == org.id, Project.name == BENCH_PROJECT)
-    )
+    project = db.scalar(select(Project).where(Project.organization_id == org.id, Project.name == BENCH_PROJECT))
     if project is None:
         project = Project(organization_id=org.id, name=BENCH_PROJECT)
         db.add(project)
@@ -92,9 +92,7 @@ def setup_workspace(db, holdback: Decimal) -> Project:
         db.add(user)
         db.flush()
     if not db.scalar(
-        select(OrgMembership).where(
-            OrgMembership.organization_id == org.id, OrgMembership.user_id == user.id
-        )
+        select(OrgMembership).where(OrgMembership.organization_id == org.id, OrgMembership.user_id == user.id)
     ):
         db.add(OrgMembership(organization_id=org.id, user_id=user.id, role="owner"))
 
@@ -106,15 +104,20 @@ def setup_workspace(db, holdback: Decimal) -> Project:
 
     # Lever metadata (dashboard); the hot path is gated by the policies below.
     for lever, mode in {"semantic_cache": "auto", "smart_routing": "approve", "token_trim": "auto"}.items():
-        cfg = db.scalar(
-            select(LeverConfig).where(LeverConfig.project_id == project.id, LeverConfig.lever == lever)
-        )
+        cfg = db.scalar(select(LeverConfig).where(LeverConfig.project_id == project.id, LeverConfig.lever == lever))
         if cfg is None:
             db.add(LeverConfig(organization_id=org.id, project_id=project.id, lever=lever, automation_mode=mode))
         else:
             cfg.enabled = True
 
-    _activate_policy(db, org, project, "smart_routing", {"candidate_model": CANDIDATE, "predicate": dict(DEFAULT_PREDICATE)}, holdback)
+    _activate_policy(
+        db,
+        org,
+        project,
+        "smart_routing",
+        {"candidate_model": CANDIDATE, "predicate": dict(DEFAULT_PREDICATE)},
+        holdback,
+    )
     _activate_policy(db, org, project, "token_trim", {}, holdback)
     db.commit()
     return project
@@ -128,19 +131,26 @@ def _activate_policy(db, org, project, lever: str, params: dict, holdback: Decim
     )
     if policy is None:
         policy = ProxyPolicy(
-            organization_id=org.id, project_id=project.id, lever=lever,
-            target_type="model", target_key=INCUMBENT,
+            organization_id=org.id,
+            project_id=project.id,
+            lever=lever,
+            target_type="model",
+            target_key=INCUMBENT,
         )
         db.add(policy)
     policy.params = params
     policy.enabled = True
     policy.holdback_percent = holdback
-    policy.activated_at = datetime.now(timezone.utc)
+    policy.activated_at = datetime.now(UTC)
 
 
 def reset_usage(db, project: Project) -> None:
-    """Clear prior benchmark traffic so a re-run reports only this run."""
+    """Clear prior benchmark traffic so a re-run reports only this run. Also clears
+    the semantic cache store: the synthetic workload is deterministic, so leaving
+    cached entries would let a re-run hit the cache 100% and report bogus savings.
+    Each run starts cold, so cache hits come only from within-run repeats."""
     db.execute(delete(UsageEvent).where(UsageEvent.project_id == project.id))
+    db.execute(delete(ProxyCacheEntry).where(ProxyCacheEntry.project_id == project.id))
     db.commit()
 
 
@@ -169,11 +179,16 @@ def install_fake_upstream() -> None:
         payload = json.loads(request.content)
         in_tok, out_tok = _fake_tokens(payload)
         model = payload.get("model", INCUMBENT)
-        return httpx.Response(200, json={
-            "id": "chatcmpl-bench", "object": "chat.completion", "model": model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": in_tok, "completion_tokens": out_tok, "total_tokens": in_tok + out_tok},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-bench",
+                "object": "chat.completion",
+                "model": model,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": in_tok, "completion_tokens": out_tok, "total_tokens": in_tok + out_tok},
+            },
+        )
 
     real = httpx.AsyncClient
 
@@ -193,10 +208,11 @@ def install_fake_upstream() -> None:
         # exact cache first anyway); distinct prompts are far apart, so no false
         # semantic matches inflate the cache number.
         seed = int.from_bytes(hashlib.sha256(text.encode()).digest()[:8], "big")
-        rng = random.Random(seed)
+        # Deterministic benchmark vector, not security-sensitive randomness.
+        rng = random.Random(seed)  # nosec B311
         return [rng.gauss(0, 1) for _ in range(settings.embedding_dimensions)]
 
-    proxy_router.embed = fake_embed
+    proxy_router.embed = fake_embed  # type: ignore[assignment]
 
 
 # --- dataset --------------------------------------------------------------------
@@ -226,13 +242,29 @@ def _synthetic_dataset(n: int) -> list[list[dict]]:
       ~55% long multi-turn-> token trim (large context past the window)
     A real ShareGPT file via --dataset is the right input for a marketing number;
     this keeps the tool runnable and the distribution honest when offline."""
-    rng = random.Random(42)
+    # Deterministic offline benchmark data.
+    rng = random.Random(42)  # nosec B311
     short_templates = [
-        "What's the capital of {x}?", "Convert {n} USD to EUR.", "Is {n} a prime number?",
-        "Translate '{x}' to Spanish.", "Summarize in one line: order {x} ships on the {n}th.",
-        "Define the term '{x}' in one sentence.", "What is {n} times {m}?",
+        "What's the capital of {x}?",
+        "Convert {n} USD to EUR.",
+        "Is {n} a prime number?",
+        "Translate '{x}' to Spanish.",
+        "Summarize in one line: order {x} ships on the {n}th.",
+        "Define the term '{x}' in one sentence.",
+        "What is {n} times {m}?",
     ]
-    words = ["onboarding", "latency", "webhook", "invoice", "schema", "quota", "tenant", "rollback", "embedding", "cursor"]
+    words = [
+        "onboarding",
+        "latency",
+        "webhook",
+        "invoice",
+        "schema",
+        "quota",
+        "tenant",
+        "rollback",
+        "embedding",
+        "cursor",
+    ]
     preamble = (
         "You are a meticulous support agent for an enterprise SaaS product. "
         "Follow the policy guide and cite the relevant section in every answer. "
@@ -249,7 +281,12 @@ def _synthetic_dataset(n: int) -> list[list[dict]]:
             for turn in range(rng.randint(8, 16)):
                 topic = f"{rng.choice(words)}-{uid}-{turn}"
                 msgs.append({"role": "user", "content": f"{preamble} Question {turn}: how do I configure {topic}?"})
-                msgs.append({"role": "assistant", "content": f"To configure {topic}, open settings and apply the {topic} policy."})
+                msgs.append(
+                    {
+                        "role": "assistant",
+                        "content": f"To configure {topic}, open settings and apply the {topic} policy.",
+                    }
+                )
             msgs.append({"role": "user", "content": f"{preamble} Final ({uid}): summarize every step above."})
             out.append(msgs)
     return out
@@ -281,7 +318,8 @@ def fetch_sharegpt_subset(count: int, dataset: str, cache_dir: str = ".cache") -
         params = urllib.parse.urlencode(
             {"dataset": dataset, "config": "default", "split": "train", "offset": offset, "length": length}
         )
-        with urllib.request.urlopen(f"{_HF_ROWS}?{params}", timeout=40) as resp:
+        # Fixed HTTPS host with encoded query params.
+        with urllib.request.urlopen(f"{_HF_ROWS}?{params}", timeout=40) as resp:  # nosec B310
             data = json.load(resp)
         batch = [r["row"] for r in data.get("rows", [])]
         if not batch:
@@ -304,7 +342,7 @@ def load_dataset(source: str, path: str | None, dataset_id: str, limit: int) -> 
     elif source == "sharegpt":
         try:
             rows = fetch_sharegpt_subset(limit, dataset_id)
-        except Exception as exc:  # noqa: BLE001 - offline / dataset hiccup -> synthetic
+        except Exception as exc:
             print(f"ShareGPT fetch failed ({exc}); falling back to synthetic.", file=sys.stderr)
             rows = None
     if rows is None:
@@ -329,7 +367,8 @@ def build_requests(convs: list[list[dict]], dup_rate: float) -> list[list[dict]]
     """Turn conversations into chat-completion message lists, injecting exact
     duplicates at dup_rate to model the repeated queries a real workload sees
     (which the semantic cache serves at $0)."""
-    rng = random.Random(7)
+    # Deterministic benchmark request mix.
+    rng = random.Random(7)  # nosec B311
     requests: list[list[dict]] = []
     for msgs in convs:
         requests.append(msgs)
@@ -359,6 +398,7 @@ async def stream_requests(requests: list[list[dict]], concurrency: int) -> Tally
     sem = asyncio.Semaphore(concurrency)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://benchmark", timeout=60) as client:
+
         async def one(messages: list[dict]) -> None:
             async with sem:
                 body = {"model": INCUMBENT, "messages": messages, "stream": False}
@@ -397,10 +437,8 @@ def _d(value) -> Decimal:
 
 
 def report(db, project: Project, tally: Tally) -> None:
-    start = month_start(datetime.now(timezone.utc))
-    events = list(
-        db.scalars(select(UsageEvent).where(UsageEvent.project_id == project.id))
-    )
+    start = month_start(datetime.now(UTC))
+    events = list(db.scalars(select(UsageEvent).where(UsageEvent.project_id == project.id)))
     actual_spend = sum((_d(e.cost_usd) for e in events), Decimal("0"))
 
     # Per-event measured savings: cache hits ($0, full avoided) and routed
@@ -460,10 +498,15 @@ def report(db, project: Project, tally: Tally) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Varsten savings benchmark simulator")
-    parser.add_argument("--source", choices=["synthetic", "sharegpt"], default="synthetic",
-                        help="Workload source: built-in synthetic, or auto-download a real ShareGPT subset")
-    parser.add_argument("--sharegpt-dataset", default=_DEFAULT_SHAREGPT,
-                        help="HuggingFace dataset id for --source sharegpt")
+    parser.add_argument(
+        "--source",
+        choices=["synthetic", "sharegpt"],
+        default="synthetic",
+        help="Workload source: built-in synthetic, or auto-download a real ShareGPT subset",
+    )
+    parser.add_argument(
+        "--sharegpt-dataset", default=_DEFAULT_SHAREGPT, help="HuggingFace dataset id for --source sharegpt"
+    )
     parser.add_argument("--dataset", help="Path to a local ShareGPT-style JSON file (overrides --source)")
     parser.add_argument("--limit", type=int, default=500, help="Max conversations to ingest")
     parser.add_argument("--dup-rate", type=float, default=0.25, help="Fraction of prompts repeated (drives cache)")
@@ -485,8 +528,11 @@ def main() -> int:
             reset_usage(db, project)
         convs = load_dataset(args.source, args.dataset, args.sharegpt_dataset, args.limit)
         requests = build_requests(convs, args.dup_rate)
-        print(f"Streaming {len(requests)} requests through the proxy "
-              f"({'REAL OpenAI' if args.real else 'fake upstream'})…", file=sys.stderr)
+        print(
+            f"Streaming {len(requests)} requests through the proxy "
+            f"({'REAL OpenAI' if args.real else 'fake upstream'})…",
+            file=sys.stderr,
+        )
         tally = asyncio.run(stream_requests(requests, args.concurrency))
         db.expire_all()  # re-read what the proxy committed on its own sessions
         report(db, project, tally)

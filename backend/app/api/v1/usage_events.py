@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -36,7 +36,7 @@ def create_usage_event(
         )
 
     # occurred_at picks the price version that was live when the call happened.
-    at = payload.occurred_at or datetime.now(timezone.utc)
+    at = payload.occurred_at or datetime.now(UTC)
     cost_usd, cost_source, pricing_status, price_version_id = price_usage_event(
         db,
         organization_id=project.organization_id,
@@ -156,11 +156,7 @@ def list_usage_events(
 
     # id DESC is a stable tiebreaker so paging is deterministic when many rows
     # share a received_at. Fetch one extra to compute has_more without COUNT(*).
-    stmt = (
-        stmt.order_by(UsageEvent.received_at.desc(), UsageEvent.id.desc())
-        .offset(offset)
-        .limit(limit + 1)
-    )
+    stmt = stmt.order_by(UsageEvent.received_at.desc(), UsageEvent.id.desc()).offset(offset).limit(limit + 1)
     rows = list(db.scalars(stmt))
     has_more = len(rows) > limit
     items = rows[:limit]
@@ -180,7 +176,5 @@ def get_usage_event(
 ) -> UsageEvent:
     event = db.get(UsageEvent, event_id)
     if event is None or event.project_id != project.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="usage event not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="usage event not found")
     return event

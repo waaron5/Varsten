@@ -1,8 +1,7 @@
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
-from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_token_claims, require_user
 from app.db.session import get_db
@@ -69,7 +68,7 @@ def sync_user(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="email already associated with another account",
-        )
+        ) from None
 
     db.refresh(user)
     return _user_out(user, db)

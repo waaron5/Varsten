@@ -6,6 +6,7 @@ same way the proxy does, so tests mock them via MockTransport. Both are
 best-effort from the runner's view: a None / "tie" on failure degrades the run
 rather than crashing it.
 """
+
 import json
 
 import httpx
@@ -26,17 +27,13 @@ _JUDGE_SYSTEM = (
 )
 
 
-async def replay_candidate(
-    messages: list[dict], params: dict, model: str, key: str
-) -> dict | None:
+async def replay_candidate(messages: list[dict], params: dict, model: str, key: str) -> dict | None:
     """Run the prompt through the candidate model (non-stream). Returns the
     completion payload, or None on failure so the runner can skip the sample."""
     body = {**(params or {}), "model": model, "messages": messages, "stream": False}
     try:
         async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
-            resp = await client.post(
-                openai.upstream_url(), headers=openai.upstream_headers(key), json=body
-            )
+            resp = await client.post(openai.upstream_url(), headers=openai.upstream_headers(key), json=body)
         if resp.status_code != 200:
             logger.warning("replay candidate non-200", extra={"status": resp.status_code, "model": model})
             return None
@@ -61,17 +58,13 @@ async def _judge_once(prompt: str, first: str, second: str, key: str) -> str:
         "stream": False,
     }
     async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
-        resp = await client.post(
-            openai.upstream_url(), headers=openai.upstream_headers(key), json=body
-        )
+        resp = await client.post(openai.upstream_url(), headers=openai.upstream_headers(key), json=body)
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"]
     return (json.loads(content).get("winner") or "tie").lower()
 
 
-async def judge_pairwise(
-    prompt: str, incumbent: str, candidate: str, key: str
-) -> str:
+async def judge_pairwise(prompt: str, incumbent: str, candidate: str, key: str) -> str:
     """Position-swapped pairwise judge. Calls twice (incumbent-first, then
     candidate-first) and resolves to incumbent | candidate | tie. Disagreement
     between the two orderings is a tie, which is the conservative outcome (no

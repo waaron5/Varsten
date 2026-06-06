@@ -10,6 +10,7 @@ POST /v1/chat/completions
 Only the semantic-cache lever is active. The other four levers are not wired and
 stay bypassed by config.
 """
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -78,9 +79,7 @@ async def chat_completions(
         # embedding is reused for storage on a miss, so we embed at most once.
         try:
             embedding = await embed(embedding_input(body), client_key)
-            sem = cache.semantic_search(
-                db, project.id, model, embedding, settings.semantic_cache_threshold
-            )
+            sem = cache.semantic_search(db, project.id, model, embedding, settings.semantic_cache_threshold)
         except Exception:
             logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
             sem = None
@@ -142,17 +141,42 @@ async def chat_completions(
     if stream:
         return StreamingResponse(
             _stream_through(
-                db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding,
-                store_cache=not bypass, upstream_model=upstream_model, routed_from=routed_from,
-                arm=arm, exp_from=exp_from, exp_to=exp_to,
+                db,
+                project,
+                api_key_id,
+                client_key,
+                body,
+                model,
+                cache_key,
+                breaker,
+                embedding,
+                store_cache=not bypass,
+                upstream_model=upstream_model,
+                routed_from=routed_from,
+                arm=arm,
+                exp_from=exp_from,
+                exp_to=exp_to,
             ),
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
         )
     return await _forward_once(
-        db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding,
-        store_cache=not bypass, headers=headers, upstream_model=upstream_model, routed_from=routed_from,
-        arm=arm, exp_from=exp_from, exp_to=exp_to,
+        db,
+        project,
+        api_key_id,
+        client_key,
+        body,
+        model,
+        cache_key,
+        breaker,
+        embedding,
+        store_cache=not bypass,
+        headers=headers,
+        upstream_model=upstream_model,
+        routed_from=routed_from,
+        arm=arm,
+        exp_from=exp_from,
+        exp_to=exp_to,
     )
 
 
@@ -214,11 +238,7 @@ def _capture(
     visible by observability later, never by a 500."""
     # Objective response health, only for arm-tagged (experiment) traffic, so the
     # drift guard can compare the treatment arm against the control arm.
-    quality_ok = (
-        quality.response_quality_ok(response_payload, quality.wants_json(body or {}))
-        if arm
-        else None
-    )
+    quality_ok = quality.response_quality_ok(response_payload, quality.wants_json(body or {})) if arm else None
     try:
         record_proxy_usage(
             db,
@@ -236,9 +256,7 @@ def _capture(
             quality_ok=quality_ok,
         )
         if store_cache and settings.semantic_cache_enabled and response_payload:
-            cache.store(
-                db, project.id, cache_key, cache_model, response_payload, in_tok, out_tok, embedding=embedding
-            )
+            cache.store(db, project.id, cache_key, cache_model, response_payload, in_tok, out_tok, embedding=embedding)
     except Exception:
         logger.exception("proxy ledger/cache write failed", extra={"project_id": str(project.id)})
 
@@ -259,53 +277,69 @@ def _capture(
 
 
 async def _stream_through(
-    db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache,
-    upstream_model=None, routed_from=None, arm=None, exp_from=None, exp_to=None,
+    db,
+    project,
+    api_key_id,
+    client_key,
+    body,
+    model,
+    cache_key,
+    breaker,
+    embedding,
+    store_cache,
+    upstream_model=None,
+    routed_from=None,
+    arm=None,
+    exp_from=None,
+    exp_to=None,
 ):
     """Pass the OpenAI SSE stream through verbatim, buffering a copy in memory to
     bill and (unless bypassed) cache after the client has its bytes."""
-    upstream_body = {**body, "model": upstream_model or model, "stream": True, "stream_options": {"include_usage": True}}
+    upstream_body = {
+        **body,
+        "model": upstream_model or model,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
     buffer = bytearray()
     ok = False
 
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream(
+        async with (
+            httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0)) as client,
+            client.stream(
                 "POST",
                 openai.upstream_url(),
                 headers=openai.upstream_headers(client_key),
                 json=upstream_body,
-            ) as resp:
-                ok = resp.status_code == 200
-                if not ok:
-                    # The upstream responded but with an error. Trip the breaker on
-                    # provider failures (5xx/429); a 4xx is the client's mistake.
-                    if is_upstream_failure(resp.status_code):
-                        breaker.record_failure()
-                    else:
-                        breaker.record_success()
-                    yield await resp.aread()
-                    return
-                breaker.record_success()
-                async for chunk in resp.aiter_bytes():
-                    buffer.extend(chunk)
-                    yield chunk
+            ) as resp,
+        ):
+            ok = resp.status_code == 200
+            if not ok:
+                # The upstream responded but with an error. Trip the breaker on
+                # provider failures (5xx/429); a 4xx is the client's mistake.
+                if is_upstream_failure(resp.status_code):
+                    breaker.record_failure()
+                else:
+                    breaker.record_success()
+                yield await resp.aread()
+                return
+            breaker.record_success()
+            async for chunk in resp.aiter_bytes():
+                buffer.extend(chunk)
+                yield chunk
     except httpx.RequestError as exc:
         # OpenAI unreachable/slow: count it against the breaker and emit a clean
         # SSE error instead of a stack trace.
         breaker.record_failure()
-        logger.warning(
-            "upstream stream failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
-        )
+        logger.warning("upstream stream failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__})
         yield f'data: {{"error":{{"message":"upstream request failed: {exc.__class__.__name__}","type":"varsten_upstream_error"}}}}\n\n'.encode()
         yield b"data: [DONE]\n\n"
         return
 
     # Stream finished and the client has every byte. Best-effort bookkeeping.
     try:
-        assembled = openai.assemble_stream(
-            openai.parse_sse_events(buffer.decode("utf-8", errors="replace"))
-        )
+        assembled = openai.assemble_stream(openai.parse_sse_events(buffer.decode("utf-8", errors="replace")))
         in_tok, out_tok, cached_tok = openai.usage_tokens(assembled["usage"])
         out_model = assembled["model"] or model
         payload = (
@@ -340,8 +374,22 @@ async def _stream_through(
 
 
 async def _forward_once(
-    db, project, api_key_id, client_key, body, model, cache_key, breaker, embedding, store_cache, headers,
-    upstream_model=None, routed_from=None, arm=None, exp_from=None, exp_to=None,
+    db,
+    project,
+    api_key_id,
+    client_key,
+    body,
+    model,
+    cache_key,
+    breaker,
+    embedding,
+    store_cache,
+    headers,
+    upstream_model=None,
+    routed_from=None,
+    arm=None,
+    exp_from=None,
+    exp_to=None,
 ) -> JSONResponse:
     try:
         async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
@@ -357,7 +405,12 @@ async def _forward_once(
             "upstream request failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
         )
         return JSONResponse(
-            {"error": {"message": f"upstream request failed: {exc.__class__.__name__}", "type": "varsten_upstream_error"}},
+            {
+                "error": {
+                    "message": f"upstream request failed: {exc.__class__.__name__}",
+                    "type": "varsten_upstream_error",
+                }
+            },
             status_code=status.HTTP_502_BAD_GATEWAY,
             headers=headers,
         )

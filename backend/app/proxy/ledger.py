@@ -5,8 +5,9 @@ prompt or completion text reaches the ledger. On a cache hit the actual cost is
 $0 (OpenAI was bypassed); the retail cost that was avoided is recorded as
 metadata so the dashboard can show Naive Retail vs Varsten Optimized.
 """
+
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -33,7 +34,7 @@ def record_proxy_usage(
     latency_ms: int | None = None,
     now: datetime | None = None,
 ) -> UsageEvent:
-    at = now or datetime.now(timezone.utc)
+    at = now or datetime.now(UTC)
     # Cost of these tokens at catalog price for the model actually used.
     used_cost, cost_source, pricing_status, price_version_id = price_usage_event(
         db,
@@ -71,7 +72,7 @@ def record_proxy_usage(
             reported_cost_usd=None,
             at=at,
         )
-        cost_usd = used_cost
+        cost_usd = used_cost or Decimal("0")
         saved = (naive_cost - used_cost) if (naive_cost is not None and used_cost is not None) else None
         metadata = {
             "proxy": True,
@@ -83,7 +84,7 @@ def record_proxy_usage(
             "saved_usd": str(saved) if saved is not None else None,
         }
     else:
-        cost_usd = used_cost
+        cost_usd = used_cost or Decimal("0")
         metadata = {"proxy": True, "cache": "miss"}
 
     # Live holdback A/B tags. The control arm carries no savings (it is the
@@ -147,12 +148,8 @@ def record_batch_usage(
     is the synchronous price for the same tokens, and the difference is measured
     savings (no holdback needed -- batch pricing is a contractual discount on
     identical tokens). Metadata only; the .jsonl never reaches the ledger."""
-    at = now or datetime.now(timezone.utc)
-    saved = (
-        naive_cost_usd - actual_cost_usd
-        if (naive_cost_usd is not None and actual_cost_usd is not None)
-        else None
-    )
+    at = now or datetime.now(UTC)
+    saved = naive_cost_usd - actual_cost_usd if (naive_cost_usd is not None and actual_cost_usd is not None) else None
     metadata = {
         "proxy": True,
         "batch": True,

@@ -7,6 +7,7 @@ measured savings (batch pricing vs the synchronous price for the same tokens).
 Content (the .jsonl) never lands here; it lives in object storage and is TTL'd.
 This table holds metadata and the provider's file/batch ids only.
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -50,9 +51,7 @@ class BatchJob(Base, TimestampMixin):
         Index("ix_batch_jobs_status", "status"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )

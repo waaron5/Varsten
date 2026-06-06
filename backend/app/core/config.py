@@ -1,3 +1,5 @@
+from tempfile import gettempdir
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,8 +16,7 @@ class Settings(BaseSettings):
     # Source for the price sync loader. A maintained public dataset, overridable
     # via env so prices are never literals in code. Defaults to the LiteLLM feed.
     pricing_feed_url: str = (
-        "https://raw.githubusercontent.com/BerriAI/litellm/main/"
-        "model_prices_and_context_window.json"
+        "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
     )
     # How long a project's recommendations are served from storage before a read
     # triggers a recompute. Keeps the month-scan off the hot read path; lower for
@@ -97,7 +98,7 @@ class Settings(BaseSettings):
     # storage via a pre-signed URL, and the backend streams it to OpenAI.
     batch_storage_backend: str = "local"
     # Local backend root (dev/CI). One subtree per project for tenant isolation.
-    batch_local_storage_dir: str = "/tmp/varsten-batches"
+    batch_local_storage_dir: str = f"{gettempdir()}/varsten-batches"
     # S3 backend settings (only read when batch_storage_backend == "s3"). Region
     # and credentials come from the standard AWS env/instance role, not from here.
     batch_s3_bucket: str = ""

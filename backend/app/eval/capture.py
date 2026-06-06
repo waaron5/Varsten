@@ -9,9 +9,10 @@ Called from the proxy's post-response best-effort path. It must never raise into
 the request: a capture failure is logged and dropped, never surfaced to the
 client.
 """
+
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -69,14 +70,15 @@ def capture_sample(
     per-route cap by evicting the oldest traffic samples."""
     if not capture_enabled(project):
         return
-    if random.random() >= settings.eval_sample_rate:
+    # Statistical sampling, not security-sensitive randomness.
+    if random.random() >= settings.eval_sample_rate:  # nosec B311
         return
     messages = body.get("messages")
     if not messages or not response_payload:
         return
 
     try:
-        at = now or datetime.now(timezone.utc)
+        at = now or datetime.now(UTC)
         params = {k: body[k] for k in _PARAM_FIELDS if k in body}
         route_key = _route_key(model)
         sample = ReplaySample(
@@ -117,11 +119,16 @@ def _enforce_route_cap(db: Session, project_id: uuid.UUID, route_key: str) -> No
     if count is None or count <= cap:
         return
     # Ids of the newest `cap` to keep; delete the rest.
-    keep = select(ReplaySample.id).where(
-        ReplaySample.project_id == project_id,
-        ReplaySample.route_key == route_key,
-        ReplaySample.source == SOURCE_TRAFFIC,
-    ).order_by(ReplaySample.created_at.desc()).limit(cap)
+    keep = (
+        select(ReplaySample.id)
+        .where(
+            ReplaySample.project_id == project_id,
+            ReplaySample.route_key == route_key,
+            ReplaySample.source == SOURCE_TRAFFIC,
+        )
+        .order_by(ReplaySample.created_at.desc())
+        .limit(cap)
+    )
     db.execute(
         delete(ReplaySample).where(
             ReplaySample.project_id == project_id,
@@ -136,7 +143,7 @@ def _enforce_route_cap(db: Session, project_id: uuid.UUID, route_key: str) -> No
 def purge_expired(db: Session, now: datetime | None = None) -> int:
     """Delete traffic samples past their TTL. Golden samples have expires_at NULL
     and are untouched. Returns the number removed. Call from a periodic job."""
-    at = now or datetime.now(timezone.utc)
+    at = now or datetime.now(UTC)
     result = db.execute(
         delete(ReplaySample).where(
             ReplaySample.expires_at.is_not(None),

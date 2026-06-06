@@ -14,9 +14,10 @@ Lifecycle (all off the request hot path):
 The proxy never holds the file in memory beyond the single streamed hop to
 OpenAI; content lives in object storage and is TTL'd.
 """
+
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -74,7 +75,7 @@ def stage_input_job(
 ) -> BatchJob:
     """Create a job awaiting the client's upload. The caller hands back the
     pre-signed upload URL for its storage key."""
-    at = now or datetime.now(timezone.utc)
+    at = now or datetime.now(UTC)
     job = BatchJob(
         organization_id=project.organization_id,
         project_id=project.id,
@@ -101,13 +102,11 @@ async def submit_job(db: Session, job: BatchJob, client_key: str) -> BatchJob:
     content = storage.read(job.input_storage_key)
 
     file_id = await openai_batch.upload_input_file(content, "batch_input.jsonl", client_key)
-    batch = await openai_batch.create_batch(
-        file_id, job.endpoint, job.completion_window, client_key
-    )
+    batch = await openai_batch.create_batch(file_id, job.endpoint, job.completion_window, client_key)
     job.provider_input_file_id = file_id
     job.provider_batch_id = batch.get("id")
     job.status = _STATUS_MAP.get(batch.get("status", ""), STATUS_SUBMITTED)
-    job.submitted_at = datetime.now(timezone.utc)
+    job.submitted_at = datetime.now(UTC)
     db.commit()
     db.refresh(job)
     return job
@@ -136,7 +135,7 @@ async def sync_job(db: Session, job: BatchJob, client_key: str, *, now: datetime
 
 async def finalize_job(db: Session, job: BatchJob, client_key: str, *, now: datetime | None = None) -> BatchJob:
     """Download and stage the output, measure savings, write the ledger, mark done."""
-    at = now or datetime.now(timezone.utc)
+    at = now or datetime.now(UTC)
     output = await openai_batch.download_file(job.provider_output_file_id, client_key)
     storage = get_storage()
     out_key = _output_key(job.project_id, job.id)
@@ -164,11 +163,7 @@ async def poll_all_projects(db: Session, *, now: datetime | None = None) -> dict
     map of project_id -> number of jobs synced."""
     from app.proxy.keys import openai_key_for_project
 
-    project_ids = list(
-        db.scalars(
-            select(BatchJob.project_id).where(BatchJob.status.in_(ACTIVE_STATUSES)).distinct()
-        )
-    )
+    project_ids = list(db.scalars(select(BatchJob.project_id).where(BatchJob.status.in_(ACTIVE_STATUSES)).distinct()))
     out: dict[str, int] = {}
     for pid in project_ids:
         project = db.get(Project, pid)
@@ -182,7 +177,9 @@ async def poll_all_projects(db: Session, *, now: datetime | None = None) -> dict
     return out
 
 
-async def sync_active_jobs(db: Session, project: Project, client_key: str, *, now: datetime | None = None) -> list[BatchJob]:
+async def sync_active_jobs(
+    db: Session, project: Project, client_key: str, *, now: datetime | None = None
+) -> list[BatchJob]:
     """Sweep this project's non-terminal jobs. The production trigger is a
     scheduled poller; exposed as an endpoint so a cron (or the operator) drives it."""
     jobs = list(
@@ -260,24 +257,28 @@ def _measure_and_record(db: Session, project: Project, job: BatchJob, output: by
         price = _latest_model_price(db, model, "openai", at)
         actual = naive = None
         if price is not None:
-            naive = (
-                in_tok * price.input_cost_per_token + out_tok * price.output_cost_per_token
-            ).quantize(_Q)
+            naive = (in_tok * price.input_cost_per_token + out_tok * price.output_cost_per_token).quantize(_Q)
             if price.input_cost_per_token_batch is not None and price.output_cost_per_token_batch is not None:
                 actual = (
-                    in_tok * price.input_cost_per_token_batch
-                    + out_tok * price.output_cost_per_token_batch
+                    in_tok * price.input_cost_per_token_batch + out_tok * price.output_cost_per_token_batch
                 ).quantize(_Q)
             else:
                 actual = naive  # no batch rate known: no measurable discount
-        if actual is not None:
+        if actual is not None and naive is not None:
             any_priced = True
             total_actual += actual
             total_naive += naive
         record_batch_usage(
-            db, project, job.api_key_id,
-            model=model, input_tokens=in_tok, output_tokens=out_tok,
-            actual_cost_usd=actual, naive_cost_usd=naive, request_count=count, now=at,
+            db,
+            project,
+            job.api_key_id,
+            model=model,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            actual_cost_usd=actual,
+            naive_cost_usd=naive,
+            request_count=count,
+            now=at,
         )
 
     saved = (total_naive - total_actual) if any_priced else None

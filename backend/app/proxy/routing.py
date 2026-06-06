@@ -11,9 +11,10 @@ when a recommendation is applied or dismissed. They read and write the unified
 `proxy_policies` table; this module owns the routing-lever (cheaper_model,
 smart_routing) view of it.
 """
+
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import NamedTuple
 
@@ -82,7 +83,8 @@ def assign_arm(holdback_percent: Decimal) -> str:
     """Randomly assign this request to the control (held back on the incumbent) or
     treatment (routed to the candidate) arm. Concurrent and per-request, so any
     app-level or price change lands on both arms and cancels."""
-    return ARM_CONTROL if random.random() < float(holdback_percent or 0) else ARM_TREATMENT
+    # Holdback assignment is statistical, not security-sensitive randomness.
+    return ARM_CONTROL if random.random() < float(holdback_percent or 0) else ARM_TREATMENT  # nosec B311
 
 
 def resolve_effective_model(db: Session, project_id: uuid.UUID, requested_model: str) -> str | None:
@@ -113,7 +115,7 @@ def activate_rule(
     lever = recommendation.lever if recommendation.lever in ROUTING_LEVERS else "cheaper_model"
     if not incumbent or not candidate_model or incumbent == candidate_model:
         return None
-    at = now or datetime.now(timezone.utc)
+    at = now or datetime.now(UTC)
     policy = db.scalar(
         select(ProxyPolicy).where(
             ProxyPolicy.project_id == project.id,
@@ -147,7 +149,5 @@ def deactivate_rules_for_recommendation(db: Session, recommendation: Recommendat
     """Turn off any policy sourced from this recommendation (e.g. on dismiss or
     rollback), returning that route to the incumbent model."""
     db.execute(
-        update(ProxyPolicy)
-        .where(ProxyPolicy.source_recommendation_id == recommendation.id)
-        .values(enabled=False)
+        update(ProxyPolicy).where(ProxyPolicy.source_recommendation_id == recommendation.id).values(enabled=False)
     )

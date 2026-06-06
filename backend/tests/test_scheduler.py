@@ -4,17 +4,16 @@ The per-project endpoints are tested elsewhere; here we cover the cross-project
 entry points the scheduler drives (drift sweep + batch poll) and the loop's
 start/stop and error-swallowing behaviour. OpenAI is mocked.
 """
+
 import asyncio
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import httpx
-import pytest
 
 from app.core.config import settings
-from app.models import ModelPrice, Project, ProxyPolicy, Recommendation
+from app.models import Project, ProxyPolicy, Recommendation
 from app.models.batch import STATUS_FINALIZED
 from app.proxy import batch as batch_service
 from app.proxy import drift as drift_mod
@@ -28,12 +27,22 @@ CANDIDATE = "gpt-4o-mini"
 
 # --- cross-project drift sweep --------------------------------------------------
 
+
 def _record_q(db, project, arm, model, ok):
     record_proxy_usage(
-        db, project, None, model=model, input_tokens=1000, output_tokens=500,
-        cached_input_tokens=0, cache_hit=False,
+        db,
+        project,
+        None,
+        model=model,
+        input_tokens=1000,
+        output_tokens=500,
+        cached_input_tokens=0,
+        cache_hit=False,
         naive_model=INCUMBENT if arm == "treatment" else None,
-        arm=arm, experiment_from=INCUMBENT, experiment_to=CANDIDATE, quality_ok=ok,
+        arm=arm,
+        experiment_from=INCUMBENT,
+        experiment_to=CANDIDATE,
+        quality_ok=ok,
     )
 
 
@@ -42,17 +51,29 @@ def test_sweep_all_projects_rolls_back_drift(client, provision, db_session, monk
     ws = provision(sub="auth0|sched", email="sched@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
     rec = Recommendation(
-        organization_id=project.organization_id, project_id=project.id,
-        dedupe_key=f"s-{uuid.uuid4()}", type="cheaper_model", lever="cheaper_model",
-        title="x", description="x", risk_level="medium", confidence="medium",
-        related_model=INCUMBENT, monthly_request_volume=100,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        dedupe_key=f"s-{uuid.uuid4()}",
+        type="cheaper_model",
+        lever="cheaper_model",
+        title="x",
+        description="x",
+        risk_level="medium",
+        confidence="medium",
+        related_model=INCUMBENT,
+        monthly_request_volume=100,
     )
     db_session.add(rec)
     policy = ProxyPolicy(
-        organization_id=project.organization_id, project_id=project.id,
-        lever="cheaper_model", target_type="model", target_key=INCUMBENT,
-        params={"candidate_model": CANDIDATE}, enabled=True,
-        holdback_percent=Decimal("0.1"), source_recommendation_id=rec.id,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        lever="cheaper_model",
+        target_type="model",
+        target_key=INCUMBENT,
+        params={"candidate_model": CANDIDATE},
+        enabled=True,
+        holdback_percent=Decimal("0.1"),
+        source_recommendation_id=rec.id,
     )
     db_session.add(policy)
     db_session.commit()
@@ -71,20 +92,35 @@ def test_sweep_all_projects_rolls_back_drift(client, provision, db_session, monk
 
 # --- cross-project batch poll ---------------------------------------------------
 
+
 def _mock_batch(monkeypatch, model=CANDIDATE):
-    output = "\n".join(json.dumps({
-        "custom_id": c, "response": {"status_code": 200, "body": {
-            "model": model, "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}}})
-        for c in ("a", "b")).encode()
+    output = "\n".join(
+        json.dumps(
+            {
+                "custom_id": c,
+                "response": {
+                    "status_code": 200,
+                    "body": {"model": model, "usage": {"prompt_tokens": 1000, "completion_tokens": 500}},
+                },
+            }
+        )
+        for c in ("a", "b")
+    ).encode()
 
     def handler(request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
         if "/content" in path:
             return httpx.Response(200, content=output)
         if path.startswith("/v1/batches/") and method == "GET":
-            return httpx.Response(200, json={
-                "id": "batch-1", "status": "completed",
-                "output_file_id": "file-out", "request_counts": {"total": 2}})
+            return httpx.Response(
+                200,
+                json={
+                    "id": "batch-1",
+                    "status": "completed",
+                    "output_file_id": "file-out",
+                    "request_counts": {"total": 2},
+                },
+            )
         return httpx.Response(404)
 
     real = httpx.AsyncClient
@@ -113,6 +149,7 @@ def test_poll_all_projects_finalizes_jobs(tmp_path, client, provision, db_sessio
 
 
 # --- loop lifecycle -------------------------------------------------------------
+
 
 def test_scheduler_start_stop_lifecycle():
     async def run():

@@ -14,6 +14,7 @@ path. Two backends behind one interface:
 A key is always tenant-scoped (``<project_id>/...``) so one tenant can never read
 another's staged content.
 """
+
 from __future__ import annotations
 
 import shutil

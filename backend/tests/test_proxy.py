@@ -1,8 +1,10 @@
 """Phase 1 inline proxy: auth, key vaulting, streaming pass-through, cache
 hit/miss, and metadata-only ledger capture. OpenAI is mocked via an httpx
 MockTransport so no real key or network is needed."""
+
 import json
 import time
+from typing import Any
 
 import httpx
 import pytest
@@ -21,15 +23,14 @@ def reset_circuit():
     yield
     circuit.reset_all()
 
+
 CHAT = "gpt-4o-mini"
 
 NONSTREAM_RESPONSE = {
     "id": "chatcmpl-mock",
     "object": "chat.completion",
     "model": CHAT,
-    "choices": [
-        {"index": 0, "message": {"role": "assistant", "content": "Hello world"}, "finish_reason": "stop"}
-    ],
+    "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello world"}, "finish_reason": "stop"}],
     "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
 }
 
@@ -78,9 +79,7 @@ def mock_openai(monkeypatch):
         calls["completions"] += 1
         payload = json.loads(request.content)
         if payload.get("stream"):
-            return httpx.Response(
-                200, content=STREAM_BODY.encode(), headers={"content-type": "text/event-stream"}
-            )
+            return httpx.Response(200, content=STREAM_BODY.encode(), headers={"content-type": "text/event-stream"})
         return httpx.Response(200, json=NONSTREAM_RESPONSE)
 
     real_async_client = httpx.AsyncClient
@@ -97,7 +96,7 @@ def controllable_openai(monkeypatch):
     """A mock upstream whose completion behavior can be flipped mid-test:
     ok | fail_503 | fail_400 | raise. Embeddings always succeed. Counts
     completions so tests can assert short-circuiting."""
-    state = {"completions": 0, "embeddings": 0, "mode": "ok"}
+    state: dict[str, Any] = {"completions": 0, "embeddings": 0, "mode": "ok"}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/embeddings"):
@@ -112,9 +111,7 @@ def controllable_openai(monkeypatch):
             return httpx.Response(400, json={"error": "bad request"})
         payload = json.loads(request.content)
         if payload.get("stream"):
-            return httpx.Response(
-                200, content=STREAM_BODY.encode(), headers={"content-type": "text/event-stream"}
-            )
+            return httpx.Response(200, content=STREAM_BODY.encode(), headers={"content-type": "text/event-stream"})
         return httpx.Response(200, json=NONSTREAM_RESPONSE)
 
     real_async_client = httpx.AsyncClient
@@ -162,17 +159,13 @@ def test_nonstream_miss_forwards_and_records(client, db_session, provision, mock
     assert res.json()["choices"][0]["message"]["content"] == "Hello world"
     assert mock_openai["completions"] == 1
 
-    events = db_session.scalars(
-        select(UsageEvent).where(UsageEvent.project_id == ws["project_id"])
-    ).all()
+    events = db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"])).all()
     assert len(events) == 1
     assert events[0].event_metadata["cache"] == "miss"
     assert events[0].input_tokens == 10 and events[0].output_tokens == 2
     # The miss was cached.
     cached = db_session.scalar(
-        select(func.count()).select_from(ProxyCacheEntry).where(
-            ProxyCacheEntry.project_id == ws["project_id"]
-        )
+        select(func.count()).select_from(ProxyCacheEntry).where(ProxyCacheEntry.project_id == ws["project_id"])
     )
     assert cached == 1
 
@@ -188,9 +181,7 @@ def test_streaming_miss_passes_through_and_records(client, db_session, provision
     assert "Hello" in res.text and "[DONE]" in res.text
     assert mock_openai["completions"] == 1
 
-    events = db_session.scalars(
-        select(UsageEvent).where(UsageEvent.project_id == ws["project_id"])
-    ).all()
+    events = db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"])).all()
     assert len(events) == 1
     assert events[0].output_tokens == 2
 
@@ -212,9 +203,7 @@ def test_cache_hit_served_without_upstream(client, db_session, provision, mock_o
 
     # Two ledger rows: one miss (real cost) and one hit ($0, naive cost recorded).
     events = db_session.scalars(
-        select(UsageEvent)
-        .where(UsageEvent.project_id == ws["project_id"])
-        .order_by(UsageEvent.received_at.asc())
+        select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]).order_by(UsageEvent.received_at.asc())
     ).all()
     assert len(events) == 2
     sources = {e.event_metadata["cache"] for e in events}
@@ -237,9 +226,7 @@ def test_global_kill_switch_bypasses_optimization(client, db_session, provision,
     # Both forwarded: no cache serve, no cache store.
     assert mock_openai["completions"] == 2
     cached = db_session.scalar(
-        select(func.count()).select_from(ProxyCacheEntry).where(
-            ProxyCacheEntry.project_id == ws["project_id"]
-        )
+        select(func.count()).select_from(ProxyCacheEntry).where(ProxyCacheEntry.project_id == ws["project_id"])
     )
     assert cached == 0
 
@@ -262,6 +249,7 @@ def test_per_project_kill_switch_via_toggle(client, db_session, provision, mock_
     second = client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
 
     assert first.headers["x-varsten-mode"] == "bypass"
+    assert second.headers["x-varsten-mode"] == "bypass"
     assert mock_openai["completions"] == 2  # bypassed, never served from cache
 
 
@@ -270,14 +258,17 @@ def test_toggle_is_tenant_scoped(client, provision):
     provision(sub="auth0|b", email="b@example.com")
 
     # Unauthenticated and cross-tenant are both refused.
-    assert client.patch(
-        f"/v1/projects/{ws['project_id']}/proxy-config", json={"bypass_enabled": True}
-    ).status_code == 401
-    assert client.patch(
-        f"/v1/projects/{ws['project_id']}/proxy-config",
-        headers=_b("auth0|b"),
-        json={"bypass_enabled": True},
-    ).status_code == 403
+    assert (
+        client.patch(f"/v1/projects/{ws['project_id']}/proxy-config", json={"bypass_enabled": True}).status_code == 401
+    )
+    assert (
+        client.patch(
+            f"/v1/projects/{ws['project_id']}/proxy-config",
+            headers=_b("auth0|b"),
+            json={"bypass_enabled": True},
+        ).status_code
+        == 403
+    )
 
 
 def test_fail_open_when_cache_lookup_breaks(client, provision, mock_openai, monkeypatch, caplog):
@@ -387,17 +378,13 @@ def test_semantic_hit_on_near_duplicate(client, db_session, provision, mock_open
     hdr = _b(ws["api_key"])
 
     # First phrasing: a miss, forwarded, embedded, and cached.
-    first = client.post(
-        "/v1/chat/completions", headers=hdr, json=_msg("what is the weather today?")
-    )
+    first = client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather today?"))
     assert first.status_code == 200
     assert first.headers["x-varsten-cache"] == "miss"
 
     # Different wording, same meaning (same embedding keyword) -> semantic hit, no
     # second upstream completion.
-    second = client.post(
-        "/v1/chat/completions", headers=hdr, json=_msg("tell me about the weather please")
-    )
+    second = client.post("/v1/chat/completions", headers=hdr, json=_msg("tell me about the weather please"))
     assert second.status_code == 200
     assert second.headers["x-varsten-cache"] == "semantic"
     assert second.json()["choices"][0]["message"]["content"] == "Hello world"

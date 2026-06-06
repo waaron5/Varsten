@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, Query, status
@@ -56,7 +56,7 @@ def _api_key_context(token: str, db: Session) -> ApiKeyContext:
             headers=_UNAUTHENTICATED,
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if api_key.last_used_at is None or now - api_key.last_used_at > LAST_USED_REFRESH:
         api_key.last_used_at = now
         db.commit()
@@ -111,13 +111,13 @@ def _claims_from_token(token: str) -> dict:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="auth is not configured",
-        )
+        ) from None
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid token",
             headers=_UNAUTHENTICATED,
-        )
+        ) from None
 
 
 def get_token_claims(
@@ -186,9 +186,7 @@ def resolve_project(
         )
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
     _assert_member(user, project.organization_id, db)
     return project
 
@@ -207,9 +205,7 @@ def require_org_member(
     """The organization in the path, authorized by membership."""
     org = db.get(Organization, organization_id)
     if org is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="organization not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
     _assert_member(user, organization_id, db)
     return org
 
@@ -222,9 +218,7 @@ def require_project_member(
     """The project in the path, authorized through its organization."""
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="project not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project not found")
     _assert_member(user, project.organization_id, db)
     return project
 
@@ -237,13 +231,9 @@ def require_api_key_member(
     """The API key in the path, authorized through its project's organization."""
     api_key = db.get(ApiKey, api_key_id)
     if api_key is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="api key not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
     project = db.get(Project, api_key.project_id)
     if project is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="api key not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
     _assert_member(user, project.organization_id, db)
     return api_key

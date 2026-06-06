@@ -10,9 +10,10 @@
 None of this touches the proxy hot path. The evaluate endpoint makes model calls,
 but only inside the background worker, never inside a proxied request.
 """
+
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -132,13 +133,7 @@ def list_eval_runs(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> list[EvalRun]:
-    return list(
-        db.scalars(
-            select(EvalRun)
-            .where(EvalRun.project_id == project.id)
-            .order_by(EvalRun.created_at.desc())
-        )
-    )
+    return list(db.scalars(select(EvalRun).where(EvalRun.project_id == project.id).order_by(EvalRun.created_at.desc())))
 
 
 @router.post("/evals/golden", response_model=dict)
@@ -209,7 +204,7 @@ def update_capture_config(
     """Customer opt-in toggle for sampling real traffic into the replay corpus.
     Off by default; this is the consent gate for the content store."""
     project.eval_capture_enabled = payload.eval_capture_enabled
-    project.updated_at = datetime.now(timezone.utc)
+    project.updated_at = datetime.now(UTC)
     db.commit()
     return {"eval_capture_enabled": project.eval_capture_enabled}
 
@@ -234,5 +229,5 @@ def get_eval_run(
         )
     )
     detail = EvalRunDetail.model_validate(run)
-    detail.results = results  # type: ignore[assignment]
+    detail.results = results
     return detail

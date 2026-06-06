@@ -15,6 +15,7 @@ Signals (all conservative -- default to keeping the incumbent when unsure):
 The same predicate filters the off-path eval's replay corpus, so the candidate is
 proven on exactly the subset it will actually serve.
 """
+
 from typing import Any
 
 # Conservative defaults. Tunable per policy via params["predicate"].

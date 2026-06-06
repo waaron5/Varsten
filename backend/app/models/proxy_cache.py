@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -11,7 +12,6 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,13 +30,9 @@ class ProxyCacheEntry(Base):
     """
 
     __tablename__ = "proxy_cache_entries"
-    __table_args__ = (
-        UniqueConstraint("project_id", "cache_key", name="uq_proxy_cache_project_key"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "cache_key", name="uq_proxy_cache_project_key"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -46,18 +42,12 @@ class ProxyCacheEntry(Base):
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     # Prompt embedding for semantic matching. Nullable: an entry stored when the
     # embedding call failed still serves exact-hash hits, just not semantic ones.
-    embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(settings.embedding_dimensions), nullable=True
-    )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dimensions), nullable=True)
     # The assembled OpenAI response, served verbatim on a hit.
     response_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     # Token counts of the cached completion, so a hit can record the avoided cost.
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     hit_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
-    )
-    last_hit_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,10 +1,9 @@
 import calendar
 from dataclasses import dataclass
-
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import or_, func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -72,7 +71,7 @@ def _upsert(db: Session, project: Project, seed: RecommendationSeed) -> None:
         existing.related_feature = seed.related_feature
         existing.related_customer_id = seed.related_customer_id
         existing.related_environment = seed.related_environment
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(UTC)
         return
 
     db.add(
@@ -229,9 +228,7 @@ def _add_token_trim_recommendation(
         return
 
 
-def _add_prompt_cache_recommendation(
-    db: Session, project: Project, start: datetime, now: datetime
-) -> None:
+def _add_prompt_cache_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
     """Prompt caching from real token data. A route that repeatedly sends a large
     input prompt at a low cache hit rate is paying full input price for tokens a
     provider prompt cache would bill at the cheaper cache-read rate. Savings use
@@ -305,9 +302,7 @@ def _add_prompt_cache_recommendation(
         return
 
 
-def _add_semantic_cache_recommendation(
-    db: Session, project: Project, start: datetime, now: datetime
-) -> None:
+def _add_semantic_cache_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
     cache_key = UsageEvent.event_metadata["semantic_cache_key"].astext
     rows = db.execute(
         select(
@@ -353,9 +348,7 @@ def _add_semantic_cache_recommendation(
     )
 
 
-def _add_batching_recommendation(
-    db: Session, project: Project, start: datetime, now: datetime
-) -> None:
+def _add_batching_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
     batchable = UsageEvent.event_metadata["batchable"].astext.in_(("true", "1", "yes"))
     rows = db.execute(
         select(
@@ -390,11 +383,7 @@ def _add_batching_recommendation(
     )
     for row in rows:
         price = _latest_price(db, row.model, row.provider)
-        if (
-            price is None
-            or price.input_cost_per_token_batch is None
-            or price.output_cost_per_token_batch is None
-        ):
+        if price is None or price.input_cost_per_token_batch is None or price.output_cost_per_token_batch is None:
             continue
         current = _priced_cost(price, int(row.input_tokens or 0), int(row.output_tokens or 0))
         batched = _priced_cost(
@@ -431,9 +420,7 @@ def _add_batching_recommendation(
         return
 
 
-def _add_cheaper_model_recommendation(
-    db: Session, project: Project, start: datetime, now: datetime
-) -> None:
+def _add_cheaper_model_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
     rows = db.execute(
         select(
             UsageEvent.provider,
@@ -489,9 +476,7 @@ def _add_cheaper_model_recommendation(
         return
 
 
-def _add_smart_routing_recommendation(
-    db: Session, project: Project, start: datetime, now: datetime
-) -> None:
+def _add_smart_routing_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
     rows = list(
         db.execute(
             select(
@@ -556,7 +541,7 @@ def _add_smart_routing_recommendation(
 
 
 def refresh_recommendations(db: Session, project: Project) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     cost = UsageEvent.cost_usd
 
@@ -673,9 +658,7 @@ def refresh_recommendations(db: Session, project: Project) -> None:
     _add_smart_routing_recommendation(db, project, start, now)
 
 
-def ensure_recommendations_fresh(
-    db: Session, project: Project, now: datetime | None = None
-) -> bool:
+def ensure_recommendations_fresh(db: Session, project: Project, now: datetime | None = None) -> bool:
     """Recompute recommendations only when the stored set is stale, so a read
     endpoint serves existing rows instead of scanning a month of usage on every
     request. Returns True if a recompute happened.
@@ -685,7 +668,7 @@ def ensure_recommendations_fresh(
     may both recompute; the upserts are idempotent, so the cost is a little
     duplicate work, never duplicate or corrupt recommendations.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     max_age = timedelta(seconds=settings.recommendations_max_age_seconds)
     last = project.recommendations_refreshed_at
     if last is not None and now - last < max_age:

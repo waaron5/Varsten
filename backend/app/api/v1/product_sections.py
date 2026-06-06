@@ -1,6 +1,6 @@
-import uuid
 import secrets
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -11,6 +11,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
+from app.eval.gate import (
+    EvalGateError,
+    apply_measured_savings,
+    assert_appliable,
+    is_gated,
+    latest_run,
+)
 from app.models import (
     ROUTING_LEVERS,
     AlertRule,
@@ -31,16 +38,9 @@ from app.models import (
     UsageEvent,
     User,
 )
-from app.eval.gate import (
-    EvalGateError,
-    apply_measured_savings,
-    assert_appliable,
-    is_gated,
-    latest_run,
-)
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
-from app.proxy.experiment import compute_experiment
 from app.proxy.execution import activate_execution, deactivate_execution
+from app.proxy.experiment import compute_experiment
 from app.proxy.trim import LEVER as TRIM_LEVER
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
@@ -119,10 +119,7 @@ def _json_decimal(value: Decimal | None) -> str | None:
 
 def _ensure_lever_configs(db: Session, project: Project) -> list[LeverConfig]:
     existing = {
-        config.lever: config
-        for config in db.scalars(
-            select(LeverConfig).where(LeverConfig.project_id == project.id)
-        )
+        config.lever: config for config in db.scalars(select(LeverConfig).where(LeverConfig.project_id == project.id))
     }
     changed = False
     for lever, default_mode in LEVERS:
@@ -139,11 +136,7 @@ def _ensure_lever_configs(db: Session, project: Project) -> list[LeverConfig]:
     if changed:
         db.commit()
     return list(
-        db.scalars(
-            select(LeverConfig)
-            .where(LeverConfig.project_id == project.id)
-            .order_by(LeverConfig.lever.asc())
-        )
+        db.scalars(select(LeverConfig).where(LeverConfig.project_id == project.id).order_by(LeverConfig.lever.asc()))
     )
 
 
@@ -162,7 +155,7 @@ def _refresh_open_recommendations(db: Session, project: Project) -> list[Recomme
 
 
 def _data_quality(db: Session, project: Project) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     row = db.execute(
         select(
@@ -327,7 +320,7 @@ def _monthly_report_payload(report: MonthlyReport) -> dict:
 
 
 def _report_snapshot(db: Session, project: Project) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     end = _next_month_start(start)
     quality = _data_quality(db, project)
@@ -395,10 +388,7 @@ def _report_snapshot(db: Session, project: Project) -> dict:
         "priced_event_count": quality["priced_event_count"],
         "unpriced_event_count": quality["unpriced_event_count"],
         "requests_month": quality["requests_month"],
-        "metadata_quality": {
-            key: _json_decimal(value)
-            for key, value in quality["metadata_quality"].items()
-        },
+        "metadata_quality": {key: _json_decimal(value) for key, value in quality["metadata_quality"].items()},
         "attribution_rows": attribution_rows,
         "top_recommendations": top_recommendations,
     }
@@ -421,7 +411,7 @@ def command_center(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     recommendations = _refresh_open_recommendations(db, project)
     quality = _data_quality(db, project)
@@ -488,7 +478,7 @@ def engine_update_recommendation(
     if recommendation is None or recommendation.project_id != project.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found")
     _assert_member(user, project, db)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if payload.status == "applied":
         # Medium-risk model-swap levers must clear a shadow eval before applying.
         # The gate raises if the route is unproven; a passing run lets us attribute
@@ -509,9 +499,7 @@ def engine_update_recommendation(
     if payload.status == "applied":
         # Applying writes the action, the derived savings attribution, and the
         # refreshed lever total in one place, so Proof reflects real applied cuts.
-        record_applied_savings(
-            db, project, recommendation, actor_user_id=user.id, source="user", now=now
-        )
+        record_applied_savings(db, project, recommendation, actor_user_id=user.id, source="user", now=now)
     elif payload.status != "open":
         db.add(
             RecommendationAction(
@@ -554,7 +542,7 @@ def engine_routes(
     holdback A/B: the control vs treatment arm costs and the rigorous measured
     savings with a confidence interval. The operational view that proves the
     engine is actually saving money, measured not modelled."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     rules = list(
         db.scalars(
@@ -567,44 +555,45 @@ def engine_routes(
             .order_by(ProxyPolicy.activated_at.desc().nullslast())
         )
     )
-    titles = {
-        rid: title
-        for rid, title in db.execute(
+    titles = dict(
+        db.execute(
             select(Recommendation.id, Recommendation.title).where(
                 Recommendation.id.in_([r.source_recommendation_id for r in rules if r.source_recommendation_id])
             )
         ).all()
-    }
+    )
 
     out = []
     for rule in rules:
         ab = compute_experiment(db, project.id, rule.incumbent_model, rule.candidate_model, start)
         drift = evaluate_drift(db, project.id, rule.incumbent_model, rule.candidate_model, start)
-        out.append({
-            "id": rule.id,
-            "lever": rule.lever,
-            "incumbent_model": rule.incumbent_model,
-            "candidate_model": rule.candidate_model,
-            "predicate": (rule.params or {}).get("predicate"),
-            "enabled": rule.enabled,
-            "holdback_percent": _route_str(rule.holdback_percent),
-            "activated_at": rule.activated_at,
-            "source_recommendation_id": rule.source_recommendation_id,
-            "source_title": titles.get(rule.source_recommendation_id),
-            "control_requests": ab["control_requests"],
-            "treatment_requests": ab["treatment_requests"],
-            "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
-            "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
-            "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
-            "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
-            "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
-            "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
-            "has_signal": ab["has_signal"],
-            "control_ok_rate": drift["control_ok_rate"],
-            "treatment_ok_rate": drift["treatment_ok_rate"],
-            "quality_drop": drift["quality_drop"],
-            "drifted": drift["drifted"],
-        })
+        out.append(
+            {
+                "id": rule.id,
+                "lever": rule.lever,
+                "incumbent_model": rule.incumbent_model,
+                "candidate_model": rule.candidate_model,
+                "predicate": (rule.params or {}).get("predicate"),
+                "enabled": rule.enabled,
+                "holdback_percent": _route_str(rule.holdback_percent),
+                "activated_at": rule.activated_at,
+                "source_recommendation_id": rule.source_recommendation_id,
+                "source_title": titles.get(rule.source_recommendation_id),
+                "control_requests": ab["control_requests"],
+                "treatment_requests": ab["treatment_requests"],
+                "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
+                "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
+                "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
+                "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
+                "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
+                "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
+                "has_signal": ab["has_signal"],
+                "control_ok_rate": drift["control_ok_rate"],
+                "treatment_ok_rate": drift["treatment_ok_rate"],
+                "quality_drop": drift["quality_drop"],
+                "drifted": drift["drifted"],
+            }
+        )
     return out
 
 
@@ -617,7 +606,7 @@ def engine_trims(
     holdback A/B. Trim is a same-model experiment (the treatment arm sends a
     trimmed body, so it bills fewer input tokens), so the measured savings is the
     arm cost-per-request difference, like routing."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     policies = list(
         db.scalars(
@@ -630,42 +619,43 @@ def engine_trims(
             .order_by(ProxyPolicy.activated_at.desc().nullslast())
         )
     )
-    titles = {
-        rid: title
-        for rid, title in db.execute(
+    titles = dict(
+        db.execute(
             select(Recommendation.id, Recommendation.title).where(
                 Recommendation.id.in_([p.source_recommendation_id for p in policies if p.source_recommendation_id])
             )
         ).all()
-    }
+    )
 
     out = []
     for policy in policies:
         model = policy.target_key
         ab = compute_experiment(db, project.id, model, model, start)
         drift = evaluate_drift(db, project.id, model, model, start)
-        out.append({
-            "id": policy.id,
-            "model": model,
-            "enabled": policy.enabled,
-            "holdback_percent": _route_str(policy.holdback_percent),
-            "activated_at": policy.activated_at,
-            "source_recommendation_id": policy.source_recommendation_id,
-            "source_title": titles.get(policy.source_recommendation_id),
-            "control_requests": ab["control_requests"],
-            "treatment_requests": ab["treatment_requests"],
-            "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
-            "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
-            "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
-            "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
-            "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
-            "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
-            "has_signal": ab["has_signal"],
-            "control_ok_rate": drift["control_ok_rate"],
-            "treatment_ok_rate": drift["treatment_ok_rate"],
-            "quality_drop": drift["quality_drop"],
-            "drifted": drift["drifted"],
-        })
+        out.append(
+            {
+                "id": policy.id,
+                "model": model,
+                "enabled": policy.enabled,
+                "holdback_percent": _route_str(policy.holdback_percent),
+                "activated_at": policy.activated_at,
+                "source_recommendation_id": policy.source_recommendation_id,
+                "source_title": titles.get(policy.source_recommendation_id),
+                "control_requests": ab["control_requests"],
+                "treatment_requests": ab["treatment_requests"],
+                "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
+                "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
+                "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
+                "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
+                "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
+                "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
+                "has_signal": ab["has_signal"],
+                "control_ok_rate": drift["control_ok_rate"],
+                "treatment_ok_rate": drift["treatment_ok_rate"],
+                "quality_drop": drift["quality_drop"],
+                "drifted": drift["drifted"],
+            }
+        )
     return out
 
 
@@ -677,7 +667,7 @@ def engine_check_drift(
     """Run the quality-drift safety sweep and auto-roll-back any drifted route. The
     production trigger is a scheduled job; exposed as an endpoint so a cron (or the
     operator) can drive it."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rolled = check_and_rollback_drift(db, project, _month_start(now), now=now)
     return {"rolled_back": rolled}
 
@@ -745,10 +735,7 @@ def engine_batches(
     client-facing submit/poll API is the API-key-authed /v1/batches; this is the
     session-authed read the Engine view uses."""
     jobs = db.scalars(
-        select(BatchJob)
-        .where(BatchJob.project_id == project.id)
-        .order_by(BatchJob.created_at.desc())
-        .limit(50)
+        select(BatchJob).where(BatchJob.project_id == project.id).order_by(BatchJob.created_at.desc()).limit(50)
     )
     return [
         {
@@ -778,16 +765,12 @@ def engine_update_lever(
     if lever not in VALID_LEVERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown lever")
     _ensure_lever_configs(db, project)
-    config = db.scalar(
-        select(LeverConfig).where(
-            LeverConfig.project_id == project.id, LeverConfig.lever == lever
-        )
-    )
+    config = db.scalar(select(LeverConfig).where(LeverConfig.project_id == project.id, LeverConfig.lever == lever))
     if config is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lever not found")
     if payload.enabled is not None:
         config.enabled = payload.enabled
-        config.paused_at = None if payload.enabled else datetime.now(timezone.utc)
+        config.paused_at = None if payload.enabled else datetime.now(UTC)
     if payload.automation_mode is not None:
         config.automation_mode = payload.automation_mode
     db.commit()
@@ -839,7 +822,7 @@ def create_report(
             MonthlyReport.period_end == snapshot["period_end"],
         )
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if report is None:
         report = MonthlyReport(
             organization_id=project.organization_id,
@@ -883,7 +866,7 @@ def update_report(
     if report is None or report.project_id != project.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report not found")
     report.status = payload.status
-    report.published_at = datetime.now(timezone.utc) if payload.status == "published" else None
+    report.published_at = datetime.now(UTC) if payload.status == "published" else None
     db.commit()
     db.refresh(report)
     return _monthly_report_payload(report)
@@ -1028,9 +1011,7 @@ def guardrails_alerts(
     return [
         _alert_rule_payload(rule)
         for rule in db.scalars(
-            select(AlertRule)
-            .where(AlertRule.project_id == project.id)
-            .order_by(AlertRule.created_at.desc())
+            select(AlertRule).where(AlertRule.project_id == project.id).order_by(AlertRule.created_at.desc())
         )
     ]
 
@@ -1189,17 +1170,9 @@ def admin_connections(
             .order_by(ProviderConnection.provider.asc())
         )
     )
-    keys = list(
-        db.scalars(
-            select(ApiKey)
-            .where(ApiKey.project_id == project.id)
-            .order_by(ApiKey.created_at.desc())
-        )
-    )
+    keys = list(db.scalars(select(ApiKey).where(ApiKey.project_id == project.id).order_by(ApiKey.created_at.desc())))
     return {
-        "provider_connections": [
-            _provider_connection_payload(connection) for connection in connections
-        ],
+        "provider_connections": [_provider_connection_payload(connection) for connection in connections],
         "api_keys": [_api_key_payload(api_key) for api_key in keys],
     }
 

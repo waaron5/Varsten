@@ -3,7 +3,8 @@
 resolve_price/price_usage_event run against local Postgres (rolled back per test);
 compute_cost is pure.
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.models import ModelPrice, Organization, OrgModelPriceOverride
@@ -14,16 +15,14 @@ from app.pricing import (
     resolve_price,
 )
 
-NOW = datetime(2026, 6, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 1, tzinfo=UTC)
 
 
 def _price(**rate) -> ResolvedPrice:
     return ResolvedPrice(
         input_cost_per_token=Decimal(rate.get("input", "0.000001")),
         output_cost_per_token=Decimal(rate.get("output", "0.000002")),
-        cache_read_input_token_cost=(
-            Decimal(rate["cache"]) if "cache" in rate else None
-        ),
+        cache_read_input_token_cost=(Decimal(rate["cache"]) if "cache" in rate else None),
         source="catalog",
         price_version_id=None,
     )
@@ -105,9 +104,11 @@ def test_resolve_picks_latest_effective_at_before_event(db_session):
 
     # Between the two prices -> the older one is still in effect.
     older = resolve_price(db_session, org.id, "m", "openai", NOW - timedelta(days=7))
+    assert older is not None
     assert older.input_cost_per_token == Decimal("0.000001")
     # After both -> the newer one.
     newer = resolve_price(db_session, org.id, "m", "openai", NOW)
+    assert newer is not None
     assert newer.input_cost_per_token == Decimal("0.000003")
 
 

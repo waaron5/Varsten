@@ -21,6 +21,7 @@ One enabled policy per (project, lever, target_key). Disabling it (or the kill
 switch / per-project bypass) returns traffic to the original behaviour on the
 next request.
 """
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -48,16 +49,12 @@ ROUTING_LEVERS = ("cheaper_model", "smart_routing")
 class ProxyPolicy(Base, TimestampMixin):
     __tablename__ = "proxy_policies"
     __table_args__ = (
-        UniqueConstraint(
-            "project_id", "lever", "target_key", name="uq_policies_project_lever_target"
-        ),
+        UniqueConstraint("project_id", "lever", "target_key", name="uq_policies_project_lever_target"),
         Index("ix_policies_project_lever_enabled", "project_id", "lever", "enabled"),
         Index("ix_policies_project_enabled", "project_id", "enabled"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
@@ -71,34 +68,24 @@ class ProxyPolicy(Base, TimestampMixin):
     lever: Mapped[str] = mapped_column(String(32), nullable=False)
     # What the policy targets: 'model' for routing levers (target_key = incumbent
     # model), 'route' for body transforms (target_key = route key).
-    target_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default=text("'model'")
-    )
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'model'"))
     target_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     # Fraction of this policy's traffic held back on the original behaviour as the
     # control arm of the live A/B. The rest is treatment. Small by default: the
     # holdback costs money, but it buys a concurrently-measured savings number
     # rather than a modelled one.
-    holdback_percent: Mapped[Decimal] = mapped_column(
-        Numeric(5, 4), nullable=False, server_default=text("0.05")
-    )
+    holdback_percent: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, server_default=text("0.05"))
     # Lever-specific config. Routing: {"candidate_model": "..."}. Trim: strategy
     # knobs. Kept as JSONB so a new lever does not need a schema change.
-    params: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb")
-    )
+    params: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # The applied recommendation whose eval cleared this policy, for provenance.
     source_recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("recommendations.id", ondelete="SET NULL"),
         nullable=True,
     )
-    activated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # --- convenience accessors for the routing levers, so read-side code keeps the
     # incumbent/candidate vocabulary instead of reaching into params everywhere ---

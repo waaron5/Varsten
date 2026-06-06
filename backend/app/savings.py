@@ -9,10 +9,12 @@ its measurement_method. A true randomized-holdback measurement (the product
 guide's destination) needs elapsed time and is deferred. But the entire chain
 here is computed, never hard-coded.
 """
+
 import calendar
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import TypedDict
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -31,6 +33,16 @@ from app.models import (
 FEE_PERCENT = Decimal("0.20")
 
 _CENTS = Decimal("0.01")
+
+
+class SavingsSummary(TypedDict):
+    period_start: datetime
+    period_end: datetime
+    actual_spend_usd: Decimal
+    counterfactual_spend_usd: Decimal
+    gross_savings_usd: Decimal
+    varsten_fee_usd: Decimal
+    net_savings_usd: Decimal
 
 
 def month_start(now: datetime) -> datetime:
@@ -62,11 +74,7 @@ def _refresh_lever_savings(
             SavingsAttribution.period_end == period_end,
         )
     ) or Decimal("0")
-    config = db.scalar(
-        select(LeverConfig).where(
-            LeverConfig.project_id == project.id, LeverConfig.lever == lever
-        )
-    )
+    config = db.scalar(select(LeverConfig).where(LeverConfig.project_id == project.id, LeverConfig.lever == lever))
     if config is not None:
         config.savings_to_date_usd = _q(total)
 
@@ -84,7 +92,7 @@ def record_applied_savings(
     recommendation carries a measurable lever savings, a savings attribution and a
     refreshed lever total. Returns the attribution, or None for a governance /
     unpriced recommendation that has no dollar lever savings to attribute."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     start = month_start(now)
     end = month_end(now)
     gross_raw = recommendation.estimated_monthly_savings_usd
@@ -140,10 +148,7 @@ def record_applied_savings(
     attribution.net_savings_usd = net
     attribution.confidence_low_usd = _q(gross * Decimal("0.80"))
     attribution.confidence_high_usd = _q(gross * Decimal("1.15"))
-    attribution.notes = (
-        f"Derived from recommendation {recommendation.id} "
-        f"({recommendation.measurement_method})."
-    )
+    attribution.notes = f"Derived from recommendation {recommendation.id} ({recommendation.measurement_method})."
     action.realized_savings_usd = net
 
     db.flush()
@@ -151,9 +156,7 @@ def record_applied_savings(
     return attribution
 
 
-def compute_savings_summary(
-    db: Session, project: Project, now: datetime | None = None
-) -> dict[str, object]:
+def compute_savings_summary(db: Session, project: Project, now: datetime | None = None) -> SavingsSummary:
     """The month's savings accounting, derived end to end:
 
     actual          = month-to-date spend, run-rated to the full month
@@ -164,7 +167,7 @@ def compute_savings_summary(
     No value here is hard-coded; every number traces to usage events and applied
     recommendations.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     start = month_start(now)
     end = month_end(now)
 

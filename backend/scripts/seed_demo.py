@@ -9,14 +9,15 @@ usage, five lever-specific savings opportunities, proof rows, guardrail config,
 customer economics, and admin connection state. Re-running is safe; stable keys
 and idempotency values prevent duplicate demo records.
 """
+
 from __future__ import annotations
 
 import os
 import sys
-import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import TypedDict
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
@@ -31,8 +32,8 @@ from app.models import (
     LeverConfig,
     ModelCatalog,
     ModelPrice,
-    OrgMembership,
     Organization,
+    OrgMembership,
     Project,
     ProviderConnection,
     QualityGuardrail,
@@ -50,6 +51,18 @@ DEMO_ORG_NAME = "Varsten Demo Co"
 DEMO_PROJECT_NAME = "Production AI"
 DEMO_USER_EMAIL = "demo@varsten.local"
 DEMO_API_KEY = "vk_demo_varsten_local_key"
+
+
+class SeedResult(TypedDict):
+    organization_id: str
+    project_id: str
+    api_key: str
+    inserted_usage_events: int
+    applied_recommendations: int
+    open_recommendations: int
+    attach_email: str | None
+    attached: bool
+
 
 # Lever automation modes only. Savings-to-date is NOT seeded; it is derived from
 # the recommendations the seed applies, just like in the running product.
@@ -107,8 +120,8 @@ PRICES = [
     PriceSeed(
         model_key="gpt-4o",
         provider="openai",
-        input_cost=Decimal("0.0000025"),   # $2.50 / 1M
-        output_cost=Decimal("0.00001"),    # $10.00 / 1M
+        input_cost=Decimal("0.0000025"),  # $2.50 / 1M
+        output_cost=Decimal("0.00001"),  # $10.00 / 1M
         tier="frontier",
         cheaper_substitute_key="gpt-4o-mini",
         cache_read_cost=Decimal("0.00000125"),  # $1.25 / 1M
@@ -126,8 +139,8 @@ PRICES = [
     PriceSeed(
         model_key="claude-3-5-sonnet",
         provider="anthropic",
-        input_cost=Decimal("0.000003"),    # $3.00 / 1M
-        output_cost=Decimal("0.000015"),   # $15.00 / 1M
+        input_cost=Decimal("0.000003"),  # $3.00 / 1M
+        output_cost=Decimal("0.000015"),  # $15.00 / 1M
         tier="frontier",
         cheaper_substitute_key="claude-3-haiku",
         cache_read_cost=Decimal("0.0000003"),  # $0.30 / 1M
@@ -136,7 +149,7 @@ PRICES = [
         model_key="claude-3-haiku",
         provider="anthropic",
         input_cost=Decimal("0.00000025"),  # $0.25 / 1M
-        output_cost=Decimal("0.00000125"), # $1.25 / 1M
+        output_cost=Decimal("0.00000125"),  # $1.25 / 1M
         tier="small",
         cache_read_cost=Decimal("0.00000003"),  # $0.03 / 1M
         batch_input_cost=Decimal("0.000000125"),
@@ -241,7 +254,7 @@ def _get_or_create_api_key(db: Session, project: Project) -> ApiKey:
 
 
 def _seed_prices(db: Session) -> None:
-    demo_effective_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    demo_effective_at = datetime(2020, 1, 1, tzinfo=UTC)
     for price in PRICES:
         catalog = db.scalar(
             select(ModelCatalog).where(
@@ -391,7 +404,7 @@ def _event(
 
 
 def _seed_usage(db: Session, org: Organization, project: Project, api_key: ApiKey) -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     inserted = 0
     legacy_keys = [
         "demo:sr-expensive",
@@ -418,15 +431,154 @@ def _seed_usage(db: Session, org: Organization, project: Project, api_key: ApiKe
         # High-volume monthly traffic, not one-off toy calls. These rows make
         # spend, forecast, proof savings, and budget posture live on the same
         # enterprise scale while still keeping the seed deterministic.
-        UsageSeed("sr-expensive", "openai", "gpt-4o", "support_chat", "support_bot", "cust_acme", "user", "support", "cx", "production", 110, 3_200_000, 700_000, 1280),
-        UsageSeed("sr-cheap", "openai", "gpt-4o-mini", "support_chat", "support_bot", "cust_acme", "user", "support", "cx", "production", 160, 3_000_000, 680_000, 940),
-        UsageSeed("trim", "openai", "gpt-4o-mini", "summarize_research", "research_agent", "cust_nova", "user", "product", "r_and_d", "production", 95, 12_000_000, 900_000, 1610),
-        UsageSeed("cache", "openai", "gpt-4o-mini", "answer_faq", "support_bot", "cust_acme", "user", "support", "cx", "production", 240, 1_500_000, 500_000, 720, metadata={"semantic_cache_key": "faq:reset-password"}),
-        UsageSeed("batch", "openai", "gpt-4o-mini", "nightly_export", "analytics_exports", "cust_zenith", "system", "data", "analytics", "production", 40, 62_000_000, 14_000_000, 5800, metadata={"batchable": "true"}),
-        UsageSeed("cheap-model", "anthropic", "claude-3-5-sonnet", "classify_ticket", "ticket_triage", "cust_nova", "user", "support", "cx", "production", 75, 2_200_000, 300_000, 1120),
-        UsageSeed("nonprod", "openai", "gpt-4o", "load_test", "eval_harness", "cust_internal", "engineer", "platform", "engineering", "staging", 20, 5_000_000, 1_200_000, 1330),
-        UsageSeed("failed", "openai", "gpt-4o-mini", "support_chat", "support_bot", "cust_zenith", "user", "support", "cx", "production", 35, 1_800_000, 100_000, 2100, success=False, error_code="provider_timeout"),
-        UsageSeed("unpriced", "openai", "unknown-frontier-demo", "prototype", "labs_agent", "cust_internal", "engineer", "labs", "r_and_d", "development", 12, 2_000_000, 400_000, 1800),
+        UsageSeed(
+            "sr-expensive",
+            "openai",
+            "gpt-4o",
+            "support_chat",
+            "support_bot",
+            "cust_acme",
+            "user",
+            "support",
+            "cx",
+            "production",
+            110,
+            3_200_000,
+            700_000,
+            1280,
+        ),
+        UsageSeed(
+            "sr-cheap",
+            "openai",
+            "gpt-4o-mini",
+            "support_chat",
+            "support_bot",
+            "cust_acme",
+            "user",
+            "support",
+            "cx",
+            "production",
+            160,
+            3_000_000,
+            680_000,
+            940,
+        ),
+        UsageSeed(
+            "trim",
+            "openai",
+            "gpt-4o-mini",
+            "summarize_research",
+            "research_agent",
+            "cust_nova",
+            "user",
+            "product",
+            "r_and_d",
+            "production",
+            95,
+            12_000_000,
+            900_000,
+            1610,
+        ),
+        UsageSeed(
+            "cache",
+            "openai",
+            "gpt-4o-mini",
+            "answer_faq",
+            "support_bot",
+            "cust_acme",
+            "user",
+            "support",
+            "cx",
+            "production",
+            240,
+            1_500_000,
+            500_000,
+            720,
+            metadata={"semantic_cache_key": "faq:reset-password"},
+        ),
+        UsageSeed(
+            "batch",
+            "openai",
+            "gpt-4o-mini",
+            "nightly_export",
+            "analytics_exports",
+            "cust_zenith",
+            "system",
+            "data",
+            "analytics",
+            "production",
+            40,
+            62_000_000,
+            14_000_000,
+            5800,
+            metadata={"batchable": "true"},
+        ),
+        UsageSeed(
+            "cheap-model",
+            "anthropic",
+            "claude-3-5-sonnet",
+            "classify_ticket",
+            "ticket_triage",
+            "cust_nova",
+            "user",
+            "support",
+            "cx",
+            "production",
+            75,
+            2_200_000,
+            300_000,
+            1120,
+        ),
+        UsageSeed(
+            "nonprod",
+            "openai",
+            "gpt-4o",
+            "load_test",
+            "eval_harness",
+            "cust_internal",
+            "engineer",
+            "platform",
+            "engineering",
+            "staging",
+            20,
+            5_000_000,
+            1_200_000,
+            1330,
+        ),
+        UsageSeed(
+            "failed",
+            "openai",
+            "gpt-4o-mini",
+            "support_chat",
+            "support_bot",
+            "cust_zenith",
+            "user",
+            "support",
+            "cx",
+            "production",
+            35,
+            1_800_000,
+            100_000,
+            2100,
+            success=False,
+            error_code="provider_timeout",
+        ),
+        UsageSeed(
+            "unpriced",
+            "openai",
+            "unknown-frontier-demo",
+            "prototype",
+            "labs_agent",
+            "cust_internal",
+            "engineer",
+            "labs",
+            "r_and_d",
+            "development",
+            12,
+            2_000_000,
+            400_000,
+            1800,
+        ),
     ]
     window_minutes = 60 * 24 * max(now.day, 1)
     for row in rows:
@@ -569,7 +721,7 @@ def _upsert_guardrails(db: Session, org: Organization, project: Project) -> None
 
 
 def _upsert_customer_economics(db: Session, org: Organization, project: Project) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     end = _month_end(now)
     rows = [
@@ -623,13 +775,13 @@ def _upsert_connections(db: Session, org: Organization, project: Project) -> Non
                     provider=provider,
                     connection_method=method,
                     status=status,
-                    last_sync_at=datetime.now(timezone.utc) if status == "connected" else None,
+                    last_sync_at=datetime.now(UTC) if status == "connected" else None,
                 )
             )
         else:
             conn.connection_method = method
             conn.status = status
-            conn.last_sync_at = datetime.now(timezone.utc) if status == "connected" else None
+            conn.last_sync_at = datetime.now(UTC) if status == "connected" else None
 
 
 def _apply_demo_recommendations(db: Session, project: Project, now: datetime) -> int:
@@ -699,7 +851,7 @@ def _apply_demo_recommendations(db: Session, project: Project, now: datetime) ->
     return applied
 
 
-def seed(db: Session, attach_email: str | None = None) -> dict[str, object]:
+def seed(db: Session, attach_email: str | None = None) -> SeedResult:
     org = _get_or_create_org(db)
     project = _get_or_create_project(db, org)
     _get_or_create_user(db, org)
@@ -714,7 +866,7 @@ def seed(db: Session, attach_email: str | None = None) -> dict[str, object]:
     # Generate recommendations from the seeded usage, then apply the top few so
     # realized savings and Proof are computed by the same code path the product
     # uses. Nothing about the savings is hard-coded.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     refresh_recommendations(db, project)
     db.flush()
     applied = _apply_demo_recommendations(db, project, now)
@@ -722,10 +874,13 @@ def seed(db: Session, attach_email: str | None = None) -> dict[str, object]:
     # immediately recomputing under the staleness gate.
     project.recommendations_refreshed_at = now
     db.commit()
-    open_recs = db.scalar(
-        select(func.count()).select_from(Recommendation).where(
-            Recommendation.project_id == project.id, Recommendation.status == "open"
+    open_recs = (
+        db.scalar(
+            select(func.count())
+            .select_from(Recommendation)
+            .where(Recommendation.project_id == project.id, Recommendation.status == "open")
         )
+        or 0
     )
     return {
         "organization_id": str(org.id),

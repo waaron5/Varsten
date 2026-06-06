@@ -4,6 +4,7 @@ building/serving cached completions.
 Nothing here writes content to disk. Assembling a streamed completion happens in
 volatile memory so the response can be billed and (optionally) cached.
 """
+
 import json
 import time
 from collections.abc import Iterator
@@ -31,7 +32,7 @@ def parse_sse_events(raw: str) -> list[dict]:
         line = line.strip()
         if not line.startswith("data:"):
             continue
-        data = line[len("data:"):].strip()
+        data = line[len("data:") :].strip()
         if not data or data == "[DONE]":
             continue
         try:
@@ -90,9 +91,17 @@ def completion_to_sse(payload: dict) -> Iterator[bytes]:
     a final stop chunk, then [DONE]. Good enough for clients that expect streaming."""
     model = payload.get("model", "")
     content = payload["choices"][0]["message"]["content"]
-    base = {"id": payload.get("id", ""), "object": "chat.completion.chunk", "created": payload.get("created", 0), "model": model}
+    base = {
+        "id": payload.get("id", ""),
+        "object": "chat.completion.chunk",
+        "created": payload.get("created", 0),
+        "model": model,
+    }
 
-    first = {**base, "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
+    first = {
+        **base,
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
+    }
     yield f"data: {json.dumps(first)}\n\n".encode()
 
     last = {**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}

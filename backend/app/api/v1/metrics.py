@@ -1,5 +1,5 @@
 import calendar
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 
@@ -50,7 +50,7 @@ def overview(
 ) -> MetricsOverview:
     ensure_recommendations_fresh(db, project)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     day_start = _utc_day_start(now)
     month_start = day_start.replace(day=1)
 
@@ -66,58 +66,39 @@ def overview(
 
     # One scan bounded by month_start, with FILTER for the today subset, instead
     # of separate today/month queries.
-    stmt = (
-        select(
-            func.coalesce(func.sum(cost).filter(is_today), 0).label("spend_today"),
-            func.coalesce(func.sum(cost), 0).label("spend_month"),
-            func.coalesce(func.sum(cost).filter(is_catalog), 0).label("catalog_spend_month"),
-            func.coalesce(func.sum(cost).filter(is_override), 0).label("override_spend_month"),
-            func.coalesce(func.sum(cost).filter(is_reported), 0).label("reported_spend_month"),
-            func.coalesce(func.sum(cost).filter(is_unknown), 0).label("unknown_spend_month"),
-            func.coalesce(
-                func.sum(cost).filter(is_catalog | is_override), 0
-            ).label("authoritative_spend_month"),
-            func.count().filter(is_today).label("requests_today"),
-            func.count().label("requests_month"),
-            func.count().filter(is_priced).label("priced_event_count_month"),
-            func.count().filter(is_unpriced).label("unpriced_event_count_month"),
-            func.coalesce(
-                func.sum(UsageEvent.total_tokens).filter(is_unpriced), 0
-            ).label("unpriced_token_count_month"),
-            func.coalesce(
-                func.sum(UsageEvent.input_tokens).filter(is_today), 0
-            ).label("input_tokens_today"),
-            func.coalesce(
-                func.sum(UsageEvent.output_tokens).filter(is_today), 0
-            ).label("output_tokens_today"),
-            func.count().filter(UsageEvent.feature.is_not(None)).label("feature_tagged"),
-            func.count().filter(UsageEvent.customer_id.is_not(None)).label("customer_tagged"),
-            func.count().filter(UsageEvent.team.is_not(None)).label("team_tagged"),
-            func.count()
-            .filter((UsageEvent.environment.is_not(None)) & (UsageEvent.environment != "unknown"))
-            .label("environment_tagged"),
-        )
-        .where(UsageEvent.project_id == project.id, recv >= month_start)
-    )
+    stmt = select(
+        func.coalesce(func.sum(cost).filter(is_today), 0).label("spend_today"),
+        func.coalesce(func.sum(cost), 0).label("spend_month"),
+        func.coalesce(func.sum(cost).filter(is_catalog), 0).label("catalog_spend_month"),
+        func.coalesce(func.sum(cost).filter(is_override), 0).label("override_spend_month"),
+        func.coalesce(func.sum(cost).filter(is_reported), 0).label("reported_spend_month"),
+        func.coalesce(func.sum(cost).filter(is_unknown), 0).label("unknown_spend_month"),
+        func.coalesce(func.sum(cost).filter(is_catalog | is_override), 0).label("authoritative_spend_month"),
+        func.count().filter(is_today).label("requests_today"),
+        func.count().label("requests_month"),
+        func.count().filter(is_priced).label("priced_event_count_month"),
+        func.count().filter(is_unpriced).label("unpriced_event_count_month"),
+        func.coalesce(func.sum(UsageEvent.total_tokens).filter(is_unpriced), 0).label("unpriced_token_count_month"),
+        func.coalesce(func.sum(UsageEvent.input_tokens).filter(is_today), 0).label("input_tokens_today"),
+        func.coalesce(func.sum(UsageEvent.output_tokens).filter(is_today), 0).label("output_tokens_today"),
+        func.count().filter(UsageEvent.feature.is_not(None)).label("feature_tagged"),
+        func.count().filter(UsageEvent.customer_id.is_not(None)).label("customer_tagged"),
+        func.count().filter(UsageEvent.team.is_not(None)).label("team_tagged"),
+        func.count()
+        .filter((UsageEvent.environment.is_not(None)) & (UsageEvent.environment != "unknown"))
+        .label("environment_tagged"),
+    ).where(UsageEvent.project_id == project.id, recv >= month_start)
     row = db.execute(stmt).one()
 
     avg_today = row.spend_today / row.requests_today if row.requests_today else None
-    trust_share = (
-        row.authoritative_spend_month / row.spend_month if row.spend_month else None
-    )
+    trust_share = row.authoritative_spend_month / row.spend_month if row.spend_month else None
     days_in_month = calendar.monthrange(now.year, now.month)[1]
-    monthly_forecast = (
-        row.spend_month / Decimal(now.day) * Decimal(days_in_month)
-        if now.day
-        else Decimal("0")
-    )
+    monthly_forecast = row.spend_month / Decimal(now.day) * Decimal(days_in_month) if now.day else Decimal("0")
     budget = project.organization.monthly_spend_budget_usd
     budget_variance = monthly_forecast - budget if budget is not None else None
     budget_burn = row.spend_month / budget if budget else None
     unpriced_share = (
-        Decimal(row.unpriced_event_count_month) / Decimal(row.requests_month)
-        if row.requests_month
-        else None
+        Decimal(row.unpriced_event_count_month) / Decimal(row.requests_month) if row.requests_month else None
     )
 
     def quality(count: int) -> Decimal | None:
@@ -161,7 +142,7 @@ def spend_trend(
     db: Session = Depends(get_db),
     days: int = Query(default=30, ge=1, le=365),
 ) -> SpendTrend:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _utc_day_start(now) - timedelta(days=days - 1)
 
     day = func.date_trunc("day", UsageEvent.received_at).label("day")
@@ -175,10 +156,7 @@ def spend_trend(
         .group_by(day)
         .order_by(day)
     )
-    points = [
-        SpendTrendPoint(date=r.day.date(), spend=r.spend, requests=r.requests)
-        for r in db.execute(stmt)
-    ]
+    points = [SpendTrendPoint(date=r.day.date(), spend=r.spend, requests=r.requests) for r in db.execute(stmt)]
     return SpendTrend(granularity="day", points=points)
 
 
@@ -203,7 +181,7 @@ def breakdown(
     limit: int = Query(default=10, ge=1, le=100),
 ) -> Breakdown:
     col = BREAKDOWN_DIMENSIONS[dimension]
-    start = _utc_day_start(datetime.now(timezone.utc)) - timedelta(days=days - 1)
+    start = _utc_day_start(datetime.now(UTC)) - timedelta(days=days - 1)
 
     spend = func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("spend")
     stmt = (

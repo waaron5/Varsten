@@ -4,6 +4,7 @@ The middleware is pure ASGI (not BaseHTTPMiddleware) so the request-id contextva
 it sets propagates into the endpoint and into a streaming response body, which a
 BaseHTTPMiddleware would not guarantee.
 """
+
 import time
 import uuid
 
