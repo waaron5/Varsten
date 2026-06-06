@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     # "insufficient_data". Below this the recommendation stays approve-only.
     eval_min_samples: int = 20
     # How many samples a single run replays through the candidate. Caps run cost.
-    eval_replay_max_samples: int = 50
+    eval_replay_max_samples: int = 200
     # Objective pass rate a run must clear to mark a recommendation auto-eligible.
     eval_objective_pass_threshold: float = 0.95
     # Judge model for the subjective (pairwise) tier. Runs off-path only; its
