@@ -255,20 +255,73 @@ def _synthetic_dataset(n: int) -> list[list[dict]]:
     return out
 
 
-def load_dataset(path: str | None, limit: int) -> list[list[dict]]:
-    if not path:
-        print("No --dataset supplied; using the built-in synthetic workload.", file=sys.stderr)
+# HuggingFace datasets-server: fetch a subset as JSON rows without downloading the
+# whole dataset. ShareGPT-style datasets expose a `conversations` [{from,value}].
+_HF_ROWS = "https://datasets-server.huggingface.co/rows"
+_DEFAULT_SHAREGPT = "Aeala/ShareGPT_Vicuna_unfiltered"
+
+
+def fetch_sharegpt_subset(count: int, dataset: str, cache_dir: str = ".cache") -> list[dict]:
+    """Download a `count`-row subset of a ShareGPT-style dataset via the HF
+    datasets-server (paginated, 100/req), cached to disk for repeat runs. Returns
+    the raw rows ({conversations:[...]}). Raises on network failure so the caller
+    can fall back."""
+    import urllib.parse
+    import urllib.request
+
+    cache = Path(cache_dir) / f"{dataset.replace('/', '_')}_{count}.json"
+    if cache.exists():
+        print(f"Using cached ShareGPT subset ({cache}).", file=sys.stderr)
+        return json.loads(cache.read_text())
+
+    rows: list[dict] = []
+    offset = 0
+    while len(rows) < count:
+        length = min(100, count - len(rows))
+        params = urllib.parse.urlencode(
+            {"dataset": dataset, "config": "default", "split": "train", "offset": offset, "length": length}
+        )
+        with urllib.request.urlopen(f"{_HF_ROWS}?{params}", timeout=40) as resp:
+            data = json.load(resp)
+        batch = [r["row"] for r in data.get("rows", [])]
+        if not batch:
+            break
+        rows.extend(batch)
+        offset += length
+        print(f"  fetched {len(rows)}/{count} conversations…", file=sys.stderr)
+
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(rows))
+    print(f"Cached {len(rows)} ShareGPT conversations to {cache}.", file=sys.stderr)
+    return rows
+
+
+def load_dataset(source: str, path: str | None, dataset_id: str, limit: int) -> list[list[dict]]:
+    rows: list[dict] | None = None
+    if path:
+        raw = json.loads(Path(path).read_text())
+        rows = raw if isinstance(raw, list) else raw.get("data", [])
+    elif source == "sharegpt":
+        try:
+            rows = fetch_sharegpt_subset(limit, dataset_id)
+        except Exception as exc:  # noqa: BLE001 - offline / dataset hiccup -> synthetic
+            print(f"ShareGPT fetch failed ({exc}); falling back to synthetic.", file=sys.stderr)
+            rows = None
+    if rows is None:
+        print("Using the built-in synthetic workload.", file=sys.stderr)
         return _synthetic_dataset(limit)
-    raw = json.loads(Path(path).read_text())
-    convs = raw if isinstance(raw, list) else raw.get("data", [])
+
     out: list[list[dict]] = []
-    for conv in convs:
+    for conv in rows:
         msgs = _messages_from_sharegpt(conv) if isinstance(conv, dict) else None
         if msgs:
             out.append(msgs)
         if len(out) >= limit:
             break
-    print(f"Loaded {len(out)} conversations from {path}.", file=sys.stderr)
+    if not out:
+        print("Dataset yielded no usable conversations; using synthetic.", file=sys.stderr)
+        return _synthetic_dataset(limit)
+    print(f"Loaded {len(out)} real conversations.", file=sys.stderr)
     return out
 
 
@@ -407,7 +460,11 @@ def report(db, project: Project, tally: Tally) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Varsten savings benchmark simulator")
-    parser.add_argument("--dataset", help="Path to a ShareGPT-style JSON file (omit for synthetic)")
+    parser.add_argument("--source", choices=["synthetic", "sharegpt"], default="synthetic",
+                        help="Workload source: built-in synthetic, or auto-download a real ShareGPT subset")
+    parser.add_argument("--sharegpt-dataset", default=_DEFAULT_SHAREGPT,
+                        help="HuggingFace dataset id for --source sharegpt")
+    parser.add_argument("--dataset", help="Path to a local ShareGPT-style JSON file (overrides --source)")
     parser.add_argument("--limit", type=int, default=500, help="Max conversations to ingest")
     parser.add_argument("--dup-rate", type=float, default=0.25, help="Fraction of prompts repeated (drives cache)")
     parser.add_argument("--holdback", type=float, default=0.15, help="Holdback fraction per policy (control arm)")
@@ -426,7 +483,7 @@ def main() -> int:
         settings.proxy_openai_keys = {**settings.proxy_openai_keys, str(project.id): "sk-benchmark"}
         if not args.keep:
             reset_usage(db, project)
-        convs = load_dataset(args.dataset, args.limit)
+        convs = load_dataset(args.source, args.dataset, args.sharegpt_dataset, args.limit)
         requests = build_requests(convs, args.dup_rate)
         print(f"Streaming {len(requests)} requests through the proxy "
               f"({'REAL OpenAI' if args.real else 'fake upstream'})…", file=sys.stderr)
