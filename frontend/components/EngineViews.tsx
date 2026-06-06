@@ -910,6 +910,18 @@ function ActiveRoutesEmpty({ error, routes }: { error: string | null; routes: Ac
   return null;
 }
 
+function QuietEmptyState({
+  error,
+  items,
+}: {
+  error: string | null;
+  items: readonly unknown[] | null | undefined;
+}) {
+  return error && items && items.length === 0
+    ? <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>
+    : null;
+}
+
 function ActiveRoutesHeader({
   busy,
   onCheckDrift,
@@ -980,10 +992,26 @@ function ActiveRoutesTable({
   routes: ActiveRoute[];
 }) {
   return (
+    <HoldbackTable firstHeader="Route">
+        {routes.map((route) => (
+          <ActiveRouteRow key={route.id} route={route} busy={busyId === route.id} onPause={onPause} />
+        ))}
+    </HoldbackTable>
+  );
+}
+
+function HoldbackTable({
+  children,
+  firstHeader,
+}: {
+  children: ReactNode;
+  firstHeader: string;
+}) {
+  return (
     <table className="tbl">
       <thead>
         <tr>
-          <th>Route</th>
+          <th>{firstHeader}</th>
           <th className="r">Holdback</th>
           <th className="r">Control / Treatment</th>
           <th className="r">Cost / req</th>
@@ -992,11 +1020,7 @@ function ActiveRoutesTable({
           <th />
         </tr>
       </thead>
-      <tbody>
-        {routes.map((route) => (
-          <ActiveRouteRow key={route.id} route={route} busy={busyId === route.id} onPause={onPause} />
-        ))}
-      </tbody>
+      <tbody>{children}</tbody>
     </table>
   );
 }
@@ -1128,9 +1152,7 @@ function ActiveTrimsCard() {
 
   // Quiet until at least one trim policy is live.
   if (loading || error || !trims || trims.length === 0) {
-    return error && trims && trims.length === 0
-      ? <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>
-      : null;
+    return <QuietEmptyState error={error} items={trims} />;
   }
   return (
     <div className="card">
@@ -1139,24 +1161,11 @@ function ActiveTrimsCard() {
         <span className="sub">live token-trim policies, savings measured against an untrimmed holdback</span>
       </div>
       {error ? <div className="card-pad"><p className="form-error">{error}</p></div> : null}
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th>Model</th>
-            <th className="r">Holdback</th>
-            <th className="r">Control / Treatment</th>
-            <th className="r">Cost / req</th>
-            <th className="r">Quality</th>
-            <th className="r">Measured savings (mo)</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
+      <HoldbackTable firstHeader="Model">
           {trims.map((trim) => (
             <ActiveTrimRow key={trim.id} trim={trim} busy={busyId === trim.id} onPause={pause} />
           ))}
-        </tbody>
-      </table>
+      </HoldbackTable>
     </div>
   );
 }
@@ -1168,6 +1177,8 @@ const BATCH_STATUS_CLASS: Record<string, string> = {
   expired: "amber",
   cancelled: "neutral",
 };
+
+const BATCH_HEADERS = ["Submitted", "Status", "Requests", "Tokens in / out", "Naive cost", "Saved"];
 
 function BatchStatusPill({ status }: { status: string }) {
   const cls = BATCH_STATUS_CLASS[status] ?? "accent";
@@ -1187,14 +1198,29 @@ function BatchJobRow({ job }: { job: BatchJob }) {
   );
 }
 
+function BatchJobsTable({ jobs }: { jobs: BatchJob[] }) {
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          {BATCH_HEADERS.map((header, index) => (
+            <th key={header} className={index > 1 ? "r" : undefined}>{header}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {jobs.map((job) => <BatchJobRow key={job.id} job={job} />)}
+      </tbody>
+    </table>
+  );
+}
+
 function BatchJobsCard() {
   const { data: jobs, error, loading } = useProjectResource<BatchJob[]>(api.engineBatches, []);
 
   // Quiet until the client has run at least one batch.
   if (loading || error || !jobs || jobs.length === 0) {
-    return error && jobs && jobs.length === 0
-      ? <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>
-      : null;
+    return <QuietEmptyState error={error} items={jobs} />;
   }
   return (
     <div className="card">
@@ -1202,21 +1228,7 @@ function BatchJobsCard() {
         <h3>Batch jobs</h3>
         <span className="sub">async batch runs, ~50% off measured against synchronous pricing</span>
       </div>
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th>Submitted</th>
-            <th>Status</th>
-            <th className="r">Requests</th>
-            <th className="r">Tokens in / out</th>
-            <th className="r">Naive cost</th>
-            <th className="r">Saved</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((job) => <BatchJobRow key={job.id} job={job} />)}
-        </tbody>
-      </table>
+      <BatchJobsTable jobs={jobs} />
     </div>
   );
 }
