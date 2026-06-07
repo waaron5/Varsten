@@ -83,6 +83,53 @@ export interface SpendTrend {
   points: SpendTrendPoint[];
 }
 
+// Command Center narrative 1: savings vs baseline over time. baseline is naive
+// retail (optimized + saved); the cumulative line is the "only goes up" story.
+export interface SavingsTrendPoint {
+  date: string;
+  baseline_usd: string;
+  optimized_usd: string;
+  saved_usd: string;
+  cumulative_saved_usd: string;
+}
+
+export interface SavingsTrend {
+  granularity: string;
+  points: SavingsTrendPoint[];
+  total_saved_usd: string;
+  total_baseline_usd: string;
+}
+
+// Command Center narrative 2: proxy traffic health.
+export interface CacheTrafficPoint {
+  date: string;
+  requests: number;
+  hit_rate: string | null;
+}
+
+export interface LatencyPoint {
+  date: string;
+  p50_ms: number | null;
+  p95_ms: number | null;
+}
+
+export interface ProxyTraffic {
+  window_days: number;
+  requests: number;
+  hit: number;
+  miss: number;
+  hit_rate: string | null;
+  cache_saved_usd: string;
+  cache_series: CacheTrafficPoint[];
+  batch_jobs: number;
+  batch_requests: number;
+  batch_saved_usd: string;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  latency_p99_ms: number | null;
+  latency_series: LatencyPoint[];
+}
+
 export type BreakdownDimension =
   | "provider"
   | "model"

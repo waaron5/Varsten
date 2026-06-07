@@ -2,6 +2,11 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
+import {
+  MarginEngineSection,
+  ProxyTrafficSection,
+  QualityGuardrailsSection,
+} from "@/components/CommandCenterDashboard";
 import { RequireSession } from "@/components/RequireSession";
 import { useSession } from "@/components/session";
 import { useProjectResource } from "@/components/useProjectResource";
@@ -585,6 +590,9 @@ function CommandCenterContent({
   return (
     <div className="command-center-stack">
       <CommandKpis data={data} />
+      <MarginEngineSection liveSavings={data.live_savings} />
+      <ProxyTrafficSection />
+      <QualityGuardrailsSection />
       <div className="grid command-main-grid">
         <DecisionQueue busyId={busyId} recommendations={data.decision_queue} onStatus={onStatus} />
         <RecentActions actions={data.recent_actions} />

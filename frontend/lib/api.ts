@@ -29,10 +29,12 @@ import type {
   ProofDataQuality,
   ProofSavings,
   Project,
+  ProxyTraffic,
   QualityGuardrail,
   QualityGuardrailCreate,
   Recommendation,
   RecommendationStatus,
+  SavingsTrend,
   SpendTrend,
   UsageEvent,
   UsageEventFilters,
@@ -128,6 +130,12 @@ export const api = {
 
   spendTrend: (token: string, projectId: string | undefined, days = 30) =>
     request<SpendTrend>(readPath("/metrics/spend-trend", projectId, { days }), token),
+
+  savingsTrend: (token: string, projectId: string | undefined, days = 30) =>
+    request<SavingsTrend>(readPath("/metrics/savings-trend", projectId, { days }), token),
+
+  proxyTraffic: (token: string, projectId: string | undefined, days = 30) =>
+    request<ProxyTraffic>(readPath("/metrics/proxy-traffic", projectId, { days }), token),
 
   breakdown: (
     token: string,

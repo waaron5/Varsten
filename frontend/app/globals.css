@@ -455,8 +455,8 @@ a { color: inherit; text-decoration: none; }
 }
 .command-center-stack {
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(132px, 286px);
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 .command-kpi-row {
@@ -904,4 +904,85 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   .lever-row { padding: 15px 14px; }
   .lever-row-stats { gap: 18px; }
   .tbl .seg { min-width: 154px; }
+}
+
+/* --- Command Center narrative sections (Margin / Proxy / Quality) --- */
+/* Spacing between sections comes from the parent .command-center-stack flex gap. */
+
+.cc-statstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.cc-stat { display: flex; flex-direction: column; gap: 7px; min-width: 96px; }
+.cc-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.cc-stat-value { font-size: 21px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+.cc-stat-value.pos { color: var(--pos); }
+.cc-stat-value.neg { color: var(--neg); }
+
+.cc-chart-wrap { padding: 10px 12px 14px; }
+.cc-chart-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.cc-chart-cell { padding: 12px 12px 14px; }
+.cc-chart-cell + .cc-chart-cell { border-left: 1px solid var(--border); }
+.cc-chart-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 0 6px 10px;
+}
+.cc-chart-frame {
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cc-chart-empty {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+/* Minimal chart tooltip, matched to the design system. */
+.chart-tip {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.chart-tip-label {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  margin-bottom: 6px;
+}
+.chart-tip-row { display: flex; align-items: center; gap: 7px; line-height: 1.6; }
+.chart-tip-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chart-tip-name { color: var(--text-2); }
+.chart-tip-value { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; padding-left: 14px; }
+
+/* Drift status pill (negative tone), to match the existing pill set. */
+.pill.red { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, transparent); background: var(--neg-soft); }
+
+@media (max-width: 900px) {
+  .cc-chart-2col { grid-template-columns: 1fr; }
+  .cc-chart-cell + .cc-chart-cell { border-left: none; border-top: 1px solid var(--border); }
 }
