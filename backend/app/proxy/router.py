@@ -9,6 +9,7 @@ POST /v1/chat/completions
 """
 
 import asyncio
+import time
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -49,6 +50,10 @@ async def chat_completions(
 ):
     project = api_context.project
     api_key_id = api_context.api_key.id
+    # Request receipt, for per-event latency (time-to-first-byte from the proxy's
+    # view): the moment a cached payload is ready, or the upstream's response /
+    # first stream chunk arrives. This is the latency a buyer feels.
+    started = time.perf_counter()
 
     # The upstream provider is resolved through the adapter registry. Phase 1 is
     # OpenAI-only; the routing policy will select this per-request once more
@@ -82,7 +87,7 @@ async def chat_completions(
             logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
             entry = None
         if entry is not None:
-            return _serve_cache_hit(db, project, api_key_id, entry, stream, "hit", background_tasks)
+            return _serve_cache_hit(db, project, api_key_id, entry, stream, "hit", background_tasks, started)
 
         # 2) Semantic layer (optional, on top of exact hash): embed the prompt and
         # find the nearest cached answer. Off by default so there is no embedding
@@ -96,7 +101,7 @@ async def chat_completions(
                 logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
                 sem = None
             if sem is not None:
-                return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic", background_tasks)
+                return _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic", background_tasks, started)
 
     # --- cheaper-model routing with a live holdback A/B. If an applied+eval-passed
     # rule maps this model to a cheaper candidate, randomly assign the request to
@@ -169,6 +174,7 @@ async def chat_completions(
                 arm=arm,
                 exp_from=exp_from,
                 exp_to=exp_to,
+                started=started,
             ),
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
@@ -186,6 +192,7 @@ async def chat_completions(
         embedding,
         store_cache=not bypass,
         headers=headers,
+        started=started,
         upstream_model=upstream_model,
         routed_from=routed_from,
         arm=arm,
@@ -194,7 +201,7 @@ async def chat_completions(
     )
 
 
-async def _meter_cache_hit(db, project, api_key_id, entry) -> None:
+async def _meter_cache_hit(db, project, api_key_id, entry, latency_ms) -> None:
     """Record the hit and the $0 ledger row. Runs in a BackgroundTask after the
     response is sent (but before the request session is torn down), so the cache
     hit's time-to-first-byte never includes these DB commits. Best-effort: a
@@ -211,16 +218,18 @@ async def _meter_cache_hit(db, project, api_key_id, entry) -> None:
             output_tokens=entry.output_tokens,
             cached_input_tokens=0,
             cache_hit=True,
+            latency_ms=latency_ms,
         )
     except Exception:
         logger.exception("cache-hit metering failed", extra={"project_id": str(project.id)})
 
 
-def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label, background_tasks: BackgroundTasks):
+def _serve_cache_hit(db, project, api_key_id, entry, stream, cache_label, background_tasks: BackgroundTasks, started):
     """Serve a cache entry (exact or semantic) immediately. Hit accounting and the
     $0 ledger row are deferred to a BackgroundTask so no DB commit sits on the
     critical path; the cached bytes are already in memory."""
-    background_tasks.add_task(_meter_cache_hit, db, project, api_key_id, entry)
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    background_tasks.add_task(_meter_cache_hit, db, project, api_key_id, entry, latency_ms)
     headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": cache_label}
     if stream:
         return StreamingResponse(
@@ -251,6 +260,7 @@ async def _capture(
     arm: str | None = None,
     exp_from: str | None = None,
     exp_to: str | None = None,
+    latency_ms: int | None = None,
 ) -> None:
     """Write the ledger row and (unless bypassed) store the cache entry, with its
     prompt embedding, for a miss.
@@ -281,6 +291,7 @@ async def _capture(
             experiment_from=exp_from,
             experiment_to=exp_to,
             quality_ok=quality_ok,
+            latency_ms=latency_ms,
         )
         if store_cache and settings.proxy_cache_enabled and response_payload:
             # embedding is None unless the semantic layer is on; the entry still
@@ -324,12 +335,14 @@ async def _stream_through(
     arm=None,
     exp_from=None,
     exp_to=None,
+    started=None,
 ):
     """Pass the provider's stream through to the client via the adapter's stream
     translator (verbatim for an OpenAI upstream), accumulating a copy to bill and
     (unless bypassed) cache after the client has its bytes."""
     upstream_body = adapter.prepare_request(body, model=upstream_model or model, stream=True)
     translator = adapter.stream_translator()
+    first_byte_at: float | None = None
     # Finite timeouts so a hung upstream cannot pin this event-loop slot forever:
     # read = max gap between chunks, plus connect/write/pool. A wall-clock total cap
     # wraps the whole consumption as a backstop.
@@ -362,6 +375,8 @@ async def _stream_through(
                     return
                 breaker.record_success()
                 async for chunk in resp.aiter_bytes():
+                    if first_byte_at is None:
+                        first_byte_at = time.perf_counter()  # time-to-first-byte
                     for out in translator.push(chunk):
                         yield out
     except (httpx.RequestError, TimeoutError) as exc:
@@ -386,6 +401,9 @@ async def _stream_through(
         # either content or tool calls. A tool-only response has empty content but
         # must still be captured, or the agent workload's calls are silently lost.
         payload = canonical.completion_payload(result) if (result.content or result.tool_calls) else {}
+        # Latency = time-to-first-byte from the proxy's view (request receipt to the
+        # first upstream chunk), the number a streaming client actually feels.
+        latency_ms = int((first_byte_at - started) * 1000) if (first_byte_at and started) else None
         await _capture(
             db,
             project,
@@ -405,6 +423,7 @@ async def _stream_through(
             arm=arm,
             exp_from=exp_from,
             exp_to=exp_to,
+            latency_ms=latency_ms,
         )
     except Exception:
         # Never let post-stream bookkeeping break a delivered response.
@@ -424,6 +443,7 @@ async def _forward_once(
     embedding,
     store_cache,
     headers,
+    started=None,
     upstream_model=None,
     routed_from=None,
     arm=None,
@@ -468,6 +488,8 @@ async def _forward_once(
         return JSONResponse(detail, status_code=resp.status_code, headers=headers)
 
     breaker.record_success()
+    # Latency = request receipt to the upstream response (when we can answer).
+    latency_ms = int((time.perf_counter() - started) * 1000) if started else None
 
     result = adapter.parse_completion(resp.json())
     # The client always gets the OpenAI dialect; for an OpenAI upstream this is the
@@ -493,5 +515,6 @@ async def _forward_once(
         arm=arm,
         exp_from=exp_from,
         exp_to=exp_to,
+        latency_ms=latency_ms,
     )
     return JSONResponse(payload, headers=headers)

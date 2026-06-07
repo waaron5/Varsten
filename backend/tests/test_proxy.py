@@ -523,6 +523,27 @@ async def test_streaming_upstream_hang_is_cut_by_timeout(async_client, async_pro
 
 
 @pytest.mark.anyio
+async def test_latency_ms_is_captured(async_client, async_db_session, async_provision, mock_openai, monkeypatch):
+    ws = await async_provision(sub="auth0|lat", email="lat@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    body = _msg("latency probe")
+
+    # Miss: latency = receipt -> upstream response.
+    await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+    # Hit: latency = receipt -> cached payload ready (recorded by the background task).
+    await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+
+    events = (
+        await async_db_session.scalars(
+            select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]).order_by(UsageEvent.received_at.asc())
+        )
+    ).all()
+    assert len(events) == 2
+    # Both the miss and the hit now carry a real latency, not NULL.
+    assert all(e.latency_ms is not None and e.latency_ms >= 0 for e in events)
+
+
+@pytest.mark.anyio
 async def test_cache_hit_ttfb_lower_than_miss(async_client, async_provision, mock_openai, monkeypatch):
     ws = await async_provision(sub="auth0|ttfb", email="ttfb@example.com")
     _configure_key(monkeypatch, ws["project_id"])
