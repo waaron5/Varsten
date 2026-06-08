@@ -1,0 +1,588 @@
+/* Varsten marketing site. Reuses the dashboard's hand-rolled CSS custom-property
+   design system (tokens copied below) so the brand stays consistent. No Tailwind,
+   no UI library — semantic classes + tokens only. */
+
+:root {
+  /* --- design tokens (from the Varsten system) --- */
+  --brand: #0e9e6e;
+  --brand-press: #0b8059;
+  --brand-soft: rgba(14, 158, 110, 0.1);
+  --brand-line: rgba(14, 158, 110, 0.3);
+
+  --pos: #11875d;
+  --neg: #c24136;
+  --warn: #b7791f;
+
+  --c1: #0e9e6e;
+  --c2: #2877b8;
+  --c3: #b7791f;
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --paper: #f4f5f7;
+  --bg: var(--paper);
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-hover: #eef2f5;
+  --border: #dce1e6;
+  --border-strong: #c7ced6;
+  --text: #17202a;
+  --text-2: #52606e;
+  --text-3: #7b8794;
+  --text-faint: #a0a9b2;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 30px rgba(15, 23, 42, 0.08);
+
+  /* --- marketing-specific extensions --- */
+  --shadow-lg: 0 2px 6px rgba(15, 23, 42, 0.05), 0 30px 60px rgba(15, 23, 42, 0.14);
+  --code-bg: #0f1620;
+  --code-head: #141d28;
+  --code-text: #cdd9e5;
+  --code-mut: #5f7184;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ---------- layout primitives ---------- */
+
+.lp-container {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.lp-section {
+  padding: clamp(64px, 10vw, 128px) 0;
+}
+.lp-section.alt {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.lp-section-head {
+  max-width: 680px;
+}
+.lp-section-head.center {
+  margin: 0 auto;
+  text-align: center;
+}
+.lp-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--brand);
+}
+.lp-section-title {
+  margin-top: 12px;
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+  color: var(--text);
+}
+.lp-section-sub {
+  margin-top: 14px;
+  font-size: clamp(16px, 1.8vw, 18px);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.lp-section-head.center .lp-section-sub {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 600px;
+}
+
+/* ---------- buttons ---------- */
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.lp-btn-primary {
+  background: var(--brand);
+  color: #fff;
+}
+.lp-btn-primary:hover {
+  background: var(--brand-press);
+}
+.lp-btn-ghost {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.lp-btn-ghost:hover {
+  background: var(--surface-2);
+}
+.lp-btn-lg {
+  padding: 13px 26px;
+  font-size: 15px;
+  border-radius: 9px;
+}
+.lp-btn-cta {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 13px;
+  font-weight: 650;
+}
+.lp-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+  transition: color 0.15s;
+}
+.lp-link:hover {
+  color: var(--text);
+}
+
+/* ---------- navigation ---------- */
+
+.lp-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: 64px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(180%) blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.lp-nav-inner {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.lp-logo {
+  font-size: 19px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.lp-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* ---------- hero ---------- */
+
+.lp-hero {
+  padding: clamp(56px, 9vw, 116px) 0 0;
+  text-align: center;
+}
+.lp-hero-title {
+  max-width: 880px;
+  margin: 0 auto;
+  font-size: clamp(38px, 6vw, 66px);
+  font-weight: 680;
+  letter-spacing: -0.025em;
+  line-height: 1.04;
+  color: var(--text);
+}
+.lp-hero-sub {
+  max-width: 600px;
+  margin: 22px auto 0;
+  font-size: clamp(16px, 2.1vw, 20px);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.lp-hero-cta {
+  margin-top: 32px;
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ---------- proof asset (dashboard screenshot placeholder) ---------- */
+
+.lp-proof {
+  margin: clamp(48px, 7vw, 84px) auto 0;
+  max-width: 1080px;
+  padding: 0 24px;
+}
+.lp-proof-frame {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.lp-proof-chrome {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 15px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.lp-proof-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.lp-proof-url {
+  margin-left: 10px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-3);
+}
+/* The canvas is a styled frame ready to receive a high-resolution screenshot of
+   the Command Center. Until then it renders a faint wireframe of that view. */
+.lp-proof-canvas {
+  aspect-ratio: 16 / 9;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(14, 158, 110, 0.05), transparent 60%),
+    var(--surface);
+  padding: clamp(16px, 3vw, 30px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 14px;
+}
+.lp-ph-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.lp-ph-tile {
+  height: clamp(48px, 8vw, 72px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.lp-ph-main {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  min-height: 0;
+}
+.lp-ph-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  position: relative;
+  overflow: hidden;
+}
+.lp-ph-panel::after {
+  content: "";
+  position: absolute;
+  left: 12%;
+  right: 8%;
+  bottom: 22%;
+  height: 38%;
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--brand-soft), transparent);
+  border-bottom: 2px solid var(--brand);
+  clip-path: polygon(0 100%, 12% 70%, 28% 78%, 44% 48%, 60% 56%, 76% 28%, 100% 10%, 100% 100%);
+}
+.lp-ph-caption {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  z-index: 1;
+}
+
+/* ---------- mechanism (code) ---------- */
+
+.lp-code {
+  margin: 38px auto 0;
+  max-width: 760px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  border: 1px solid #1d2733;
+  background: var(--code-bg);
+}
+.lp-code-head {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 15px;
+  background: var(--code-head);
+  border-bottom: 1px solid #1d2733;
+}
+.lp-code-head .lp-proof-dot {
+  background: #2c3a49;
+}
+.lp-code-file {
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--code-mut);
+}
+.lp-code pre {
+  margin: 0;
+  padding: 20px 22px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--code-text);
+}
+.lp-code-mut {
+  color: var(--code-mut);
+}
+.lp-code-em {
+  color: #72e3b7;
+  font-weight: 600;
+}
+
+/* ---------- features (zig-zag) ---------- */
+
+.lp-features {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(48px, 7vw, 104px);
+}
+.lp-feature {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(32px, 5vw, 72px);
+  align-items: center;
+}
+.lp-feature.rev .lp-feature-visual {
+  order: -1;
+}
+.lp-feature-text h3 {
+  margin-top: 12px;
+  font-size: clamp(22px, 2.6vw, 30px);
+  font-weight: 660;
+  letter-spacing: -0.015em;
+  line-height: 1.18;
+  color: var(--text);
+}
+.lp-feature-text p {
+  margin-top: 14px;
+  max-width: 460px;
+  font-size: 16px;
+  line-height: 1.62;
+  color: var(--text-2);
+}
+.lp-feature-visual {
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(110% 90% at 30% 0%, rgba(14, 158, 110, 0.06), transparent 55%),
+    var(--surface-2);
+  box-shadow: var(--shadow);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+.lp-feature-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.lp-feature-chip b {
+  color: var(--text);
+  font-weight: 600;
+}
+.lp-feature-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+/* ---------- pricing ---------- */
+
+.lp-plans {
+  margin: 44px auto 0;
+  max-width: 860px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  align-items: stretch;
+}
+.lp-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 30px 28px;
+}
+.lp-plan-featured {
+  border-color: var(--brand-line);
+  box-shadow: 0 0 0 1px var(--brand-line), var(--shadow);
+}
+.lp-plan-tag {
+  position: absolute;
+  top: -11px;
+  left: 28px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.lp-plan-name {
+  font-size: 13px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+.lp-plan-price {
+  margin-top: 10px;
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.lp-plan-price span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-3);
+  letter-spacing: 0;
+}
+.lp-checks {
+  list-style: none;
+  margin: 22px 0 0;
+  display: grid;
+  gap: 13px;
+  flex: 1;
+}
+.lp-check-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.lp-check {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 1px;
+  color: var(--brand);
+}
+.lp-plan .lp-btn {
+  margin-top: 26px;
+  width: 100%;
+}
+
+/* ---------- footer ---------- */
+
+.lp-footer {
+  border-top: 1px solid var(--border);
+  padding: 40px 0;
+  background: var(--surface);
+}
+.lp-footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.lp-footer-links {
+  display: flex;
+  gap: 22px;
+}
+.lp-footer-links a:hover {
+  color: var(--text);
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 860px) {
+  .lp-feature {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .lp-feature.rev .lp-feature-visual {
+    order: 0; /* text reads first on small screens */
+  }
+  .lp-plans {
+    grid-template-columns: 1fr;
+  }
+  .lp-ph-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  body {
+    font-size: 14.5px;
+  }
+  .lp-nav-right {
+    gap: 14px;
+  }
+  .lp-hero-cta .lp-btn {
+    flex: 1 1 100%;
+  }
+  .lp-ph-main {
+    grid-template-columns: 1fr;
+  }
+}
