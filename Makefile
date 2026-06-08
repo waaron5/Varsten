@@ -1,4 +1,4 @@
-.PHONY: up down logs sync-prices demo-seed migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code
+.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code
 
 # Bring up the full local stack (Postgres + API + frontend). The API container
 # applies migrations on boot. First run builds the API image.
@@ -21,6 +21,12 @@ sync-prices:
 # analysis data. Safe to rerun.
 demo-seed:
 	cd backend && .venv/bin/python -m scripts.seed_demo
+
+# Seed the isolated demo TENANT with a fresh 30-day proxy narrative (Command
+# Center). Destructive + idempotent: wipes and regenerates the is_demo org only.
+# Pristine before every sales call. ARGS=--base 1000 to scale volume.
+seed-demo-tenant:
+	cd backend && .venv/bin/python -m scripts.seed_demo_tenant --yes $(ARGS)
 
 # Apply database migrations.
 migrate:

@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,9 @@ class Organization(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     monthly_spend_budget_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    # Marks a seeded demo tenant. The demo seeder asserts this before any wipe, so
+    # it can never touch a real customer org (is_demo=False is the default).
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     memberships: Mapped[list["OrgMembership"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
