@@ -906,83 +906,103 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   .tbl .seg { min-width: 154px; }
 }
 
-/* --- Command Center narrative sections (Margin / Proxy / Quality) --- */
-/* Spacing between sections comes from the parent .command-center-stack flex gap. */
-
-.cc-statstrip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 28px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.cc-stat { display: flex; flex-direction: column; gap: 7px; min-width: 96px; }
-.cc-stat-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.cc-stat-value { font-size: 21px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
-.cc-stat-value.pos { color: var(--pos); }
-.cc-stat-value.neg { color: var(--neg); }
-
-.cc-chart-wrap { padding: 10px 12px 14px; }
-.cc-chart-2col {
+/* ===================== Command Center (no-scroll dashboard) =====================
+   Fills .content and clips. The shell grid's 1fr main column reflows on sidebar
+   collapse; minmax(0,...) on rows AND cols lets charts/tables shrink to fit so the
+   grid never blows out. The page never scrolls (overflow:hidden) above the
+   small-viewport fallback at the bottom. */
+.cc-canvas {
+  height: 100%;
+  width: 100%;
+  padding: 16px 18px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: auto minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
 }
-.cc-chart-cell { padding: 12px 12px 14px; }
-.cc-chart-cell + .cc-chart-cell { border-left: 1px solid var(--border); }
-.cc-chart-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-3);
-  padding: 0 6px 10px;
-}
-.cc-chart-frame {
-  height: 220px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cc-chart-empty {
-  color: var(--text-faint);
-  font-size: 12.5px;
-  font-family: var(--font-mono);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-}
+.cc-kpi-strip { grid-column: 1 / -1; display: flex; gap: 12px; min-width: 0; }
+.cc-pos-margin  { grid-column: 1 / 9;  grid-row: 2; }
+.cc-pos-hitrate { grid-column: 9 / 13; grid-row: 2; }
+.cc-pos-quality { grid-column: 1 / 9;  grid-row: 3; }
+.cc-pos-latency { grid-column: 9 / 13; grid-row: 3; }
 
-/* Minimal chart tooltip, matched to the design system. */
-.chart-tip {
+/* KPI tiles */
+.cc-kpi {
+  flex: 1 1 0;
+  min-width: 0;
   background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: 12px 15px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
 }
-.chart-tip-label {
-  font-size: 11px;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  margin-bottom: 6px;
+.cc-kpi-label {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.cc-kpi-value { font-size: 22px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cc-kpi-value.pos { color: var(--pos); }
+.cc-kpi-value.neg { color: var(--neg); }
+.cc-kpi-sub { font-size: 11.5px; color: var(--text-3); }
+
+/* Panels: fixed head + flexible body that charts/tables fill and clip. */
+.cc-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cc-panel-head {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.cc-panel-titles { min-width: 0; }
+.cc-panel-head h3 { font-size: 13.5px; font-weight: 600; }
+.cc-panel-sub { display: block; font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.cc-panel-right { margin-left: auto; }
+.cc-panel-stat { font-size: 13px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cc-panel-body { flex: 1; min-height: 0; padding: 8px 10px 10px; }
+
+/* Latency right-slot inline legend */
+.cc-lat-stats { display: inline-flex; align-items: center; gap: 12px; }
+.cc-lat-stats > span { display: inline-flex; align-items: center; gap: 5px; }
+.cc-lat-stats i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.cc-lat-p99 { color: var(--text-3); }
+
+/* Empty + skeleton fill the body so there is no layout shift. */
+.cc-panel-empty {
+  height: 100%; display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 0 18px; color: var(--text-faint); font-size: 12.5px; line-height: 1.5;
+}
+.cc-skeleton {
+  height: 100%; border-radius: var(--radius-sm);
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-hover) 50%, var(--surface-2) 70%);
+  background-size: 200% 100%; animation: ccShimmer 1.3s ease-in-out infinite;
+}
+@keyframes ccShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* Quality table scrolls internally if routes overflow; the page does not. */
+.cc-table-scroll { height: 100%; overflow: auto; }
+.cc-table-scroll .tbl th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.cc-route-name { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Minimal chart tooltip (command-center charts). */
+.chart-tip { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 8px 10px; font-size: 12px; }
+.chart-tip-label { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); margin-bottom: 6px; }
 .chart-tip-row { display: flex; align-items: center; gap: 7px; line-height: 1.6; }
 .chart-tip-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .chart-tip-name { color: var(--text-2); }
 .chart-tip-value { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; padding-left: 14px; }
 
-/* Drift status pill (negative tone), to match the existing pill set. */
+/* Drift status pill. */
 .pill.red { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, transparent); background: var(--neg-soft); }
 
-@media (max-width: 900px) {
-  .cc-chart-2col { grid-template-columns: 1fr; }
-  .cc-chart-cell + .cc-chart-cell { border-left: none; border-top: 1px solid var(--border); }
+/* Graceful fallback: below this, strict no-scroll is unusable, so stack and let
+   this page scroll (the shell .content provides the scrollbar). */
+@media (max-height: 680px), (max-width: 1100px) {
+  .cc-canvas { height: auto; min-height: 100%; overflow: visible; grid-template-columns: 1fr; grid-template-rows: none; }
+  .cc-pos-margin, .cc-pos-hitrate, .cc-pos-quality, .cc-pos-latency { grid-column: 1 / -1; grid-row: auto; }
+  .cc-panel { min-height: 248px; }
+  .cc-kpi-strip { flex-wrap: wrap; }
+  .cc-kpi { flex-basis: 140px; }
 }

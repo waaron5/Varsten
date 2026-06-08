@@ -1,12 +1,11 @@
 "use client";
 
-// Raw Recharts chart components for the Command Center. Kept in their own module
-// so the consuming view can lazy-load them with next/dynamic (ssr: false), which
-// avoids Recharts' hydration mismatches and lets the KPI tiles paint first.
-//
-// Aesthetic: no cartesian grids, minimal axes, custom minimal tooltips, and every
-// colour comes from the hand-rolled CSS custom properties (no Tailwind). The
-// library is geometry only; the look is our design system.
+// Raw Recharts chart bodies for the Command Center. Each fills its parent
+// (ResponsiveContainer height="100%") so the grid cell governs the aspect ratio;
+// there is no fixed ratio to break when the sidebar collapses. `debounce` lets the
+// SVG re-lay-out once after the 0.22s shell grid transition rather than every
+// frame. Colours come from the hand-rolled CSS tokens passed straight into SVG
+// attributes (no Tailwind). Loaded only via lazyCharts.tsx (next/dynamic ssr:false).
 
 import {
   Area,
@@ -22,8 +21,9 @@ import {
 import { compact, usd } from "@/lib/format";
 import type { CacheTrafficPoint, LatencyPoint, SavingsTrendPoint } from "@/lib/types";
 
-const HEIGHT = 220;
 const AXIS = { fontSize: 11, fontFamily: "var(--font-mono)", fill: "var(--text-3)" } as const;
+const MARGIN = { top: 6, right: 8, bottom: 0, left: 6 } as const;
+const DEBOUNCE = 150;
 
 function shortDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -36,8 +36,6 @@ function num(value: string | number | null): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// One shared minimal tooltip. Rows are passed pre-formatted so each chart controls
-// its own units.
 function MinimalTooltip({
   active,
   label,
@@ -69,10 +67,10 @@ export function CumulativeSavingsChart({ data }: { data: SavingsTrendPoint[] }) 
     daily: num(p.saved_usd),
   }));
   return (
-    <ResponsiveContainer width="100%" height={HEIGHT}>
-      <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+    <ResponsiveContainer width="100%" height="100%" debounce={DEBOUNCE}>
+      <AreaChart data={series} margin={MARGIN}>
         <defs>
-          <linearGradient id="savingsFill" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="ccSavingsFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.28} />
             <stop offset="100%" stopColor="var(--brand)" stopOpacity={0.02} />
           </linearGradient>
@@ -83,15 +81,9 @@ export function CumulativeSavingsChart({ data }: { data: SavingsTrendPoint[] }) 
           tick={AXIS}
           tickLine={false}
           axisLine={{ stroke: "var(--border)" }}
-          minTickGap={28}
+          minTickGap={32}
         />
-        <YAxis
-          tickFormatter={(v) => `$${compact(v)}`}
-          tick={AXIS}
-          tickLine={false}
-          axisLine={false}
-          width={52}
-        />
+        <YAxis tickFormatter={(v) => `$${compact(v)}`} tick={AXIS} tickLine={false} axisLine={false} width={50} />
         <Tooltip
           cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }}
           content={({ active, label, payload }) => (
@@ -110,7 +102,7 @@ export function CumulativeSavingsChart({ data }: { data: SavingsTrendPoint[] }) 
           dataKey="cumulative"
           stroke="var(--brand)"
           strokeWidth={2}
-          fill="url(#savingsFill)"
+          fill="url(#ccSavingsFill)"
           dot={false}
           activeDot={{ r: 3, fill: "var(--brand)" }}
         />
@@ -126,10 +118,10 @@ export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
     requests: p.requests,
   }));
   return (
-    <ResponsiveContainer width="100%" height={HEIGHT}>
-      <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+    <ResponsiveContainer width="100%" height="100%" debounce={DEBOUNCE}>
+      <AreaChart data={series} margin={MARGIN}>
         <defs>
-          <linearGradient id="hitFill" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="ccHitFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--c2)" stopOpacity={0.22} />
             <stop offset="100%" stopColor="var(--c2)" stopOpacity={0.02} />
           </linearGradient>
@@ -140,7 +132,7 @@ export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
           tick={AXIS}
           tickLine={false}
           axisLine={{ stroke: "var(--border)" }}
-          minTickGap={28}
+          minTickGap={32}
         />
         <YAxis
           domain={[0, 100]}
@@ -148,7 +140,7 @@ export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
           tick={AXIS}
           tickLine={false}
           axisLine={false}
-          width={40}
+          width={38}
         />
         <Tooltip
           cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }}
@@ -172,7 +164,7 @@ export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
           dataKey="hit_rate"
           stroke="var(--c2)"
           strokeWidth={2}
-          fill="url(#hitFill)"
+          fill="url(#ccHitFill)"
           connectNulls
           dot={false}
           activeDot={{ r: 3, fill: "var(--c2)" }}
@@ -185,8 +177,8 @@ export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
 export function LatencyChart({ data }: { data: LatencyPoint[] }) {
   const series = data.map((p) => ({ date: p.date, p50_ms: p.p50_ms, p95_ms: p.p95_ms }));
   return (
-    <ResponsiveContainer width="100%" height={HEIGHT}>
-      <LineChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+    <ResponsiveContainer width="100%" height="100%" debounce={DEBOUNCE}>
+      <LineChart data={series} margin={MARGIN}>
         <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 4" />
         <XAxis
           dataKey="date"
@@ -194,15 +186,9 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
           tick={AXIS}
           tickLine={false}
           axisLine={{ stroke: "var(--border)" }}
-          minTickGap={28}
+          minTickGap={32}
         />
-        <YAxis
-          tickFormatter={(v) => `${compact(v)}ms`}
-          tick={AXIS}
-          tickLine={false}
-          axisLine={false}
-          width={52}
-        />
+        <YAxis tickFormatter={(v) => `${compact(v)}ms`} tick={AXIS} tickLine={false} axisLine={false} width={50} />
         <Tooltip
           cursor={{ stroke: "var(--border-strong)", strokeWidth: 1 }}
           content={({ active, label, payload }) => (
