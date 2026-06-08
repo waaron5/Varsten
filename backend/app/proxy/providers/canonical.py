@@ -45,8 +45,8 @@ class CanonicalCompletion:
     raw: dict | None = None
 
 
-def _usage_dict(u: CanonicalUsage) -> dict:
-    d = {
+def _usage_dict(u: CanonicalUsage) -> dict[str, object]:
+    d: dict[str, object] = {
         "prompt_tokens": u.input_tokens,
         "completion_tokens": u.output_tokens,
         "total_tokens": u.input_tokens + u.output_tokens,

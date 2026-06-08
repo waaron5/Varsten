@@ -165,7 +165,9 @@ async def test_unauthenticated_proxy_rejected(async_client, mock_openai):
 
 
 @pytest.mark.anyio
-async def test_nonstream_miss_forwards_and_records(async_client, async_db_session, async_provision, mock_openai, monkeypatch):
+async def test_nonstream_miss_forwards_and_records(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
     ws = await async_provision(sub="auth0|p", email="p@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
@@ -187,7 +189,9 @@ async def test_nonstream_miss_forwards_and_records(async_client, async_db_sessio
 
 
 @pytest.mark.anyio
-async def test_streaming_miss_passes_through_and_records(async_client, async_db_session, async_provision, mock_openai, monkeypatch):
+async def test_streaming_miss_passes_through_and_records(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
     ws = await async_provision(sub="auth0|p", email="p@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}], "stream": True}
@@ -204,7 +208,9 @@ async def test_streaming_miss_passes_through_and_records(async_client, async_db_
 
 
 @pytest.mark.anyio
-async def test_cache_hit_served_without_upstream(async_client, async_db_session, async_provision, mock_openai, monkeypatch):
+async def test_cache_hit_served_without_upstream(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
     ws = await async_provision(sub="auth0|p", email="p@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
@@ -233,7 +239,9 @@ async def test_cache_hit_served_without_upstream(async_client, async_db_session,
 
 
 @pytest.mark.anyio
-async def test_global_kill_switch_bypasses_optimization(async_client, async_db_session, async_provision, mock_openai, monkeypatch):
+async def test_global_kill_switch_bypasses_optimization(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
     ws = await async_provision(sub="auth0|p", email="p@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     monkeypatch.setattr(settings, "proxy_kill_switch", True)
@@ -253,7 +261,9 @@ async def test_global_kill_switch_bypasses_optimization(async_client, async_db_s
 
 
 @pytest.mark.anyio
-async def test_per_project_kill_switch_bypasses(async_client, async_db_session, async_provision, mock_openai, monkeypatch):
+async def test_per_project_kill_switch_bypasses(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
     ws = await async_provision(sub="auth0|p", email="p@example.com")
     _configure_key(monkeypatch, ws["project_id"])
 

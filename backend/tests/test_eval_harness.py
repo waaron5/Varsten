@@ -340,7 +340,9 @@ async def test_capture_enforces_route_cap(async_provision, async_db_session, mon
             input_tokens=10,
             output_tokens=2,
         )
-    total = len((await async_db_session.scalars(select(ReplaySample).where(ReplaySample.project_id == project.id))).all())
+    total = len(
+        (await async_db_session.scalars(select(ReplaySample).where(ReplaySample.project_id == project.id))).all()
+    )
     assert total == 3
 
 

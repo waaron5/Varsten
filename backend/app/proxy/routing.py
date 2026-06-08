@@ -40,7 +40,9 @@ class RouteDecision(NamedTuple):
     holdback_percent: Decimal
 
 
-async def _routing_policy_for_model(db: AsyncSession, project_id: uuid.UUID, requested_model: str) -> ProxyPolicy | None:
+async def _routing_policy_for_model(
+    db: AsyncSession, project_id: uuid.UUID, requested_model: str
+) -> ProxyPolicy | None:
     """The enabled routing-lever policy that applies to this incumbent model, if
     any. At most one is expected; the most recently activated wins if not."""
     return (

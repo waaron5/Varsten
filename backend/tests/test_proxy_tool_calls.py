@@ -103,6 +103,7 @@ def test_assemble_stream_reconstructs_parallel_tool_calls():
     )
     assembled = openai_ops.assemble_stream(openai_ops.parse_sse_events(body))
     calls = assembled.tool_calls
+    assert calls is not None
     assert [c["id"] for c in calls] == ["a", "b"]  # ordered by index
     assert [c["function"]["name"] for c in calls] == ["f0", "f1"]
 
@@ -116,6 +117,7 @@ def test_assemble_stream_handles_mixed_content_and_tool_calls():
     )
     assembled = openai_ops.assemble_stream(openai_ops.parse_sse_events(body))
     assert assembled.content == "Let me check. "
+    assert assembled.tool_calls is not None
     assert assembled.tool_calls[0]["function"]["name"] == "lookup"
 
 
@@ -243,7 +245,9 @@ async def test_cached_tool_call_served_nonstream_and_stream(
     assert mock_tool_openai["completions"] == 1
 
     # Streaming hit on the same cached entry: tool_calls survive the SSE path.
-    stream_hit = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json={**base, "stream": True})
+    stream_hit = await async_client.post(
+        "/v1/chat/completions", headers=_b(ws["api_key"]), json={**base, "stream": True}
+    )
     assert stream_hit.status_code == 200
     assert "get_weather" in stream_hit.text
     sse = openai_ops.parse_sse_events(stream_hit.text)

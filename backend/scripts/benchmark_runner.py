@@ -206,7 +206,7 @@ def install_fake_upstream() -> None:
     # other attribute (RequestError, etc.) to the real module. Mutating the global
     # httpx.AsyncClient would also hijack this script's own ASGI client.
     class _HttpxShim:
-        AsyncClient = staticmethod(lambda *a, **k: real(transport=httpx.MockTransport(handler)))
+        AsyncClient = staticmethod(lambda *_args, **_kwargs: real(transport=httpx.MockTransport(handler)))
 
         def __getattr__(self, name):
             return getattr(httpx, name)
@@ -553,7 +553,11 @@ async def capture_incumbent(
 
 
 async def run_validation(
-    db, project: Project, conversations: list[list[dict]], key: str, request_delay: float = 1.5,
+    db,
+    project: Project,
+    conversations: list[list[dict]],
+    key: str,
+    request_delay: float = 1.5,
     source_dataset: str = "unknown",
 ) -> EvalRun:
     """Capture real incumbent responses, then run the actual eval harness: it
@@ -561,8 +565,11 @@ async def run_validation(
     candidate vs incumbent with the position-swapped pairwise judge."""
     print(f"Calling incumbent {INCUMBENT} live for {len(conversations)} prompts…", file=sys.stderr)
     captured = await capture_incumbent(db, project, conversations, key, request_delay=request_delay)
-    print(f"Captured {captured} incumbent responses. Running the eval harness "
-          f"(replay {CANDIDATE} + position-swapped judge)…", file=sys.stderr)
+    print(
+        f"Captured {captured} incumbent responses. Running the eval harness "
+        f"(replay {CANDIDATE} + position-swapped judge)…",
+        file=sys.stderr,
+    )
     run = EvalRun(
         organization_id=project.organization_id,
         project_id=project.id,
@@ -685,7 +692,9 @@ def main() -> int:
             if not args.keep:
                 reset_eval(db, project)
             convs = load_dataset(args.source, args.dataset, args.sharegpt_dataset, args.limit)
-            run = asyncio.run(run_validation(db, project, convs, key, request_delay=args.request_delay, source_dataset=args.source))
+            run = asyncio.run(
+                run_validation(db, project, convs, key, request_delay=args.request_delay, source_dataset=args.source)
+            )
             report_validation(db, run)
         finally:
             db.close()

@@ -30,7 +30,7 @@ function Nav() {
     <header className="lp-nav">
       <div className="lp-container lp-nav-inner">
         <Link className="lp-logo" href="/" aria-label="Varsten home">
-          Varsten
+          <img src="/varsten-lockup-black.svg" alt="Varsten" />
         </Link>
         <nav className="lp-nav-right">
           <a className="lp-link" href={APP_URL}>
@@ -48,44 +48,48 @@ function Nav() {
 function Hero() {
   return (
     <section className="lp-hero">
-      <div className="lp-container">
-        <h1 className="lp-hero-title">Reduce AI spend without sacrificing quality.</h1>
-        <p className="lp-hero-sub">
-          Varsten is a drop-in AI proxy that automatically caches exact hits, routes traffic to the most
-          cost-effective models, and proves safety with concurrent holdback evals.
-        </p>
-        <div className="lp-hero-cta">
-          <a className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" href={APP_URL}>
-            Start for free
-          </a>
-          <a className="lp-btn lp-btn-ghost lp-btn-lg lp-btn-cta" href={DEMO_URL}>
-            Watch demo
-          </a>
-        </div>
-      </div>
-
-      {/* Proof asset: a framed placeholder ready for a high-resolution Command
-          Center screenshot. Renders a faint wireframe of that view until then. */}
-      <div className="lp-proof">
-        <div className="lp-proof-frame">
-          <div className="lp-proof-chrome">
-            <span className="lp-proof-dot" />
-            <span className="lp-proof-dot" />
-            <span className="lp-proof-dot" />
-            <span className="lp-proof-url">app.varsten.ai/command-center</span>
+      <div className="lp-container lp-hero-grid">
+        <div className="lp-hero-copy">
+          <h1 className="lp-hero-title">
+            <span>Reduce AI spend</span> without sacrificing quality.
+          </h1>
+          <p className="lp-hero-sub">
+            Varsten is a drop-in AI proxy that automatically caches exact hits, routes traffic to the most
+            cost-effective models, and proves safety with concurrent holdback evals.
+          </p>
+          <div className="lp-hero-cta">
+            <a className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" href={APP_URL}>
+              Start for free
+            </a>
+            <a className="lp-btn lp-btn-ghost lp-btn-lg lp-btn-cta" href={DEMO_URL}>
+              Watch demo
+            </a>
           </div>
-          <div className="lp-proof-canvas">
-            <div className="lp-ph-row">
-              <div className="lp-ph-tile" />
-              <div className="lp-ph-tile" />
-              <div className="lp-ph-tile" />
-              <div className="lp-ph-tile" />
+        </div>
+
+        {/* Proof asset: a framed placeholder ready for a high-resolution Command
+            Center screenshot. Renders a faint wireframe of that view until then. */}
+        <div className="lp-proof">
+          <div className="lp-proof-frame">
+            <div className="lp-proof-chrome">
+              <span className="lp-proof-dot" />
+              <span className="lp-proof-dot" />
+              <span className="lp-proof-dot" />
+              <span className="lp-proof-url">app.varsten.ai/command-center</span>
             </div>
-            <div className="lp-ph-main">
-              <div className="lp-ph-panel">
-                <span className="lp-ph-caption">Command Center</span>
+            <div className="lp-proof-canvas">
+              <div className="lp-ph-row">
+                <div className="lp-ph-tile" />
+                <div className="lp-ph-tile" />
+                <div className="lp-ph-tile" />
+                <div className="lp-ph-tile" />
               </div>
-              <div className="lp-ph-panel" />
+              <div className="lp-ph-main">
+                <div className="lp-ph-panel">
+                  <span className="lp-ph-caption">Command Center</span>
+                </div>
+                <div className="lp-ph-panel" />
+              </div>
             </div>
           </div>
         </div>

@@ -193,10 +193,14 @@ a {
   justify-content: space-between;
 }
 .lp-logo {
-  font-size: 19px;
-  font-weight: 680;
-  letter-spacing: -0.01em;
-  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+}
+.lp-logo img {
+  display: block;
+  width: auto;
+  height: 30px;
 }
 .lp-nav-right {
   display: flex;
@@ -207,21 +211,40 @@ a {
 /* ---------- hero ---------- */
 
 .lp-hero {
-  padding: clamp(56px, 9vw, 116px) 0 0;
-  text-align: center;
+  position: relative;
+  overflow: hidden;
+  padding: clamp(56px, 9vw, 116px) 0 clamp(48px, 7vw, 84px);
+  background:
+    linear-gradient(90deg, rgba(232, 249, 240, 0.84) 0%, rgba(228, 248, 238, 0.8) 48%, rgba(224, 247, 236, 0.76) 100%),
+    url("/hero-backgrounds/hero_background_4.png");
+  background-size: cover;
+  background-position: center;
+}
+.lp-hero-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(460px, 1.1fr);
+  gap: clamp(36px, 6vw, 72px);
+  align-items: center;
+}
+.lp-hero-copy {
+  text-align: left;
 }
 .lp-hero-title {
-  max-width: 880px;
-  margin: 0 auto;
+  max-width: 560px;
   font-size: clamp(38px, 6vw, 66px);
   font-weight: 680;
   letter-spacing: -0.025em;
   line-height: 1.04;
   color: var(--text);
 }
+.lp-hero-title span {
+  color: var(--brand);
+}
 .lp-hero-sub {
-  max-width: 600px;
-  margin: 22px auto 0;
+  max-width: 520px;
+  margin-top: 22px;
   font-size: clamp(16px, 2.1vw, 20px);
   line-height: 1.55;
   color: var(--text-2);
@@ -230,16 +253,14 @@ a {
   margin-top: 32px;
   display: flex;
   gap: 14px;
-  justify-content: center;
+  justify-content: flex-start;
   flex-wrap: wrap;
 }
 
 /* ---------- proof asset (dashboard screenshot placeholder) ---------- */
 
 .lp-proof {
-  margin: clamp(48px, 7vw, 84px) auto 0;
-  max-width: 1080px;
-  padding: 0 24px;
+  min-width: 0;
 }
 .lp-proof-frame {
   border: 1px solid var(--border);
@@ -557,6 +578,14 @@ a {
 /* ---------- responsive ---------- */
 
 @media (max-width: 860px) {
+  .lp-hero-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .lp-hero-title,
+  .lp-hero-sub {
+    max-width: 680px;
+  }
   .lp-feature {
     grid-template-columns: 1fr;
     gap: 24px;

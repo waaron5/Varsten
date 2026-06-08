@@ -40,11 +40,13 @@ def _parse_retry_after(header: str | None, attempt: int) -> float:
             pass
         try:
             dt = parsedate_to_datetime(header)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            dt = None
+        if dt is not None:
             return max(0.0, (dt - datetime.now(UTC)).total_seconds())
-        except Exception:
-            pass
     cap = min(_MAX_BACKOFF_S, _BASE_BACKOFF_S * (2**attempt))
-    return random.uniform(0, cap)
+    # Retry jitter, not security-sensitive randomness.
+    return random.uniform(0, cap)  # nosec B311
 
 
 async def _post_with_retry(url: str, headers: dict, body: dict, timeout: float) -> httpx.Response:
@@ -60,7 +62,8 @@ async def _post_with_retry(url: str, headers: dict, body: dict, timeout: float) 
                 extra={"attempt": attempt + 1, "wait_s": round(wait, 2)},
             )
             await asyncio.sleep(wait)
-    return resp  # type: ignore[return-value]
+    return resp
+
 
 # Pairwise judge. Position-swapping is handled by the runner (it calls twice with
 # the answers swapped), so the judge only ever names "first" or "second".
