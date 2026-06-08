@@ -17,20 +17,27 @@ function latency(ms: number | null | undefined): string {
   return ms === null || ms === undefined ? "—" : `${compact(ms)}ms`;
 }
 
+// A money value renders "—" when null/undefined (no data behind it), never $0.
+function money(value: string | number | null | undefined): string {
+  return value === null || value === undefined ? "—" : usd(value, 0);
+}
+
 // --- KPI strip (Margin + Proxy headline numbers) ------------------------------
 
 export function KpiStrip() {
   const { commandCenter, proxyTraffic } = useCommandCenter();
   const live = commandCenter.data?.live_savings;
   const pt = proxyTraffic.data;
+  // Every tile resolves to "—" when its field is null: money() for the savings
+  // figures, percent()/latency() already return "—" for null/undefined.
   return (
     <div className="cc-kpi-strip">
-      <KpiTile label="Gross saved (mo)" value={live ? usd(live.saved_month, 0) : "—"} tone="pos" />
-      <KpiTile label="Net after fee (mo)" value={live ? usd(live.net_saved_month, 0) : "—"} />
-      <KpiTile label="Annual run-rate" value={live ? usd(live.annual_run_rate, 0) : "—"} />
-      <KpiTile label="Cache hit-rate" value={pt ? percent(pt.hit_rate) : "—"} tone="pos" />
+      <KpiTile label="Gross saved (mo)" value={money(live?.saved_month)} tone="pos" />
+      <KpiTile label="Net after fee (mo)" value={money(live?.net_saved_month)} />
+      <KpiTile label="Annual run-rate" value={money(live?.annual_run_rate)} />
+      <KpiTile label="Cache hit-rate" value={percent(pt?.hit_rate)} tone="pos" />
       <KpiTile label="p95 latency" value={latency(pt?.latency_p95_ms)} />
-      <KpiTile label="Trust score" value={live ? percent(live.trust_score) : "—"} />
+      <KpiTile label="Trust score" value={percent(live?.trust_score)} />
     </div>
   );
 }
@@ -46,7 +53,7 @@ export function MarginEnginePanel() {
       place="cc-pos-margin"
       title="Margin engine"
       sub="cumulative savings vs naive-retail baseline · 30 days"
-      right={data ? <span className="cc-panel-stat">{usd(data.total_saved_usd, 0)} saved</span> : null}
+      right={hasSeries && data ? <span className="cc-panel-stat">{usd(data.total_saved_usd, 0)} saved</span> : null}
     >
       {savingsTrend.loading ? (
         <PanelSkeleton />
@@ -70,7 +77,7 @@ export function ProxyHitRatePanel() {
       place="cc-pos-hitrate"
       title="Cache hit-rate"
       sub="exact-hash served · 30 days"
-      right={data ? <span className="cc-panel-stat">{percent(data.hit_rate)}</span> : null}
+      right={hasCache && data ? <span className="cc-panel-stat">{percent(data.hit_rate)}</span> : null}
     >
       {proxyTraffic.loading ? (
         <PanelSkeleton />
@@ -93,7 +100,7 @@ export function ProxyLatencyPanel() {
       title="Latency health"
       sub="proxy time-to-first-byte · 30 days"
       right={
-        data ? (
+        hasLatency && data ? (
           <span className="cc-panel-stat cc-lat-stats">
             <span>
               <i style={{ background: "var(--c1)" }} />p50 {latency(data.latency_p50_ms)}

@@ -361,10 +361,11 @@ export interface RecommendationAction {
 }
 
 export interface CommandCenterLiveSavings {
-  spend_month: string | number;
-  saved_month: string | number;
-  net_saved_month: string | number;
-  annual_run_rate: string | number;
+  // Null when there is no data behind the value — the dashboard renders "—".
+  spend_month: string | number | null;
+  saved_month: string | number | null;
+  net_saved_month: string | number | null;
+  annual_run_rate: string | number | null;
   trust_score: string | number | null;
 }
 

@@ -431,12 +431,19 @@ def command_center(
         )
     )
     top_waste = recommendations[0] if recommendations else None
+    # Data integrity: a value appears only when there is data behind it. No usage
+    # events this month means no spend to report; no attributed savings means no
+    # savings figure. A zero-traffic project shows "—" everywhere (null here),
+    # never a fabricated $0 that implies a measurement that never happened.
+    gross = summary["gross_savings_usd"]
+    has_events = spend_row.requests_month > 0
+    has_savings = gross != Decimal("0")
     return {
         "live_savings": {
-            "spend_month": spend_row.spend_month,
-            "saved_month": summary["gross_savings_usd"],
-            "net_saved_month": summary["net_savings_usd"],
-            "annual_run_rate": _money(summary["gross_savings_usd"]) * Decimal("12"),
+            "spend_month": spend_row.spend_month if has_events else None,
+            "saved_month": gross if has_savings else None,
+            "net_saved_month": summary["net_savings_usd"] if has_savings else None,
+            "annual_run_rate": (_money(gross) * Decimal("12")) if has_savings else None,
             "trust_score": quality["trust_score"],
         },
         "decision_queue": [_recommendation_payload(rec) for rec in recommendations[:5]],
