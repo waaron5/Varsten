@@ -26,8 +26,8 @@ services:
       CORS_ORIGINS: '["http://localhost:3000"]'
       # Auth0 is optional locally; API-key reads work without it. Set these to
       # validate dashboard (session) auth.
-      AUTH0_DOMAIN: ${AUTH0_DOMAIN:-}
-      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN:-dev-tnqse1hznivo6img.us.auth0.com}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-https://api.varsten.local}
     ports:
       - "8000:8000"
     depends_on:
@@ -41,7 +41,7 @@ services:
     container_name: varsten-frontend
     working_dir: /app
     # -H 0.0.0.0 so the dev server is reachable from the host through the port map.
-    command: sh -c "npm install && npm run dev -- -H 0.0.0.0"
+    command: sh -c "npm ci && npm run dev -- -H 0.0.0.0"
     environment:
       NEXT_PUBLIC_API_BASE: http://localhost:8000
     ports:

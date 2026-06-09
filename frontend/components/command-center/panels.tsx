@@ -8,7 +8,7 @@
 import type { ReactNode } from "react";
 import { percent } from "@/components/viewPrimitives";
 import { compact, usd } from "@/lib/format";
-import type { ActiveRoute } from "@/lib/types";
+import type { ActiveRoute, CommandCenterLiveSavings, ProxyTraffic, SavingsTrend } from "@/lib/types";
 import { useCommandCenter } from "./CommandCenterProvider";
 import { CumulativeSavingsChart, HitRateChart, LatencyChart, Sparkline } from "./lazyCharts";
 import { KpiTile, Panel, PanelEmpty, PanelSkeleton } from "./primitives";
@@ -36,25 +36,73 @@ function spark(series: (number | null)[], color: string): ReactNode {
 
 // --- KPI strip (Margin + Proxy headline numbers) ------------------------------
 
+function GrossSavedTile({
+  live,
+  savingsTrend,
+}: {
+  live: CommandCenterLiveSavings | undefined;
+  savingsTrend: SavingsTrend | undefined;
+}) {
+  const savedSpark = (savingsTrend?.points ?? []).map((p) => toNum(p.cumulative_saved_usd));
+  return (
+    <KpiTile
+      label="Gross saved (mo)"
+      value={money(live?.saved_month)}
+      tone="pos"
+      spark={spark(savedSpark, "var(--brand)")}
+    />
+  );
+}
+
+function NetSavedTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
+  return <KpiTile label="Net after fee (mo)" value={money(live?.net_saved_month)} />;
+}
+
+function AnnualRunRateTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
+  return <KpiTile label="Annual run-rate" value={money(live?.annual_run_rate)} />;
+}
+
+function CacheHitRateTile({ proxyTraffic }: { proxyTraffic: ProxyTraffic | undefined }) {
+  const hitSpark = (proxyTraffic?.cache_series ?? []).map((p) => toNum(p.hit_rate));
+  return (
+    <KpiTile
+      label="Cache hit-rate"
+      value={percent(proxyTraffic?.hit_rate)}
+      tone="pos"
+      spark={spark(hitSpark, "var(--c2)")}
+    />
+  );
+}
+
+function P95LatencyTile({ proxyTraffic }: { proxyTraffic: ProxyTraffic | undefined }) {
+  const p95Spark = (proxyTraffic?.latency_series ?? []).map((p) => p.p95_ms);
+  return (
+    <KpiTile
+      label="p95 latency"
+      value={latency(proxyTraffic?.latency_p95_ms)}
+      spark={spark(p95Spark, "var(--c3)")}
+    />
+  );
+}
+
+function TrustScoreTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
+  return <KpiTile label="Trust score" value={percent(live?.trust_score)} />;
+}
+
 export function KpiStrip() {
   const { commandCenter, proxyTraffic, savingsTrend } = useCommandCenter();
   const live = commandCenter.data?.live_savings;
   const pt = proxyTraffic.data;
-  // 30-day trend series for the BANs that have one. Single-value tiles (Net,
-  // Run-rate, Trust) stay clean — no fabricated trend where there is no series.
-  const savedSpark = (savingsTrend.data?.points ?? []).map((p) => toNum(p.cumulative_saved_usd));
-  const hitSpark = (pt?.cache_series ?? []).map((p) => toNum(p.hit_rate));
-  const p95Spark = (pt?.latency_series ?? []).map((p) => p.p95_ms);
   // Every tile resolves to "—" when its field is null: money() for the savings
   // figures, percent()/latency() already return "—" for null/undefined.
   return (
     <div className="cc-kpi-strip">
-      <KpiTile label="Gross saved (mo)" value={money(live?.saved_month)} tone="pos" spark={spark(savedSpark, "var(--brand)")} />
-      <KpiTile label="Net after fee (mo)" value={money(live?.net_saved_month)} />
-      <KpiTile label="Annual run-rate" value={money(live?.annual_run_rate)} />
-      <KpiTile label="Cache hit-rate" value={percent(pt?.hit_rate)} tone="pos" spark={spark(hitSpark, "var(--c2)")} />
-      <KpiTile label="p95 latency" value={latency(pt?.latency_p95_ms)} spark={spark(p95Spark, "var(--c3)")} />
-      <KpiTile label="Trust score" value={percent(live?.trust_score)} />
+      <GrossSavedTile live={live} savingsTrend={savingsTrend.data} />
+      <NetSavedTile live={live} />
+      <AnnualRunRateTile live={live} />
+      <CacheHitRateTile proxyTraffic={pt} />
+      <P95LatencyTile proxyTraffic={pt} />
+      <TrustScoreTile live={live} />
     </div>
   );
 }

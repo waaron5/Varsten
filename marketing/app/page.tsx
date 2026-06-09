@@ -1,12 +1,23 @@
+"use client";
+
 // Varsten public landing page (varsten.ai). Semantic HTML + the Varsten CSS token
 // system; no Tailwind / UI library. Copy is deliberately dry and technical.
 
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 
 // Placeholder destinations — wire these to the real app/routes when available.
 const APP_URL = "https://app.varsten.ai";
 const DEMO_URL = "#demo";
-const PRICING_URL = "/pricing";
+const PERFORMANCE_TRIAL_URL = APP_URL;
+const SAVINGS_RATE = 0.2;
+const VARSTEN_SHARE = 0.25;
+
+const money = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
 
 function Check() {
   return (
@@ -37,7 +48,7 @@ function Nav() {
             Sign in
           </a>
           <a className="lp-btn lp-btn-primary" href={APP_URL}>
-            Start for free
+            Start Free
           </a>
         </nav>
       </div>
@@ -54,12 +65,12 @@ function Hero() {
             <span>Reduce AI spend</span> without sacrificing quality.
           </h1>
           <p className="lp-hero-sub">
-            Varsten is a drop-in AI proxy that automatically caches exact hits, routes traffic to the most
-            cost-effective models, and proves safety with concurrent holdback evals.
+            Varsten helps your team spend less on AI by reusing safe repeat answers, 
+            sending each request to the right model, and checking that cost savings do not hurt quality.
           </p>
           <div className="lp-hero-cta">
             <a className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" href={APP_URL}>
-              Start for free
+              Start Free
             </a>
             <a className="lp-btn lp-btn-ghost lp-btn-lg lp-btn-cta" href={DEMO_URL}>
               Watch demo
@@ -104,7 +115,9 @@ function Mechanism() {
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">Drop-in proxy</p>
-          <h2 className="lp-section-title">One line to integrate.</h2>
+          <h2 className="lp-section-title">
+            <span className="lp-title-accent">One line</span> to integrate.
+          </h2>
           <p className="lp-section-sub">
             Keep your provider SDK. Point its base URL at Varsten and swap the key. Streaming, tool calls, and your
             existing code stay exactly as they are.
@@ -183,10 +196,10 @@ function Features() {
     <section className="lp-section" id="how">
       <div className="lp-container lp-features">
         <Feature
-          eyebrow="Exact-hash cache"
-          title="Identical requests never reach the model twice."
-          body="A byte-exact match serves the stored completion in under a millisecond at zero marginal cost. A miss streams straight through, untouched — nothing is buffered, so you never add latency to a real call."
-          chip="exact hit · $0 · <1 ms"
+          eyebrow="Response reuse"
+          title="Repeat work does not need a new model call."
+          body="When the same request shows up again, Varsten can serve the stored response instead of paying for another completion. Near-duplicate matching can be enabled only on routes where it is safe; otherwise the request streams straight through untouched."
+          chip="repeat response · $0 · <1 ms"
         />
         <Feature
           reverse
@@ -210,18 +223,22 @@ function Plan({
   name,
   price,
   priceNote,
+  body,
   features,
   cta,
   ctaHref,
   featured,
+  children,
 }: {
   name: string;
   price: string;
   priceNote: string;
+  body: string;
   features: string[];
   cta: string;
   ctaHref: string;
   featured?: boolean;
+  children?: ReactNode;
 }) {
   return (
     <div className={`lp-plan${featured ? " lp-plan-featured" : ""}`}>
@@ -230,6 +247,7 @@ function Plan({
       <div className="lp-plan-price">
         {price} <span>{priceNote}</span>
       </div>
+      <p className="lp-plan-body">{body}</p>
       <ul className="lp-checks">
         {features.map((f) => (
           <li className="lp-check-item" key={f}>
@@ -247,7 +265,92 @@ function Plan({
           {cta}
         </a>
       )}
+      {children}
     </div>
+  );
+}
+
+function PricingCalculator() {
+  const [monthlySpend, setMonthlySpend] = useState(25000);
+  const grossSavings = monthlySpend * SAVINGS_RATE;
+  const varstenFee = grossSavings * VARSTEN_SHARE;
+  const customerSavings = grossSavings - varstenFee;
+  const annualSavings = customerSavings * 12;
+
+  return (
+    <section className="lp-calculator" aria-labelledby="pricing-calculator-title">
+      <div className="lp-card-head">
+        <p className="lp-eyebrow">Interactive calculator</p>
+        <h3 id="pricing-calculator-title">Estimate the 75/25 split.</h3>
+        <p>
+          Uses a conservative 20% savings assumption. Real billing uses verified savings only, never projections.
+        </p>
+      </div>
+
+      <label className="lp-range-label" htmlFor="monthly-ai-spend">
+        <span>Estimated monthly AI spend</span>
+        <strong>{money.format(monthlySpend)}</strong>
+      </label>
+      <input
+        id="monthly-ai-spend"
+        className="lp-range"
+        type="range"
+        min="5000"
+        max="100000"
+        step="5000"
+        value={monthlySpend}
+        onChange={(event) => setMonthlySpend(Number(event.target.value))}
+      />
+      <div className="lp-range-meta">
+        <span>$5k</span>
+        <span>$100k+</span>
+      </div>
+
+      <div className="lp-calc-results">
+        <div>
+          <span>Gross savings at 20%</span>
+          <strong>{money.format(grossSavings)}/mo</strong>
+        </div>
+        <div>
+          <span>Varsten fee at 25%</span>
+          <strong>{money.format(varstenFee)}/mo</strong>
+        </div>
+        <div className="lp-calc-primary">
+          <span>You keep 75%</span>
+          <strong>{money.format(customerSavings)}/mo</strong>
+        </div>
+        <div>
+          <span>Annualized net savings</span>
+          <strong>{money.format(annualSavings)}/yr</strong>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function VerifiedSavings() {
+  return (
+    <section className="lp-verified" aria-labelledby="verified-savings-title">
+      <div className="lp-card-head">
+        <p className="lp-eyebrow">Verified savings</p>
+        <h3 id="verified-savings-title">What counts as billable proof?</h3>
+        <p>Varsten only charges when attribution can defend the delta.</p>
+      </div>
+      <ul className="lp-checks">
+        {[
+          "Cached repeat responses where the avoided model call cost is known.",
+          "Batch routing measured as sync price minus batch price.",
+          "Routing and model swaps measured against a live holdback or approved eval gate.",
+          "Quality guardrails and rollback history attached to each optimization.",
+          "Recommendations, estimates, and customer-side changes are not billed.",
+        ].map((item) => (
+          <li className="lp-check-item" key={item}>
+            <Check />
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -257,42 +360,94 @@ function Pricing() {
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">Pricing</p>
-          <h2 className="lp-section-title">Start free. Pay from what you save.</h2>
+          <h2 className="lp-section-title">
+            Pay only when Varsten <span className="lp-title-accent">proves savings.</span>
+          </h2>
           <p className="lp-section-sub">
-            Connect in minutes, watch the analysis, and run a 30-day savings trial. The paid plan is a share of
-            verified savings, so the fee is always smaller than the cut.
+            Start with Free to monitor AI spend month by month and review savings recommendations. Move to
+            Performance when you want Varsten to optimize traffic directly: 25% of verified savings, with you keeping
+            the other 75%.
           </p>
         </div>
 
         <div className="lp-plans">
           <Plan
-            featured
-            name="Start for free"
+            name="Free"
             price="$0"
-            priceNote="to start"
-            cta="Deploy free trial"
+            priceNote="/mo"
+            body="For teams that need AI spend monitoring and savings recommendations."
+            cta="Start Free"
             ctaHref={APP_URL}
             features={[
-              "Free drop-in setup",
-              "Free AI spend analysis",
-              "30-day automated savings trial",
-              "Read-only cost analysis dashboard",
+              "Ongoing AI spend monitoring",
+              "Month-by-month spend trends",
+              "Savings recommendations by route, model, and workload",
+              "Pricing and catalog trust checks",
+              "Read-only Proof dashboard",
             ]}
           />
           <Plan
-            name="Pro"
-            price="% of savings"
-            priceNote="billed on verified cuts"
-            cta="View pricing"
-            ctaHref={PRICING_URL}
+            featured
+            name="Performance"
+            price="25%"
+            priceNote="of verified savings"
+            body="For teams ready to automate savings, billed monthly in arrears only from the dollars it proves."
+            cta="Start Performance"
+            ctaHref={APP_URL}
             features={[
-              "Fully autonomous routing",
-              "Active auto-rollbacks",
-              "Custom model evals",
-              "Unlimited proxy bandwidth",
+              "Everything in Free, plus:",
+              "Automated routing, caching, batching, and model swaps",
+              "Quality guardrails and active rollback",
+              "Verified savings ledger",
+              "You keep 75% of every verified dollar saved",
+              "If Varsten saves $0, you pay $0",
             ]}
-          />
+          >
+            <a className="lp-plan-subcta" href={PERFORMANCE_TRIAL_URL}>
+              Start 30-day free trial of Performance
+            </a>
+          </Plan>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function SavingsProofSection() {
+  return (
+    <section className="lp-section lp-pricing-proof-section" id="savings-proof">
+      <div className="lp-container">
+        <div className="lp-section-head center">
+          <p className="lp-eyebrow">Savings proof</p>
+          <h2 className="lp-section-title">
+            See the split <span className="lp-title-accent">before you pay.</span>
+          </h2>
+          <p className="lp-section-sub">
+            The calculator shows the shared-savings economics. The proof rules explain what Varsten can bill and what
+            stays off the invoice.
+          </p>
+        </div>
+        <div className="lp-pricing-proof-grid">
+          <PricingCalculator />
+          <VerifiedSavings />
+        </div>
+
+        <aside className="lp-enterprise-callout" aria-labelledby="enterprise-terms-title">
+          <div>
+            <p className="lp-eyebrow">Enterprise terms</p>
+            <h3 id="enterprise-terms-title">Predictable contracts, capped fees.</h3>
+            <p>
+              High-volume teams can use predictable annual contracts with true-ups, annual fee caps, VPC deployment,
+              custom evals, security review, and procurement-friendly billing terms.
+            </p>
+          </div>
+          <div className="lp-enterprise-tags" aria-label="Enterprise options">
+            <span>VPC deployment</span>
+            <span>Custom evals</span>
+            <span>Annual caps</span>
+            <span>True-ups</span>
+          </div>
+        </aside>
       </div>
     </section>
   );
@@ -309,6 +464,14 @@ function Footer() {
           <a href={DEMO_URL}>Status</a>
           <a href={APP_URL}>Sign in</a>
         </nav>
+        <div className="lp-footer-actions">
+          <a className="lp-btn lp-btn-ghost" href={DEMO_URL}>
+            Watch demo
+          </a>
+          <a className="lp-btn lp-btn-primary" href={PERFORMANCE_TRIAL_URL}>
+            Start 30-day trial
+          </a>
+        </div>
       </div>
     </footer>
   );
@@ -322,6 +485,7 @@ export default function LandingPage() {
       <Mechanism />
       <Features />
       <Pricing />
+      <SavingsProofSection />
       <Footer />
     </main>
   );

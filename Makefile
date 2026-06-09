@@ -3,7 +3,7 @@
 # Bring up the full local stack (Postgres + API + frontend). The API container
 # applies migrations on boot. First run builds the API image.
 up:
-	docker compose up --build
+	docker compose up --build -d
 
 # Stop the stack. Add ARGS=-v to also drop the database volume.
 down:
