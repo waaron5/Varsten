@@ -920,6 +920,11 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   grid-template-rows: auto minmax(0, 1.3fr) minmax(0, 1fr);
   gap: 14px;
   overflow: hidden;
+  /* The canvas is a size container, so its panels react to its own width — which
+     is exactly what the sidebar collapse changes. Collapse adds density (below),
+     not just width. inline-size contains width only; height:100% still resolves. */
+  container-type: inline-size;
+  container-name: cc;
 }
 .cc-kpi-strip { grid-column: 1 / -1; display: flex; gap: 12px; min-width: 0; }
 .cc-pos-margin  { grid-column: 1 / 9;  grid-row: 2; }
@@ -949,6 +954,10 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 .cc-kpi-value.pos { color: var(--pos); }
 .cc-kpi-value.neg { color: var(--neg); }
 .cc-kpi-sub { font-size: 11.5px; color: var(--text-3); }
+/* BAN sparkline: a clean 30-day trend stroke under the number (no axes/grid/tip).
+   Fixed height so the tile height is stable whether or not a series exists. */
+.cc-kpi-spark { width: 100%; height: 24px; margin-top: 1px; }
+.cc-kpi-spark-load { width: 100%; height: 24px; }
 
 /* Panels: fixed head + flexible body that charts/tables fill and clip. */
 .cc-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -985,6 +994,7 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 .cc-table-scroll { height: 100%; overflow: auto; }
 .cc-table-scroll .tbl th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .cc-route-name { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-ci { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* Minimal chart tooltip (command-center charts). */
 .chart-tip { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 8px 10px; font-size: 12px; }
@@ -996,6 +1006,21 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 
 /* Drift status pill. */
 .pill.red { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, transparent); background: var(--neg-soft); }
+
+/* Density tiers driven by the canvas's own width (container queries, not media
+   queries), so collapsing the sidebar makes the dashboard denser, not just wider.
+   These style descendants of .cc-canvas — a container cannot query itself. */
+@container cc (min-width: 1500px) {
+  .cc-kpi { padding: 14px 18px; }
+  .cc-kpi-value { font-size: 25px; }
+  .cc-kpi-spark { height: 28px; }
+}
+@container cc (max-width: 1240px) {
+  .cc-kpi { padding: 10px 12px; gap: 5px; }
+  .cc-kpi-value { font-size: 19px; }
+  .cc-kpi-spark { height: 20px; }
+  .cc-panel-head { padding: 10px 13px; }
+}
 
 /* Graceful fallback: below this, strict no-scroll is unusable, so stack and let
    this page scroll (the shell .content provides the scrollbar). */

@@ -188,7 +188,7 @@ export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
 }
 
 export function LatencyChart({ data }: { data: LatencyPoint[] }) {
-  const series = data.map((p) => ({ date: p.date, p50_ms: p.p50_ms, p95_ms: p.p95_ms }));
+  const series = data.map((p) => ({ date: p.date, p50_ms: p.p50_ms, p95_ms: p.p95_ms, p99_ms: p.p99_ms }));
   return (
     <ChartFrame>
       <LineChart data={series} margin={MARGIN}>
@@ -199,11 +199,49 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
           rowsForPoint={(point) => [
             { name: "p50", value: `${point?.p50_ms ?? "-"}ms`, color: "var(--c1)" },
             { name: "p95", value: `${point?.p95_ms ?? "-"}ms`, color: "var(--c3)" },
+            { name: "p99 (tail)", value: `${point?.p99_ms ?? "-"}ms`, color: "var(--c3)" },
           ]}
+        />
+        {/* p99 tail: a faint dashed upper line so the latency tail is visible
+            without competing with the p50/p95 reads. */}
+        <Line
+          type="monotone"
+          dataKey="p99_ms"
+          stroke="var(--c3)"
+          strokeOpacity={0.4}
+          strokeWidth={1.5}
+          strokeDasharray="3 3"
+          dot={false}
+          connectNulls
         />
         <Line type="monotone" dataKey="p50_ms" stroke="var(--c1)" strokeWidth={2} dot={false} connectNulls />
         <Line type="monotone" dataKey="p95_ms" stroke="var(--c3)" strokeWidth={2} dot={false} connectNulls />
       </LineChart>
     </ChartFrame>
+  );
+}
+
+// A KPI sparkline: pure stroke, zero chrome. Axes, grid and tooltip are all
+// disabled (per the design constraint) so it reads as a clean 30-day trend line
+// inside a BAN tile. Colour comes from a CSS token the caller passes.
+export function Sparkline({ data, color }: { data: (number | null)[]; color: string }) {
+  const series = data.map((v, i) => ({ i, v }));
+  return (
+    <ResponsiveContainer width="100%" height="100%" debounce={DEBOUNCE} initialDimension={INITIAL_DIMENSION}>
+      <LineChart data={series} margin={{ top: 2, right: 0, bottom: 2, left: 0 }}>
+        <XAxis dataKey="i" hide />
+        <YAxis hide domain={["dataMin", "dataMax"]} />
+        <Tooltip active={false} />
+        <Line
+          type="monotone"
+          dataKey="v"
+          stroke={color}
+          strokeWidth={1.5}
+          dot={false}
+          connectNulls
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
   );
 }

@@ -19,8 +19,11 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
+from sqlalchemy import update
+
 from app.models import Organization, SavingsAttribution
 from scripts.seed_demo_tenant import (
+    DEMO_ORG_NAME,
     DemoSafetyError,
     assert_demo_org,
     build_demo,
@@ -67,8 +70,13 @@ def test_wipe_refuses_non_demo_org(db_session):
 
 
 def test_resolve_refuses_name_clash_with_real_org(db_session):
-    # A non-demo org already squatting on the demo name must not be repurposed.
-    db_session.add(Organization(name="Varsten Demo"))  # is_demo=False
+    # Robust to a committed demo org already existing in the dev DB (a prior real
+    # seed): neutralize any demo-named org inside this rolled-back transaction so the
+    # only "Varsten Demo" is the non-demo squatter we add. resolve must then refuse.
+    db_session.execute(
+        update(Organization).where(Organization.name == DEMO_ORG_NAME).values(name="__neutralized_for_test__")
+    )
+    db_session.add(Organization(name=DEMO_ORG_NAME))  # is_demo=False
     db_session.flush()
     with pytest.raises(DemoSafetyError):
         resolve_demo_org(db_session)

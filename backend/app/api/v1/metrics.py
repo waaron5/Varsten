@@ -265,6 +265,7 @@ def proxy_traffic(
             func.count().filter(is_hit).label("hit"),
             func.percentile_cont(0.5).within_group(UsageEvent.latency_ms).label("p50"),
             func.percentile_cont(0.95).within_group(UsageEvent.latency_ms).label("p95"),
+            func.percentile_cont(0.99).within_group(UsageEvent.latency_ms).label("p99"),
         )
         .where(*proxy_window)
         .group_by(day)
@@ -283,6 +284,7 @@ def proxy_traffic(
             date=r.day.date(),
             p50_ms=int(r.p50) if r.p50 is not None else None,
             p95_ms=int(r.p95) if r.p95 is not None else None,
+            p99_ms=int(r.p99) if r.p99 is not None else None,
         )
         for r in series_rows
     ]

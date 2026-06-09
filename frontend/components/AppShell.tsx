@@ -8,6 +8,10 @@ import { useUser } from "@auth0/nextjs-auth0";
 import { useSession } from "./session";
 import type { Project, UserProfile } from "@/lib/types";
 
+// Name of the cookie that persists the sidebar collapsed state. Read on the server
+// in the root layout (for a hydration-safe first paint) and written here on toggle.
+export const SIDEBAR_COOKIE = "cc_sidebar";
+
 const NAV_GROUPS: {
   label: string;
   items: { href: string; match: string; label: string; icon: string; badge?: string }[];
@@ -258,12 +262,20 @@ function accountNames({
   };
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  initialCollapsed = false,
+}: {
+  children: React.ReactNode;
+  initialCollapsed?: boolean;
+}) {
   const pathname = usePathname();
   const { user, isLoading } = useUser();
   const { activeProjectId, profile, projects } = useSession();
   const [accountOpen, setAccountOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Seeded from the server-read cookie, so the first client render matches the SSR
+  // markup (no hydration mismatch, no expand-then-collapse flash).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialCollapsed);
   const currentRoute = routeLabel(pathname);
   const activeProject = activeProjectFor(projects, activeProjectId);
   const { displayName, orgName } = accountNames({
@@ -281,7 +293,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         isCollapsed={sidebarCollapsed}
         isLoading={isLoading}
         onToggleCollapse={() => {
-          setSidebarCollapsed((collapsed) => !collapsed);
+          setSidebarCollapsed((collapsed) => {
+            const next = !collapsed;
+            // Persist for the next load; the server reads this on the following
+            // request so the sidebar renders in the remembered state.
+            document.cookie = `${SIDEBAR_COOKIE}=${next ? "collapsed" : "expanded"}; path=/; max-age=31536000; samesite=lax`;
+            return next;
+          });
           setAccountOpen(false);
         }}
         orgName={orgName}

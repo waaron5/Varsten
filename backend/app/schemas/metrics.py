@@ -97,6 +97,7 @@ class LatencyPoint(BaseModel):
     date: date
     p50_ms: int | None
     p95_ms: int | None
+    p99_ms: int | None
 
 
 class ProxyTraffic(BaseModel):

@@ -23,3 +23,10 @@ export const LatencyChart = dynamic(() => import("./charts").then((m) => m.Laten
   ssr: false,
   loading: () => <PanelSkeleton />,
 });
+
+// KPI-tile sparkline. Same ssr:false discipline; its loader is an empty cell-filler
+// (not the shimmer) so a tile is just a number until the tiny chunk lands.
+export const Sparkline = dynamic(() => import("./charts").then((m) => m.Sparkline), {
+  ssr: false,
+  loading: () => <div className="cc-kpi-spark-load" aria-hidden="true" />,
+});

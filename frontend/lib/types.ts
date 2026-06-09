@@ -111,6 +111,7 @@ export interface LatencyPoint {
   date: string;
   p50_ms: number | null;
   p95_ms: number | null;
+  p99_ms: number | null;
 }
 
 export interface ProxyTraffic {

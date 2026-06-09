@@ -10,7 +10,7 @@ import { percent } from "@/components/viewPrimitives";
 import { compact, usd } from "@/lib/format";
 import type { ActiveRoute } from "@/lib/types";
 import { useCommandCenter } from "./CommandCenterProvider";
-import { CumulativeSavingsChart, HitRateChart, LatencyChart } from "./lazyCharts";
+import { CumulativeSavingsChart, HitRateChart, LatencyChart, Sparkline } from "./lazyCharts";
 import { KpiTile, Panel, PanelEmpty, PanelSkeleton } from "./primitives";
 
 function latency(ms: number | null | undefined): string {
@@ -22,21 +22,38 @@ function money(value: string | number | null | undefined): string {
   return value === null || value === undefined ? "—" : usd(value, 0);
 }
 
+function toNum(value: string | number | null): number | null {
+  if (value === null) return null;
+  const n = typeof value === "string" ? parseFloat(value) : value;
+  return Number.isFinite(n) ? n : null;
+}
+
+// A sparkline is honest only when there is a real series behind it (>1 point).
+// Otherwise the tile is just its number.
+function spark(series: (number | null)[], color: string): ReactNode {
+  return series.filter((v) => v !== null).length > 1 ? <Sparkline data={series} color={color} /> : undefined;
+}
+
 // --- KPI strip (Margin + Proxy headline numbers) ------------------------------
 
 export function KpiStrip() {
-  const { commandCenter, proxyTraffic } = useCommandCenter();
+  const { commandCenter, proxyTraffic, savingsTrend } = useCommandCenter();
   const live = commandCenter.data?.live_savings;
   const pt = proxyTraffic.data;
+  // 30-day trend series for the BANs that have one. Single-value tiles (Net,
+  // Run-rate, Trust) stay clean — no fabricated trend where there is no series.
+  const savedSpark = (savingsTrend.data?.points ?? []).map((p) => toNum(p.cumulative_saved_usd));
+  const hitSpark = (pt?.cache_series ?? []).map((p) => toNum(p.hit_rate));
+  const p95Spark = (pt?.latency_series ?? []).map((p) => p.p95_ms);
   // Every tile resolves to "—" when its field is null: money() for the savings
   // figures, percent()/latency() already return "—" for null/undefined.
   return (
     <div className="cc-kpi-strip">
-      <KpiTile label="Gross saved (mo)" value={money(live?.saved_month)} tone="pos" />
+      <KpiTile label="Gross saved (mo)" value={money(live?.saved_month)} tone="pos" spark={spark(savedSpark, "var(--brand)")} />
       <KpiTile label="Net after fee (mo)" value={money(live?.net_saved_month)} />
       <KpiTile label="Annual run-rate" value={money(live?.annual_run_rate)} />
-      <KpiTile label="Cache hit-rate" value={percent(pt?.hit_rate)} tone="pos" />
-      <KpiTile label="p95 latency" value={latency(pt?.latency_p95_ms)} />
+      <KpiTile label="Cache hit-rate" value={percent(pt?.hit_rate)} tone="pos" spark={spark(hitSpark, "var(--c2)")} />
+      <KpiTile label="p95 latency" value={latency(pt?.latency_p95_ms)} spark={spark(p95Spark, "var(--c3)")} />
       <KpiTile label="Trust score" value={percent(live?.trust_score)} />
     </div>
   );
@@ -138,6 +155,20 @@ function RouteSavings({ route }: { route: ActiveRoute }): ReactNode {
   return <span>{usd(route.measured_savings_usd ?? 0, 2)}</span>;
 }
 
+// The 95% confidence interval on the measured A/B savings. A point estimate with
+// no interval is a number a CFO argues with; the CI is the statistical proof the
+// saving is real. Shown only once the arms have enough samples for an interval.
+function RouteCI({ route }: { route: ActiveRoute }): ReactNode {
+  const low = route.measured_savings_ci_low_usd;
+  const high = route.measured_savings_ci_high_usd;
+  if (!route.has_signal || low === null || high === null) return <span className="eval-note">—</span>;
+  return (
+    <span className="eval-note cc-ci">
+      {usd(low, 2)} – {usd(high, 2)}
+    </span>
+  );
+}
+
 function RouteQuality({ route }: { route: ActiveRoute }): ReactNode {
   if (route.treatment_ok_rate === null || route.control_ok_rate === null) {
     return <span className="eval-note">-</span>;
@@ -172,6 +203,7 @@ export function QualityGuardrailsPanel() {
                 <th className="r">Holdback</th>
                 <th className="r">Control / Treatment</th>
                 <th className="r">Measured savings</th>
+                <th className="r">95% CI</th>
                 <th className="r">Quality (treat vs control)</th>
                 <th className="r">Status</th>
               </tr>
@@ -190,6 +222,9 @@ export function QualityGuardrailsPanel() {
                   </td>
                   <td className="r">
                     <RouteSavings route={route} />
+                  </td>
+                  <td className="r">
+                    <RouteCI route={route} />
                   </td>
                   <td className="r">
                     <RouteQuality route={route} />
