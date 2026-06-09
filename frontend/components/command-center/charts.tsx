@@ -101,37 +101,74 @@ function DateAxis() {
   );
 }
 
+// Running cumulative totals for the wedge. Module-level (not in render) so the
+// accumulators stay out of the component body.
+function toWedgeSeries(data: SavingsTrendPoint[]) {
+  let cumBaseline = 0;
+  let cumOptimized = 0;
+  return data.map((p) => {
+    cumBaseline += num(p.baseline_usd);
+    cumOptimized += num(p.optimized_usd);
+    return {
+      date: p.date,
+      optimized: cumOptimized, // actual spend (the floor + the solid line)
+      saved: cumBaseline - cumOptimized, // the wedge height (stacked on the floor)
+      baseline: cumBaseline, // naive-retail (top of the band + the dashed line)
+    };
+  });
+}
+
+// The savings wedge: cumulative naive-retail spend (what they would have paid)
+// against cumulative actual spend, with the gap between them shaded as the saved
+// dollars. The proof-of-value hero. Built with two stacked areas so the band sits
+// exactly in the gap: an invisible floor at actual spend, then the savings band
+// stacked on top (floor + band = naive-retail). Each area's top stroke doubles as
+// a boundary line — solid for actual spend, faint dashed for naive-retail — so the
+// whole thing is one AreaChart, no separate Line layer.
 export function CumulativeSavingsChart({ data }: { data: SavingsTrendPoint[] }) {
-  const series = data.map((p) => ({
-    date: p.date,
-    cumulative: num(p.cumulative_saved_usd),
-    daily: num(p.saved_usd),
-  }));
+  const series = toWedgeSeries(data);
   return (
     <ChartFrame>
       <AreaChart data={series} margin={MARGIN}>
         <defs>
-          <linearGradient id="ccSavingsFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.28} />
-            <stop offset="100%" stopColor="var(--brand)" stopOpacity={0.02} />
+          <linearGradient id="ccWedgeFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.26} />
+            <stop offset="100%" stopColor="var(--brand)" stopOpacity={0.03} />
           </linearGradient>
         </defs>
         <DateAxis />
         <YAxis tickFormatter={(v) => `$${compact(v)}`} tick={AXIS} tickLine={false} axisLine={false} width={50} />
         <ChartTooltip
           rowsForPoint={(point) => [
-            { name: "Cumulative saved", value: usd(tooltipNum(point?.cumulative)), color: "var(--brand)" },
-            { name: "Saved that day", value: usd(tooltipNum(point?.daily)), color: "var(--c4)" },
+            { name: "Naive retail", value: usd(tooltipNum(point?.baseline)), color: "var(--text-3)" },
+            { name: "Actual spend", value: usd(tooltipNum(point?.optimized)), color: "var(--text)" },
+            { name: "Saved", value: usd(tooltipNum(point?.saved)), color: "var(--brand)" },
           ]}
         />
+        {/* Invisible floor at actual spend; its top stroke is the solid actual-spend
+            line. */}
         <Area
           type="monotone"
-          dataKey="cumulative"
-          stroke="var(--brand)"
+          dataKey="optimized"
+          stackId="wedge"
+          stroke="var(--text)"
           strokeWidth={2}
-          fill="url(#ccSavingsFill)"
+          fill="none"
           dot={false}
-          activeDot={{ r: 3, fill: "var(--brand)" }}
+          isAnimationActive={false}
+        />
+        {/* The savings band, stacked from actual spend up to naive-retail; its top
+            stroke is the faint dashed naive-retail line. */}
+        <Area
+          type="monotone"
+          dataKey="saved"
+          stackId="wedge"
+          stroke="var(--text-3)"
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          fill="url(#ccWedgeFill)"
+          dot={false}
+          isAnimationActive={false}
         />
       </AreaChart>
     </ChartFrame>
