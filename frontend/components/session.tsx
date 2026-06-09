@@ -46,7 +46,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const pickActive = useCallback((list: Project[]) => {
     const stored = localStorage.getItem(ACTIVE_PROJECT_KEY);
     const storedProject = list.find((p) => p.id === stored);
-    const demoProject = list.find((p) => p.name === "Production AI");
+    // Prefer a demo-tenant project (org.is_demo) so the dashboard lands on the
+    // seeded narrative, keyed off the structural flag rather than a hard-coded
+    // project name. Falls through to the stored choice, then the first project.
+    const demoProject = list.find((p) => p.is_demo);
     const nextProject = demoProject ?? storedProject ?? list[0] ?? null;
     if (nextProject) localStorage.setItem(ACTIVE_PROJECT_KEY, nextProject.id);
     setActive(nextProject?.id ?? null);

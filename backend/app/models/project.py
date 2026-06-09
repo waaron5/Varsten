@@ -42,3 +42,10 @@ class Project(Base, TimestampMixin):
     organization: Mapped["Organization"] = relationship(back_populates="projects")
     api_keys: Mapped[list["ApiKey"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     usage_events: Mapped[list["UsageEvent"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+    @property
+    def is_demo(self) -> bool:
+        """Whether this project's organization is a seeded demo tenant. Surfaced on
+        ProjectOut so the client can default the active project to the demo without
+        a hard-coded name. Reads the loaded organization relationship."""
+        return self.organization.is_demo

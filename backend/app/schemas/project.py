@@ -14,6 +14,7 @@ class ProjectOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     name: str
+    is_demo: bool
     proxy_bypass_enabled: bool
     created_at: datetime
     updated_at: datetime
