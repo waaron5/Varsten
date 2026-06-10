@@ -1,15 +1,9 @@
 "use client";
 
-// Varsten public landing page (varsten.ai). Semantic HTML + the Varsten CSS token
-// system; no Tailwind / UI library. Copy is deliberately dry and technical.
-
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 
-// Placeholder destinations — wire these to the real app/routes when available.
 const APP_URL = "https://app.varsten.ai";
-const DEMO_URL = "#demo";
-const PERFORMANCE_TRIAL_URL = APP_URL;
 const SAVINGS_RATE = 0.2;
 const VARSTEN_SHARE = 0.25;
 
@@ -36,7 +30,245 @@ function Check() {
   );
 }
 
-function Nav() {
+function useEscapeClose(onClose: () => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+}
+
+function ModalShell({
+  children,
+  labelledBy,
+  onClose,
+  wide,
+}: {
+  children: ReactNode;
+  labelledBy: string;
+  onClose: () => void;
+  wide?: boolean;
+}) {
+  function handleOverlayClick(e: MouseEvent<HTMLDivElement>) {
+    if (e.target === e.currentTarget) onClose();
+  }
+
+  return (
+    <div
+      className="lp-modal-overlay"
+      onClick={handleOverlayClick}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={labelledBy}
+    >
+      <div className={`lp-modal${wide ? " lp-modal-wide" : ""}`}>{children}</div>
+    </div>
+  );
+}
+
+function ModalHeader({
+  eyebrow,
+  title,
+  subtitle,
+  titleId,
+  onClose,
+}: {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+  titleId: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="lp-modal-head">
+      <div className="lp-modal-head-text">
+        {eyebrow ? <p className="lp-eyebrow">{eyebrow}</p> : null}
+        <p className="lp-modal-title" id={titleId}>
+          {title}
+        </p>
+        {subtitle ? <p className="lp-modal-sub">{subtitle}</p> : null}
+      </div>
+      <button className="lp-modal-close" onClick={onClose} aria-label="Close">
+        &#x2715;
+      </button>
+    </div>
+  );
+}
+
+// ---------- Email capture modal ----------
+
+function EmailSuccess({ email }: { email: string }) {
+  return (
+    <div className="lp-modal-body">
+      <div className="lp-modal-success">
+        <div className="lp-modal-success-icon">
+          <Check />
+        </div>
+        <p className="lp-modal-title">We'll be in touch soon.</p>
+        <p>
+          Keep an eye on <strong>{email}</strong> — someone from Varsten will reach out to get you set up.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function EmailForm({
+  email,
+  inputRef,
+  onCancel,
+  onEmailChange,
+  onSubmit,
+}: {
+  email: string;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onCancel: () => void;
+  onEmailChange: (email: string) => void;
+  onSubmit: (e: FormEvent) => void;
+}) {
+  return (
+    <form onSubmit={onSubmit}>
+      <div className="lp-modal-body">
+        <label className="lp-input-label" htmlFor="email-input">
+          Work email
+        </label>
+        <input
+          ref={inputRef}
+          id="email-input"
+          className="lp-input"
+          type="email"
+          placeholder="you@company.com"
+          value={email}
+          onChange={(e) => onEmailChange(e.target.value)}
+          required
+          autoComplete="email"
+        />
+      </div>
+      <div className="lp-modal-foot">
+        <button type="button" className="lp-btn lp-btn-ghost" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="submit" className="lp-btn lp-btn-primary" disabled={!email.trim()}>
+          Confirm
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function EmailModalHeader({ submitted, onClose }: { submitted: boolean; onClose: () => void }) {
+  if (submitted) {
+    return <ModalHeader title="You're on the list." titleId="email-modal-title" onClose={onClose} />;
+  }
+
+  return (
+    <ModalHeader
+      eyebrow="Get started"
+      title="Enter your work email"
+      subtitle="Someone from the team will reach out shortly to get you set up."
+      titleId="email-modal-title"
+      onClose={onClose}
+    />
+  );
+}
+
+function EmailModalContent({
+  email,
+  inputRef,
+  submitted,
+  onClose,
+  onEmailChange,
+  onSubmit,
+}: {
+  email: string;
+  inputRef: RefObject<HTMLInputElement | null>;
+  submitted: boolean;
+  onClose: () => void;
+  onEmailChange: (email: string) => void;
+  onSubmit: (e: FormEvent) => void;
+}) {
+  if (submitted) {
+    return (
+      <>
+        <EmailSuccess email={email} />
+        <div className="lp-modal-foot">
+          <button type="button" className="lp-btn lp-btn-ghost" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <EmailForm
+      email={email}
+      inputRef={inputRef}
+      onCancel={onClose}
+      onEmailChange={onEmailChange}
+      onSubmit={onSubmit}
+    />
+  );
+}
+
+function EmailModal({ onClose }: { onClose: () => void }) {
+  const [email, setEmail] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEscapeClose(onClose);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitted(true);
+  }
+
+  return (
+    <ModalShell labelledBy="email-modal-title" onClose={onClose}>
+      <EmailModalHeader submitted={submitted} onClose={onClose} />
+      <EmailModalContent
+        email={email}
+        inputRef={inputRef}
+        submitted={submitted}
+        onClose={onClose}
+        onEmailChange={setEmail}
+        onSubmit={handleSubmit}
+      />
+    </ModalShell>
+  );
+}
+
+// ---------- Demo modal ----------
+
+function DemoModal({ onClose }: { onClose: () => void }) {
+  useEscapeClose(onClose);
+
+  return (
+    <ModalShell labelledBy="demo-modal-title" onClose={onClose} wide>
+      <ModalHeader eyebrow="Product demo" title="See Varsten in action" titleId="demo-modal-title" onClose={onClose} />
+      <div className="lp-modal-body">
+        <div className="lp-demo-placeholder" aria-label="Demo video placeholder">
+          <div className="lp-demo-play" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </div>
+          <span>Demo coming soon</span>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ---------- Page sections ----------
+
+function Nav({ onStartFree }: { onStartFree: () => void }) {
   return (
     <header className="lp-nav">
       <div className="lp-container lp-nav-inner">
@@ -47,16 +279,16 @@ function Nav() {
           <a className="lp-link" href={APP_URL}>
             Sign in
           </a>
-          <a className="lp-btn lp-btn-primary" href={APP_URL}>
+          <button className="lp-btn lp-btn-primary" onClick={onStartFree}>
             Start Free
-          </a>
+          </button>
         </nav>
       </div>
     </header>
   );
 }
 
-function Hero() {
+function Hero({ onStartFree, onWatchDemo }: { onStartFree: () => void; onWatchDemo: () => void }) {
   return (
     <section className="lp-hero">
       <div className="lp-container lp-hero-grid">
@@ -65,21 +297,19 @@ function Hero() {
             <span>Reduce AI spend</span> without sacrificing quality.
           </h1>
           <p className="lp-hero-sub">
-            Varsten helps your team spend less on AI by reusing safe repeat answers, 
+            Varsten helps your team spend less on AI by reusing safe repeat answers,
             sending each request to the right model, and checking that cost savings do not hurt quality.
           </p>
           <div className="lp-hero-cta">
-            <a className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" href={APP_URL}>
+            <button className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" onClick={onStartFree}>
               Start Free
-            </a>
-            <a className="lp-btn lp-btn-ghost lp-btn-lg lp-btn-cta" href={DEMO_URL}>
+            </button>
+            <button className="lp-btn lp-btn-ghost lp-btn-lg lp-btn-cta" onClick={onWatchDemo}>
               Watch demo
-            </a>
+            </button>
           </div>
         </div>
 
-        {/* Proof asset: a framed placeholder ready for a high-resolution Command
-            Center screenshot. Renders a faint wireframe of that view until then. */}
         <div className="lp-proof">
           <div className="lp-proof-frame">
             <div className="lp-proof-chrome">
@@ -219,27 +449,56 @@ function Features() {
   );
 }
 
-function Plan({
-  name,
-  price,
-  priceNote,
-  body,
-  features,
-  cta,
-  ctaHref,
-  featured,
-  children,
-}: {
+type PlanProps = {
   name: string;
   price: string;
   priceNote: string;
   body: string;
   features: string[];
   cta: string;
-  ctaHref: string;
   featured?: boolean;
-  children?: ReactNode;
-}) {
+  onCtaClick: () => void;
+  subCta?: string;
+  onSubCtaClick?: () => void;
+};
+
+function PlanFeatureList({ features }: { features: string[] }) {
+  return (
+    <ul className="lp-checks">
+      {features.map((feature) => (
+        <li className="lp-check-item" key={feature}>
+          <Check />
+          {feature}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function PlanActions({
+  cta,
+  featured,
+  onCtaClick,
+  onSubCtaClick,
+  subCta,
+}: Pick<PlanProps, "cta" | "featured" | "onCtaClick" | "onSubCtaClick" | "subCta">) {
+  return (
+    <>
+      <button className={`lp-btn ${featured ? "lp-btn-primary" : "lp-btn-ghost"}`} onClick={onCtaClick}>
+        {cta}
+      </button>
+      {subCta && onSubCtaClick ? (
+        <button className="lp-plan-subcta" onClick={onSubCtaClick}>
+          {subCta}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function Plan(props: PlanProps) {
+  const { name, price, priceNote, body, features, featured } = props;
+
   return (
     <div className={`lp-plan${featured ? " lp-plan-featured" : ""}`}>
       {featured ? <span className="lp-plan-tag">Recommended</span> : null}
@@ -248,24 +507,8 @@ function Plan({
         {price} <span>{priceNote}</span>
       </div>
       <p className="lp-plan-body">{body}</p>
-      <ul className="lp-checks">
-        {features.map((f) => (
-          <li className="lp-check-item" key={f}>
-            <Check />
-            {f}
-          </li>
-        ))}
-      </ul>
-      {ctaHref.startsWith("/") ? (
-        <Link className={`lp-btn ${featured ? "lp-btn-primary" : "lp-btn-ghost"}`} href={ctaHref}>
-          {cta}
-        </Link>
-      ) : (
-        <a className={`lp-btn ${featured ? "lp-btn-primary" : "lp-btn-ghost"}`} href={ctaHref}>
-          {cta}
-        </a>
-      )}
-      {children}
+      <PlanFeatureList features={features} />
+      <PlanActions {...props} />
     </div>
   );
 }
@@ -354,7 +597,7 @@ function VerifiedSavings() {
   );
 }
 
-function Pricing() {
+function Pricing({ onStartFree, onStartPerformance }: { onStartFree: () => void; onStartPerformance: () => void }) {
   return (
     <section className="lp-section alt" id="pricing">
       <div className="lp-container">
@@ -377,7 +620,7 @@ function Pricing() {
             priceNote="/mo"
             body="For teams that need AI spend monitoring and savings recommendations."
             cta="Start Free"
-            ctaHref={APP_URL}
+            onCtaClick={onStartFree}
             features={[
               "Ongoing AI spend monitoring",
               "Month-by-month spend trends",
@@ -393,7 +636,9 @@ function Pricing() {
             priceNote="of verified savings"
             body="For teams ready to automate savings, billed monthly in arrears only from the dollars it proves."
             cta="Start Performance"
-            ctaHref={APP_URL}
+            onCtaClick={onStartPerformance}
+            subCta="Start 30-day free trial of Performance"
+            onSubCtaClick={onStartPerformance}
             features={[
               "Everything in Free, plus:",
               "Automated routing, caching, batching, and model swaps",
@@ -402,11 +647,7 @@ function Pricing() {
               "You keep 75% of every verified dollar saved",
               "If Varsten saves $0, you pay $0",
             ]}
-          >
-            <a className="lp-plan-subcta" href={PERFORMANCE_TRIAL_URL}>
-              Start 30-day free trial of Performance
-            </a>
-          </Plan>
+          />
         </div>
       </div>
     </section>
@@ -453,7 +694,7 @@ function SavingsProofSection() {
   );
 }
 
-function Footer() {
+function Footer({ onStartTrial, onWatchDemo }: { onStartTrial: () => void; onWatchDemo: () => void }) {
   return (
     <footer className="lp-footer">
       <div className="lp-container lp-footer-inner">
@@ -461,16 +702,16 @@ function Footer() {
         <nav className="lp-footer-links">
           <a href="#how-it-works">Docs</a>
           <a href="#how">Security</a>
-          <a href={DEMO_URL}>Status</a>
+          <a href={APP_URL}>Status</a>
           <a href={APP_URL}>Sign in</a>
         </nav>
         <div className="lp-footer-actions">
-          <a className="lp-btn lp-btn-ghost" href={DEMO_URL}>
+          <button className="lp-btn lp-btn-ghost" onClick={onWatchDemo}>
             Watch demo
-          </a>
-          <a className="lp-btn lp-btn-primary" href={PERFORMANCE_TRIAL_URL}>
+          </button>
+          <button className="lp-btn lp-btn-primary" onClick={onStartTrial}>
             Start 30-day trial
-          </a>
+          </button>
         </div>
       </div>
     </footer>
@@ -478,15 +719,26 @@ function Footer() {
 }
 
 export default function LandingPage() {
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [demoOpen, setDemoOpen] = useState(false);
+
+  const openEmail = () => setEmailOpen(true);
+  const closeEmail = () => setEmailOpen(false);
+  const openDemo = () => setDemoOpen(true);
+  const closeDemo = () => setDemoOpen(false);
+
   return (
     <main>
-      <Nav />
-      <Hero />
+      <Nav onStartFree={openEmail} />
+      <Hero onStartFree={openEmail} onWatchDemo={openDemo} />
       <Mechanism />
       <Features />
-      <Pricing />
+      <Pricing onStartFree={openEmail} onStartPerformance={openEmail} />
       <SavingsProofSection />
-      <Footer />
+      <Footer onStartTrial={openEmail} onWatchDemo={openDemo} />
+
+      {emailOpen && <EmailModal onClose={closeEmail} />}
+      {demoOpen && <DemoModal onClose={closeDemo} />}
     </main>
   );
 }

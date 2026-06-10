@@ -83,10 +83,6 @@ a {
 .lp-section {
   padding: clamp(56px, 8vw, 96px) 0;
 }
-#pricing,
-#savings-proof {
-  padding: clamp(42px, 5vw, 64px) 0;
-}
 .lp-section.alt {
   background: var(--bg);
   border-top: 1px solid var(--border);
@@ -567,9 +563,15 @@ a {
   display: inline-flex;
   justify-content: center;
   margin-top: 9px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: 13.5px;
   font-weight: 600;
   color: var(--brand);
+  cursor: pointer;
+  text-align: center;
 }
 .lp-plan-subcta:hover {
   color: var(--brand-press);
@@ -761,6 +763,198 @@ a {
 .lp-footer-actions .lp-btn {
   padding: 8px 13px;
   font-size: 13px;
+}
+
+/* ---------- modals ---------- */
+
+.lp-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: lp-fade-in 0.15s var(--ease);
+}
+
+@keyframes lp-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.lp-modal {
+  width: 100%;
+  max-width: 440px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  animation: lp-slide-up 0.18s var(--ease);
+  overflow: hidden;
+}
+
+.lp-modal-wide {
+  max-width: 680px;
+}
+
+@keyframes lp-slide-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.lp-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 22px 0;
+}
+
+.lp-modal-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.lp-modal-title {
+  font-size: 18px;
+  font-weight: 660;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.lp-modal-sub {
+  margin-top: 5px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.lp-modal-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+  margin-top: -2px;
+}
+
+.lp-modal-close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.lp-modal-body {
+  padding: 18px 22px;
+}
+
+.lp-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 22px 20px;
+}
+
+.lp-input-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 580;
+  color: var(--text-2);
+  margin-bottom: 7px;
+}
+
+.lp-input {
+  display: block;
+  width: 100%;
+  padding: 10px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.lp-input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.lp-input::placeholder {
+  color: var(--text-faint);
+}
+
+.lp-modal-success {
+  text-align: center;
+  padding: 10px 0 14px;
+}
+
+.lp-modal-success-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  margin-bottom: 12px;
+}
+
+.lp-modal-success p {
+  font-size: 14px;
+  color: var(--text-2);
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+.lp-demo-placeholder {
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(110% 80% at 50% 0%, rgba(14, 158, 110, 0.06), transparent 55%),
+    var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-3);
+}
+
+.lp-demo-play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-2);
+}
+
+.lp-demo-placeholder span {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 /* ---------- responsive ---------- */
