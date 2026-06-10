@@ -5,6 +5,11 @@ build/
 dist/
 wheels/
 *.egg-info
+.coverage
+coverage.xml
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 # Virtual environments
 .venv
@@ -17,3 +22,8 @@ wheels/
 # Other
 
 /memory
+
+# Benchmark dataset cache (downloaded ShareGPT subsets)
+.cache/
+
+/.fallow

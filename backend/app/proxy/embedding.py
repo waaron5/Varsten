@@ -5,6 +5,7 @@ key. Best-effort: any failure returns None so the caller degrades to a normal
 cache miss and forwards (fail-open). Embedding the prompt is no new data boundary
 since the prompt is already sent to OpenAI for the completion.
 """
+
 import httpx
 
 from app.core.config import settings
@@ -24,9 +25,7 @@ def embedding_input(body: dict) -> str:
         if isinstance(content, list):
             # Multimodal content blocks: keep the text parts.
             content = " ".join(
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
+                block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
             )
         parts.append(f"{role}: {content}")
     return "\n".join(parts).strip()
@@ -43,7 +42,9 @@ async def embed(text: str, client_key: str) -> list[float] | None:
     }
     headers = {"Authorization": f"Bearer {client_key}", "Content-Type": "application/json"}
     try:
-        async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
+        # Tightly bounded: this is on the cache-miss hot path. A slow embedding
+        # must fail open to a normal forward, never add seconds to the request.
+        async with httpx.AsyncClient(timeout=settings.embedding_timeout_seconds) as client:
             resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code != 200:
             logger.warning("embedding upstream non-200", extra={"status": resp.status_code})

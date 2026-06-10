@@ -10,6 +10,7 @@ itself independently; a shared (Redis-backed) breaker is a later optimization.
 Cache hits never consult the breaker, so cached responses keep serving even while
 the circuit is open.
 """
+
 import time
 
 from app.core.config import settings
@@ -59,9 +60,7 @@ class CircuitBreaker:
         tripped = self.state == HALF_OPEN or self.failures >= settings.circuit_breaker_fail_threshold
         if tripped:
             if self.state != OPEN:
-                logger.warning(
-                    "circuit opened", extra={"circuit": self.key, "failures": self.failures}
-                )
+                logger.warning("circuit opened", extra={"circuit": self.key, "failures": self.failures})
             self.state = OPEN
             self.opened_at = time.monotonic()
 

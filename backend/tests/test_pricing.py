@@ -3,8 +3,11 @@
 resolve_price/price_usage_event run against local Postgres (rolled back per test);
 compute_cost is pure.
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+
+import pytest
 
 from app.models import ModelPrice, Organization, OrgModelPriceOverride
 from app.pricing import (
@@ -14,16 +17,14 @@ from app.pricing import (
     resolve_price,
 )
 
-NOW = datetime(2026, 6, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 1, tzinfo=UTC)
 
 
 def _price(**rate) -> ResolvedPrice:
     return ResolvedPrice(
         input_cost_per_token=Decimal(rate.get("input", "0.000001")),
         output_cost_per_token=Decimal(rate.get("output", "0.000002")),
-        cache_read_input_token_cost=(
-            Decimal(rate["cache"]) if "cache" in rate else None
-        ),
+        cache_read_input_token_cost=(Decimal(rate["cache"]) if "cache" in rate else None),
         source="catalog",
         price_version_id=None,
     )
@@ -53,16 +54,17 @@ def test_compute_cost_clamps_cached_to_input():
     assert compute_cost(_price(), 100, 0, 999) == compute_cost(_price(), 100, 0, 100)
 
 
-def _org(db) -> Organization:
+async def _org(db) -> Organization:
     org = Organization(name="T")
     db.add(org)
-    db.flush()
+    await db.flush()
     return org
 
 
-def test_resolve_prefers_override_over_catalog(db_session):
-    org = _org(db_session)
-    db_session.add(
+@pytest.mark.anyio
+async def test_resolve_prefers_override_over_catalog(async_db_session):
+    org = await _org(async_db_session)
+    async_db_session.add(
         ModelPrice(
             model_key="gpt-4o-mini",
             provider="openai",
@@ -71,7 +73,7 @@ def test_resolve_prefers_override_over_catalog(db_session):
             effective_at=NOW - timedelta(days=1),
         )
     )
-    db_session.add(
+    async_db_session.add(
         OrgModelPriceOverride(
             organization_id=org.id,
             model_key="gpt-4o-mini",
@@ -81,18 +83,19 @@ def test_resolve_prefers_override_over_catalog(db_session):
             effective_at=NOW - timedelta(days=1),
         )
     )
-    db_session.flush()
+    await async_db_session.flush()
 
-    price = resolve_price(db_session, org.id, "gpt-4o-mini", "openai", NOW)
+    price = await resolve_price(async_db_session, org.id, "gpt-4o-mini", "openai", NOW)
     assert price is not None
     assert price.source == "override"
     assert price.input_cost_per_token == Decimal("0.0000005")
 
 
-def test_resolve_picks_latest_effective_at_before_event(db_session):
-    org = _org(db_session)
+@pytest.mark.anyio
+async def test_resolve_picks_latest_effective_at_before_event(async_db_session):
+    org = await _org(async_db_session)
     for day, rate in ((10, "0.000001"), (5, "0.000003")):
-        db_session.add(
+        async_db_session.add(
             ModelPrice(
                 model_key="m",
                 provider="openai",
@@ -101,25 +104,29 @@ def test_resolve_picks_latest_effective_at_before_event(db_session):
                 effective_at=NOW - timedelta(days=day),
             )
         )
-    db_session.flush()
+    await async_db_session.flush()
 
     # Between the two prices -> the older one is still in effect.
-    older = resolve_price(db_session, org.id, "m", "openai", NOW - timedelta(days=7))
+    older = await resolve_price(async_db_session, org.id, "m", "openai", NOW - timedelta(days=7))
+    assert older is not None
     assert older.input_cost_per_token == Decimal("0.000001")
     # After both -> the newer one.
-    newer = resolve_price(db_session, org.id, "m", "openai", NOW)
+    newer = await resolve_price(async_db_session, org.id, "m", "openai", NOW)
+    assert newer is not None
     assert newer.input_cost_per_token == Decimal("0.000003")
 
 
-def test_resolve_returns_none_on_miss(db_session):
-    org = _org(db_session)
-    assert resolve_price(db_session, org.id, "nope", "openai", NOW) is None
+@pytest.mark.anyio
+async def test_resolve_returns_none_on_miss(async_db_session):
+    org = await _org(async_db_session)
+    assert await resolve_price(async_db_session, org.id, "nope", "openai", NOW) is None
 
 
-def test_price_usage_event_falls_back_to_reported(db_session):
-    org = _org(db_session)
-    cost, source, pricing_status, version = price_usage_event(
-        db_session,
+@pytest.mark.anyio
+async def test_price_usage_event_falls_back_to_reported(async_db_session):
+    org = await _org(async_db_session)
+    cost, source, pricing_status, version = await price_usage_event(
+        async_db_session,
         organization_id=org.id,
         model_key="unknown",
         provider="openai",
@@ -137,10 +144,11 @@ def test_price_usage_event_falls_back_to_reported(db_session):
     )
 
 
-def test_price_usage_event_unknown_without_reported_returns_null_cost(db_session):
-    org = _org(db_session)
-    cost, source, pricing_status, version = price_usage_event(
-        db_session,
+@pytest.mark.anyio
+async def test_price_usage_event_unknown_without_reported_returns_null_cost(async_db_session):
+    org = await _org(async_db_session)
+    cost, source, pricing_status, version = await price_usage_event(
+        async_db_session,
         organization_id=org.id,
         model_key="unknown",
         provider="openai",

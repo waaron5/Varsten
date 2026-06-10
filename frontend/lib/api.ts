@@ -9,12 +9,18 @@ import type {
   AnalysisModels,
   AnalysisSpend,
   AlertRuleCreate,
+  ActiveRoute,
+  ActiveTrim,
   AutomationLever,
+  BatchJob,
   BudgetRule,
   BudgetRuleCreate,
   Breakdown,
   BreakdownDimension,
   CommandCenter,
+  EvalConfig,
+  EvalRunSummary,
+  GoldenSampleInput,
   LeverConfig,
   LeverName,
   MetricsOverview,
@@ -23,10 +29,12 @@ import type {
   ProofDataQuality,
   ProofSavings,
   Project,
+  ProxyTraffic,
   QualityGuardrail,
   QualityGuardrailCreate,
   Recommendation,
   RecommendationStatus,
+  SavingsTrend,
   SpendTrend,
   UsageEvent,
   UsageEventFilters,
@@ -123,6 +131,12 @@ export const api = {
   spendTrend: (token: string, projectId: string | undefined, days = 30) =>
     request<SpendTrend>(readPath("/metrics/spend-trend", projectId, { days }), token),
 
+  savingsTrend: (token: string, projectId: string | undefined, days = 30) =>
+    request<SavingsTrend>(readPath("/metrics/savings-trend", projectId, { days }), token),
+
+  proxyTraffic: (token: string, projectId: string | undefined, days = 30) =>
+    request<ProxyTraffic>(readPath("/metrics/proxy-traffic", projectId, { days }), token),
+
   breakdown: (
     token: string,
     projectId: string | undefined,
@@ -183,6 +197,46 @@ export const api = {
 
   engineLevers: (token: string, projectId: string | undefined) =>
     request<LeverConfig[]>(readPath("/engine/levers", projectId), token),
+
+  engineRoutes: (token: string, projectId: string | undefined) =>
+    request<ActiveRoute[]>(readPath("/engine/routes", projectId), token),
+
+  updateEngineRoute: (
+    token: string,
+    projectId: string | undefined,
+    ruleId: string,
+    body: { enabled?: boolean; holdback_percent?: string },
+  ) =>
+    request<{ id: string; enabled: boolean; holdback_percent: string | null }>(
+      readPath(`/engine/routes/${ruleId}`, projectId),
+      token,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  checkRouteDrift: (token: string, projectId: string | undefined) =>
+    request<{ rolled_back: { route: string }[] }>(
+      readPath("/engine/routes/check-drift", projectId),
+      token,
+      { method: "POST" },
+    ),
+
+  engineTrims: (token: string, projectId: string | undefined) =>
+    request<ActiveTrim[]>(readPath("/engine/trims", projectId), token),
+
+  updateEngineTrim: (
+    token: string,
+    projectId: string | undefined,
+    policyId: string,
+    body: { enabled?: boolean; holdback_percent?: string },
+  ) =>
+    request<{ id: string; enabled: boolean; holdback_percent: string | null }>(
+      readPath(`/engine/trims/${policyId}`, projectId),
+      token,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  engineBatches: (token: string, projectId: string | undefined) =>
+    request<BatchJob[]>(readPath("/engine/batches", projectId), token),
 
   updateLever: (
     token: string,
@@ -292,6 +346,33 @@ export const api = {
     request<Recommendation>(`/recommendations/${id}`, token, {
       method: "PATCH",
       body: JSON.stringify({ status }),
+    }),
+
+  // Trigger a shadow eval for a gated (model-swap) recommendation. Runs off-path
+  // in a background worker; poll engineRecommendations for the updated verdict.
+  evaluateRecommendation: (token: string, id: string) =>
+    request<EvalRunSummary>(`/recommendations/${id}/evaluate`, token, {
+      method: "POST",
+    }),
+
+  // --- eval harness config (capture opt-in + golden corpus) ---
+  evalConfig: (token: string, projectId: string | undefined) =>
+    request<EvalConfig>(readPath("/evals/config", projectId), token),
+
+  updateEvalCapture: (token: string, projectId: string | undefined, enabled: boolean) =>
+    request<{ eval_capture_enabled: boolean }>(readPath("/evals/capture-config", projectId), token, {
+      method: "POST",
+      body: JSON.stringify({ eval_capture_enabled: enabled }),
+    }),
+
+  uploadGoldenSamples: (
+    token: string,
+    projectId: string | undefined,
+    samples: GoldenSampleInput[],
+  ) =>
+    request<{ created: number }>(readPath("/evals/golden", projectId), token, {
+      method: "POST",
+      body: JSON.stringify({ samples }),
     }),
 
   // --- API key management (for a project) ---

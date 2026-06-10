@@ -1,6 +1,7 @@
 """The recommendation engine must stay off the synchronous read path: dashboard
 reads serve stored recommendations and recompute at most once per staleness
 window, not on every request."""
+
 from app import recommendations as recs_mod
 from app.core.config import settings
 

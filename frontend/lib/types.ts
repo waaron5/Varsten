@@ -83,6 +83,54 @@ export interface SpendTrend {
   points: SpendTrendPoint[];
 }
 
+// Command Center narrative 1: savings vs baseline over time. baseline is naive
+// retail (optimized + saved); the cumulative line is the "only goes up" story.
+export interface SavingsTrendPoint {
+  date: string;
+  baseline_usd: string;
+  optimized_usd: string;
+  saved_usd: string;
+  cumulative_saved_usd: string;
+}
+
+export interface SavingsTrend {
+  granularity: string;
+  points: SavingsTrendPoint[];
+  total_saved_usd: string;
+  total_baseline_usd: string;
+}
+
+// Command Center narrative 2: proxy traffic health.
+export interface CacheTrafficPoint {
+  date: string;
+  requests: number;
+  hit_rate: string | null;
+}
+
+export interface LatencyPoint {
+  date: string;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+}
+
+export interface ProxyTraffic {
+  window_days: number;
+  requests: number;
+  hit: number;
+  miss: number;
+  hit_rate: string | null;
+  cache_saved_usd: string;
+  cache_series: CacheTrafficPoint[];
+  batch_jobs: number;
+  batch_requests: number;
+  batch_saved_usd: string;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  latency_p99_ms: number | null;
+  latency_series: LatencyPoint[];
+}
+
 export type BreakdownDimension =
   | "provider"
   | "model"
@@ -121,6 +169,7 @@ export interface Project {
   id: string;
   organization_id: string;
   name: string;
+  is_demo: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -175,6 +224,99 @@ export type LeverName =
 
 export type AutomationMode = "auto" | "approve";
 
+export interface EvalRunSummary {
+  id: string;
+  status: string;
+  verdict: string | null;
+  scorer_type: string | null;
+  candidate_model: string;
+  sample_count: number;
+  objective_pass_rate: string | null;
+  score_delta: string | null;
+  score_delta_ci_low: string | null;
+  score_delta_ci_high: string | null;
+  cost_delta_usd: string | null;
+  notes: string | null;
+  completed_at: string | null;
+}
+
+export interface RoutePredicate {
+  max_prompt_chars?: number;
+  route_when_tools?: boolean;
+  route_when_json_schema?: boolean;
+  max_completion_tokens?: number;
+}
+
+// The live holdback A/B a route or trim policy is measured by. Shared so the
+// dashboard renders both with the same components.
+export interface HoldbackMeasurement {
+  enabled: boolean;
+  holdback_percent: string | null;
+  activated_at: string | null;
+  source_recommendation_id: string | null;
+  source_title: string | null;
+  control_requests: number;
+  treatment_requests: number;
+  control_avg_cost_usd: string | null;
+  treatment_avg_cost_usd: string | null;
+  savings_per_request_usd: string | null;
+  measured_savings_usd: string | null;
+  measured_savings_ci_low_usd: string | null;
+  measured_savings_ci_high_usd: string | null;
+  has_signal: boolean;
+  control_ok_rate: number | null;
+  treatment_ok_rate: number | null;
+  quality_drop: number | null;
+  drifted: boolean;
+}
+
+export interface ActiveRoute extends HoldbackMeasurement {
+  id: string;
+  lever?: LeverName | string;
+  incumbent_model: string;
+  candidate_model: string;
+  predicate?: RoutePredicate | null;
+}
+
+// A live token-trim policy, keyed on the model whose requests are trimmed.
+export interface ActiveTrim extends HoldbackMeasurement {
+  id: string;
+  model: string;
+}
+
+export interface BatchJob {
+  id: string;
+  status: string;
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  actual_cost_usd: string | null;
+  naive_cost_usd: string | null;
+  saved_usd: string | null;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface EvalRouteCorpus {
+  route_key: string;
+  traffic_samples: number;
+  golden_samples: number;
+}
+
+export interface EvalConfig {
+  eval_capture_enabled: boolean;
+  min_samples: number;
+  routes: EvalRouteCorpus[];
+}
+
+export interface GoldenSampleInput {
+  route_key: string;
+  messages: { role: string; content: string }[];
+  expected_output: string;
+  request_params?: Record<string, unknown>;
+}
+
 export interface Recommendation {
   id: string;
   organization_id: string;
@@ -201,6 +343,9 @@ export interface Recommendation {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  // Eval gate: `gated` model-swap levers need a passing shadow eval before apply.
+  gated?: boolean;
+  latest_eval?: EvalRunSummary | null;
 }
 
 export interface RecommendationAction {
@@ -218,10 +363,11 @@ export interface RecommendationAction {
 }
 
 export interface CommandCenterLiveSavings {
-  spend_month: string | number;
-  saved_month: string | number;
-  net_saved_month: string | number;
-  annual_run_rate: string | number;
+  // Null when there is no data behind the value — the dashboard renders "—".
+  spend_month: string | number | null;
+  saved_month: string | number | null;
+  net_saved_month: string | number | null;
+  annual_run_rate: string | number | null;
   trust_score: string | number | null;
 }
 

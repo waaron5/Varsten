@@ -9,6 +9,7 @@ into model_catalog (identity/capabilities) and model_prices (versioned money). A
 new model_prices row is inserted only when a price actually changed, so re-runs
 are cheap and the effective_at history stays meaningful.
 """
+
 from __future__ import annotations
 
 import sys
@@ -83,20 +84,14 @@ def parse_feed(raw: dict) -> list[ParsedModel]:
                 provider=provider,
                 mode=spec.get("mode"),
                 supports_vision=bool(spec.get("supports_vision", False)),
-                supports_function_calling=bool(
-                    spec.get("supports_function_calling", False)
-                ),
+                supports_function_calling=bool(spec.get("supports_function_calling", False)),
                 supports_reasoning=bool(spec.get("supports_reasoning", False)),
                 input_cost_per_token=in_cost or Decimal(0),
                 output_cost_per_token=out_cost or Decimal(0),
                 cache_read_input_token_cost=_dec(spec.get("cache_read_input_token_cost")),
-                cache_write_input_token_cost=_dec(
-                    spec.get("cache_creation_input_token_cost")
-                ),
+                cache_write_input_token_cost=_dec(spec.get("cache_creation_input_token_cost")),
                 input_cost_per_token_batch=_dec(spec.get("input_cost_per_token_batches")),
-                output_cost_per_token_batch=_dec(
-                    spec.get("output_cost_per_token_batches")
-                ),
+                output_cost_per_token_batch=_dec(spec.get("output_cost_per_token_batches")),
             )
         )
     return parsed

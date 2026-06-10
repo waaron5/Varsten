@@ -25,26 +25,18 @@ def test_seed_demo_creates_product_story_data_idempotently(db_session):
     assert second["inserted_usage_events"] == 0
 
     project_id = uuid.UUID(first["project_id"])
-    events = db_session.scalar(
-        select(func.count()).select_from(UsageEvent).where(UsageEvent.project_id == project_id)
-    )
+    events = db_session.scalar(select(func.count()).select_from(UsageEvent).where(UsageEvent.project_id == project_id))
     levers = db_session.scalar(
         select(func.count()).select_from(LeverConfig).where(LeverConfig.project_id == project_id)
     )
     connections = db_session.scalar(
-        select(func.count())
-        .select_from(ProviderConnection)
-        .where(ProviderConnection.project_id == project_id)
+        select(func.count()).select_from(ProviderConnection).where(ProviderConnection.project_id == project_id)
     )
     customers = db_session.scalar(
-        select(func.count())
-        .select_from(CustomerEconomics)
-        .where(CustomerEconomics.project_id == project_id)
+        select(func.count()).select_from(CustomerEconomics).where(CustomerEconomics.project_id == project_id)
     )
     proof_rows = db_session.scalar(
-        select(func.count())
-        .select_from(SavingsAttribution)
-        .where(SavingsAttribution.project_id == project_id)
+        select(func.count()).select_from(SavingsAttribution).where(SavingsAttribution.project_id == project_id)
     )
     gross_savings = db_session.scalar(
         select(func.coalesce(func.sum(SavingsAttribution.gross_savings_usd), 0)).where(

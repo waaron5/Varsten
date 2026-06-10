@@ -17,9 +17,7 @@ if TYPE_CHECKING:
 class Project(Base, TimestampMixin):
     __tablename__ = "projects"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
@@ -30,20 +28,24 @@ class Project(Base, TimestampMixin):
     # When the recommendation engine last recomputed for this project. The read
     # endpoints use this to serve stored recommendations and only recompute past a
     # staleness window, keeping a month-scan off every dashboard load.
-    recommendations_refreshed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    recommendations_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Per-project kill switch. When true, this project's proxy traffic bypasses
     # all Varsten optimization (no cache serve or store) and forwards straight to
     # OpenAI, still metered. The customer-facing "turn Varsten off" toggle.
-    proxy_bypass_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false")
-    )
+    proxy_bypass_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Opt-in to the eval/replay harness for this project. When true (and the global
+    # eval_capture_enabled is on) the proxy samples real cache-miss traffic into the
+    # replay corpus so cheaper-model swaps can be proven safe before applying. This
+    # is the consent gate for the content store; off by default.
+    eval_capture_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     organization: Mapped["Organization"] = relationship(back_populates="projects")
-    api_keys: Mapped[list["ApiKey"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
-    usage_events: Mapped[list["UsageEvent"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
+    api_keys: Mapped[list["ApiKey"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    usage_events: Mapped[list["UsageEvent"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+    @property
+    def is_demo(self) -> bool:
+        """Whether this project's organization is a seeded demo tenant. Surfaced on
+        ProjectOut so the client can default the active project to the demo without
+        a hard-coded name. Reads the loaded organization relationship."""
+        return self.organization.is_demo

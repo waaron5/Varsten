@@ -27,6 +27,7 @@
   --radius-sm: 6px;
   --radius-lg: 8px;
   --sidebar-w: 232px;
+  --sidebar-collapsed-w: 68px;
   --header-h: 62px;
   --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
@@ -50,8 +51,13 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
 body {
+  min-height: 100dvh;
   font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
@@ -71,8 +77,15 @@ a { color: inherit; text-decoration: none; }
 .app {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
-  height: 100vh;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   background: var(--bg);
+  transition: grid-template-columns 0.22s var(--ease);
+}
+.app.sidebar-collapsed {
+  grid-template-columns: var(--sidebar-collapsed-w) 1fr;
 }
 .sidebar {
   border-right: 1px solid rgba(255, 255, 255, 0.08);
@@ -80,28 +93,69 @@ a { color: inherit; text-decoration: none; }
   background: var(--sidebar);
   color: #e6edf3;
   min-height: 0;
+  position: relative;
+  z-index: 20;
 }
 .brand {
   height: var(--header-h);
-  display: flex; align-items: center; gap: 9px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 0 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0;
 }
+.brand-link {
+  min-width: 0;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.14s, transform 0.18s var(--ease);
+}
 .brand-logo { height: 28px; width: auto; display: block; }
+.sidebar-toggle {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: rgba(230, 237, 243, 0.78);
+  cursor: pointer;
+  transition: color 0.14s;
+}
+.sidebar-toggle:hover {
+  background: transparent;
+  color: rgba(230, 237, 243, 0.78);
+}
+.sidebar-toggle:focus-visible {
+  outline: 2px solid rgba(65, 212, 157, 0.75);
+  outline-offset: 2px;
+}
+.sidebar-toggle svg { width: 18px; height: 18px; stroke-width: 1.8; }
 
 .nav { flex: 1; overflow-y: auto; padding: 12px; }
-.nav-group-label {
-  font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
-  color: rgba(230, 237, 243, 0.42); padding: 14px 8px 6px;
+.nav-group {
+  display: grid;
+  gap: 6px;
+}
+.nav-group + .nav-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 7px 9px; border-radius: var(--radius-sm);
+  width: 100%; height: 40px; min-width: 0;
+  padding: 0 9px; border-radius: var(--radius-sm);
   color: rgba(230, 237, 243, 0.72); font-size: 13.5px; font-weight: 450;
   cursor: pointer; position: relative; user-select: none;
   transition: color 0.14s, background 0.14s;
 }
-.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; stroke-width: 1.6; opacity: 0.85; }
-.nav-item span:first-of-type { flex: 1; }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; stroke-width: 1.6; opacity: 0.85; }
+.nav-item span:first-of-type {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 1;
+  white-space: nowrap;
+  transition: opacity 0.12s ease;
+}
 .nav-item:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
 .nav-item.active { background: rgba(14, 158, 110, 0.18); color: #fff; font-weight: 500; }
 .nav-item.active svg { color: #41d49d; opacity: 1; }
@@ -178,6 +232,82 @@ a { color: inherit; text-decoration: none; }
 }
 .account-login:hover { background: var(--brand-press); }
 
+.sidebar-collapsed .brand {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+.sidebar-collapsed .brand-link {
+  width: 0;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-8px);
+}
+.sidebar-collapsed .nav {
+  padding: 12px 10px;
+  overflow: visible;
+}
+.sidebar-collapsed .nav-badge,
+.sidebar-collapsed .account-copy,
+.sidebar-collapsed .account-dots {
+  display: none;
+}
+.sidebar-collapsed .nav-item {
+  width: 100%;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+.sidebar-collapsed .nav-item span:first-of-type {
+  flex: 0 1 0;
+  opacity: 0;
+}
+.sidebar-collapsed .nav-item::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-3px);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1b2430;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26);
+  font-size: 12px;
+  font-weight: 550;
+  transition: opacity 0.12s, transform 0.12s var(--ease);
+}
+.sidebar-collapsed .nav-item:hover::after,
+.sidebar-collapsed .nav-item:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%);
+}
+.sidebar-collapsed .nav-item.active::before {
+  left: -10px;
+}
+.sidebar-collapsed .side-account {
+  padding: 12px 10px 14px;
+}
+.sidebar-collapsed .account-button,
+.sidebar-collapsed .account-login {
+  width: 44px;
+  height: 40px;
+  min-height: 40px;
+  justify-content: center;
+  padding: 0;
+}
+.sidebar-collapsed .account-menu {
+  left: calc(100% + 8px);
+  right: auto;
+  bottom: 0;
+  width: 156px;
+}
+
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .topbar {
   height: var(--header-h); flex-shrink: 0;
@@ -192,7 +322,13 @@ a { color: inherit; text-decoration: none; }
 .crumb { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
-.content { flex: 1; overflow-y: auto; min-height: 0; }
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 .view { padding: 24px 26px 60px; max-width: 1340px; margin: 0 auto; animation: viewIn 0.4s var(--ease); }
 @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -308,6 +444,177 @@ a { color: inherit; text-decoration: none; }
   width: 8px; height: 8px; margin-top: 6px; border-radius: 999px;
   background: var(--brand); flex: 0 0 auto;
 }
+
+/* Command center */
+.content:has(.command-center-view) { overflow: hidden; }
+.command-center-view {
+  height: calc(100dvh - var(--header-h));
+  max-width: 1340px;
+  padding: 24px 26px 40px;
+  overflow: hidden;
+}
+.command-center-stack {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.command-kpi-row {
+  margin-bottom: 0;
+}
+.command-kpi-row .kpi {
+  min-width: 0;
+  padding: 14px 16px;
+}
+.command-kpi-row .kpi .value { font-size: 26px; margin-top: 9px; }
+.command-kpi-row .kpi .foot {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-main-grid {
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.62fr) minmax(320px, 1fr);
+}
+.command-card {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.command-card .card-head {
+  min-height: 50px;
+  padding: 13px 18px;
+  flex: 0 0 auto;
+}
+.command-card .card-head h3 { font-size: 14px; }
+.cc-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.cc-decision-scroll {
+  flex: 1;
+  max-height: calc((82px * 3) + 1px);
+}
+.cc-rec-row {
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 104px auto;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.cc-rec-row:first-child { border-top: 0; }
+.cc-rec-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-press);
+  background: var(--brand-soft);
+  flex: 0 0 auto;
+}
+.cc-rec-icon svg { width: 17px; height: 17px; }
+.cc-rec-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.cc-rec-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.cc-rec-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.cc-rec-amount {
+  text-align: right;
+  white-space: nowrap;
+}
+.cc-rec-amount div {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.cc-rec-amount span {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.cc-rec-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 154px;
+}
+.cc-actions-scroll {
+  flex: 1;
+  max-height: calc((82px * 3) + 1px);
+  padding: 0;
+}
+.cc-actions-scroll .action-row {
+  min-height: 50px;
+  padding: 10px 18px;
+}
+.cc-actions-scroll .action-title {
+  gap: 8px;
+}
+.cc-actions-scroll .action-title b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.cc-actions-scroll .action-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-table-scroll {
+  flex: 1;
+  max-height: 234px;
+}
+.cc-waste-table { min-width: 760px; }
+.cc-waste-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.cc-waste-table td {
+  height: 47px;
+}
+.cc-waste-table td:first-child b,
+.cc-waste-table td:first-child span { display: block; }
+.cc-waste-table td:first-child span {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.cc-waste-table td:nth-child(2) {
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.cc-waste-table .emphasis {
+  color: var(--brand-press);
+  font-weight: 700;
+}
 .mini-title { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
 .muted-copy { color: var(--text-2); }
 
@@ -356,6 +663,14 @@ table.tbl { width: 100%; border-collapse: collapse; }
   margin-top: 10px; color: var(--text-3); font-size: 12px;
 }
 .rec-meta b { color: var(--text-2); font-weight: 550; }
+.eval-evidence {
+  margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2);
+}
+.eval-evidence .meta-row { margin-bottom: 4px; }
+.eval-evidence .rec-meta { margin-top: 6px; }
+.eval-note { color: var(--text-3); font-size: 12px; margin-top: 8px; }
+.form-error { color: var(--warn); font-size: 12px; margin-top: 8px; }
 .rec-side {
   display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
   gap: 8px; text-align: right;
@@ -478,7 +793,7 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.center-screen { height: 100vh; display: grid; place-items: center; }
+.center-screen { height: 100dvh; display: grid; place-items: center; }
 
 /* Detail drawer */
 .drawer-backdrop {
@@ -502,16 +817,77 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 }
 
 @media (max-width: 760px) {
-  .app { grid-template-columns: 1fr; }
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .app.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
   .sidebar {
-    position: sticky; top: 0; z-index: 20; min-height: auto;
+    position: relative; z-index: 20; min-height: auto;
   }
   .brand { height: 52px; }
+  .sidebar-collapsed .brand {
+    justify-content: space-between;
+    padding: 0 16px;
+  }
+  .sidebar-collapsed .brand-link {
+    width: auto;
+    pointer-events: auto;
+    opacity: 1;
+    transform: none;
+  }
   .nav { display: flex; gap: 14px; overflow-x: auto; padding: 8px 10px 10px; }
+  .sidebar-collapsed .nav { display: flex; gap: 14px; overflow-x: auto; padding: 8px 10px 10px; }
   .nav-group { display: flex; align-items: center; gap: 6px; }
-  .nav-group-label { display: none; }
+  .sidebar-collapsed .nav-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sidebar-collapsed .nav-group + .nav-group {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
   .nav-item { white-space: nowrap; }
+  .sidebar-collapsed .nav-item {
+    width: auto;
+    height: auto;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 7px 9px;
+  }
+  .sidebar-collapsed .nav-item span:first-of-type {
+    display: inline;
+    flex: 1 1 auto;
+    opacity: 1;
+  }
+  .sidebar-collapsed .nav-badge {
+    display: inline-flex;
+  }
+  .sidebar-collapsed .nav-item::after {
+    display: none;
+  }
   .nav-item.active::before { display: none; }
+  .sidebar-collapsed .side-account {
+    padding: 14px 16px;
+  }
+  .sidebar-collapsed .account-button,
+  .sidebar-collapsed .account-login {
+    width: 100%;
+    height: auto;
+    min-height: 36px;
+    justify-content: flex-start;
+    padding: 4px;
+  }
+  .sidebar-collapsed .account-copy {
+    display: grid;
+  }
+  .sidebar-collapsed .account-dots {
+    display: inline;
+  }
   .topbar { flex-wrap: wrap; height: auto; min-height: var(--header-h); padding: 10px 14px; }
   .topbar-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; margin-left: 0; }
   .view { padding: 18px 14px 40px; }
@@ -528,4 +904,147 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   .lever-row { padding: 15px 14px; }
   .lever-row-stats { gap: 18px; }
   .tbl .seg { min-width: 154px; }
+}
+
+/* ===================== Command Center (no-scroll dashboard) =====================
+   Fills .content and clips. The shell grid's 1fr main column reflows on sidebar
+   collapse; minmax(0,...) on rows AND cols lets charts/tables shrink to fit so the
+   grid never blows out. The page never scrolls (overflow:hidden) above the
+   small-viewport fallback at the bottom. */
+.cc-canvas {
+  height: 100%;
+  width: 100%;
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: auto minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
+  /* The canvas is a size container, so its panels react to its own width — which
+     is exactly what the sidebar collapse changes. Collapse adds density (below),
+     not just width. inline-size contains width only; height:100% still resolves. */
+  container-type: inline-size;
+  container-name: cc;
+}
+.cc-kpi-strip { grid-column: 1 / -1; display: flex; gap: 12px; min-width: 0; }
+.cc-pos-margin  { grid-column: 1 / 9;  grid-row: 2; }
+.cc-pos-hitrate { grid-column: 9 / 13; grid-row: 2; }
+.cc-pos-quality { grid-column: 1 / 9;  grid-row: 3; }
+.cc-pos-latency { grid-column: 9 / 13; grid-row: 3; }
+
+/* KPI tiles */
+.cc-kpi {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 12px 15px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+}
+.cc-kpi-label {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cc-kpi-value { font-size: 22px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cc-kpi-value.pos { color: var(--pos); }
+.cc-kpi-value.neg { color: var(--neg); }
+.cc-kpi-sub { font-size: 11.5px; color: var(--text-3); }
+/* BAN sparkline: a clean 30-day trend stroke under the number (no axes/grid/tip).
+   Fixed height so the tile height is stable whether or not a series exists. */
+.cc-kpi-spark { width: 100%; height: 24px; margin-top: 1px; }
+.cc-kpi-spark-load { width: 100%; height: 24px; }
+
+/* Panels: fixed head + flexible body that charts/tables fill and clip. */
+.cc-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cc-panel-head {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.cc-panel-titles { min-width: 0; }
+.cc-panel-head h3 { font-size: 13.5px; font-weight: 600; }
+.cc-panel-sub { display: block; font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.cc-panel-right { margin-left: auto; }
+.cc-panel-stat { font-size: 13px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cc-panel-body { flex: 1; min-width: 0; min-height: 0; padding: 8px 10px 10px; }
+
+/* Latency right-slot inline legend */
+.cc-lat-stats { display: inline-flex; align-items: center; gap: 12px; }
+.cc-lat-stats > span { display: inline-flex; align-items: center; gap: 5px; }
+.cc-lat-stats i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.cc-lat-p99 { color: var(--text-3); }
+
+/* Cumulative-savings legend: keyed markers for the dashed naive-retail line, the
+   solid actual-cost line, and the shaded saved band. */
+.cc-legend { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.cc-legend > span { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.cc-legend i { width: 15px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
+.cc-legend i.dash { border-top-style: dashed; }
+.cc-legend i.fill { width: 11px; height: 11px; border: 0; border-radius: 2px; opacity: 0.55; }
+
+/* Quality cell: a single match-ratio read plus a safe/drifted dot. */
+.cc-quality-match { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.cc-quality-match i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+.cc-quality-match i.ok { background: var(--pos); }
+.cc-quality-match i.bad { background: var(--neg); }
+
+/* A value carrying a hover tooltip (e.g. measured savings → 95% CI). */
+.cc-has-tip { border-bottom: 1px dotted var(--border-strong); cursor: help; }
+
+/* Empty + skeleton fill the body so there is no layout shift. */
+.cc-panel-empty {
+  height: 100%; display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 0 18px; color: var(--text-faint); font-size: 12.5px; line-height: 1.5;
+}
+.cc-skeleton {
+  height: 100%; border-radius: var(--radius-sm);
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-hover) 50%, var(--surface-2) 70%);
+  background-size: 200% 100%; animation: ccShimmer 1.3s ease-in-out infinite;
+}
+@keyframes ccShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* Quality table scrolls internally if routes overflow; the page does not. */
+.cc-table-scroll { height: 100%; overflow: auto; }
+.cc-table-scroll .tbl th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.cc-route-name { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-ci { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Minimal chart tooltip (command-center charts). */
+.chart-tip { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 8px 10px; font-size: 12px; }
+.chart-tip-label { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); margin-bottom: 6px; }
+.chart-tip-row { display: flex; align-items: center; gap: 7px; line-height: 1.6; }
+.chart-tip-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chart-tip-name { color: var(--text-2); }
+.chart-tip-value { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; padding-left: 14px; }
+
+/* Drift status pill. */
+.pill.red { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, transparent); background: var(--neg-soft); }
+
+/* Density tiers driven by the canvas's own width (container queries, not media
+   queries), so collapsing the sidebar makes the dashboard denser, not just wider.
+   These style descendants of .cc-canvas — a container cannot query itself. */
+@container cc (min-width: 1500px) {
+  .cc-kpi { padding: 14px 18px; }
+  .cc-kpi-value { font-size: 25px; }
+  .cc-kpi-spark { height: 28px; }
+}
+@container cc (max-width: 1240px) {
+  .cc-kpi { padding: 10px 12px; gap: 5px; }
+  .cc-kpi-value { font-size: 19px; }
+  .cc-kpi-spark { height: 20px; }
+  .cc-panel-head { padding: 10px 13px; }
+}
+
+/* Graceful fallback: below this, strict no-scroll is unusable, so stack and let
+   this page scroll (the shell .content provides the scrollbar). */
+@media (max-height: 680px), (max-width: 1100px) {
+  .cc-canvas { height: auto; min-height: 100%; overflow: visible; grid-template-columns: 1fr; grid-template-rows: none; }
+  .cc-pos-margin, .cc-pos-hitrate, .cc-pos-quality, .cc-pos-latency { grid-column: 1 / -1; grid-row: auto; }
+  .cc-panel { min-height: 248px; }
+  .cc-kpi-strip { flex-wrap: wrap; }
+  .cc-kpi { flex-basis: 140px; }
 }

@@ -10,21 +10,25 @@ export function usd(value: string | number, digits = 2): string {
 }
 
 export function compact(value: number): string {
-  if (value >= 1e9) return (value / 1e9).toFixed(2) + "B";
-  if (value >= 1e6) return (value / 1e6).toFixed(1) + "M";
-  if (value >= 1e3) return (value / 1e3).toFixed(1) + "K";
-  return String(value);
+  const unit = [
+    { floor: 1e9, suffix: "B", digits: 2 },
+    { floor: 1e6, suffix: "M", digits: 1 },
+    { floor: 1e3, suffix: "K", digits: 1 },
+  ].find(({ floor }) => value >= floor);
+  return unit ? (value / unit.floor).toFixed(unit.digits) + unit.suffix : String(value);
 }
 
 export function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   const secs = Math.round((Date.now() - then) / 1000);
-  if (secs < 5) return "just now";
-  if (secs < 60) return `${secs}s ago`;
   const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
-  return `${days}d ago`;
+  const label = [
+    { active: secs < 5, value: "just now" },
+    { active: secs < 60, value: `${secs}s ago` },
+    { active: mins < 60, value: `${mins}m ago` },
+    { active: hours < 24, value: `${hours}h ago` },
+  ].find(({ active }) => active);
+  return label?.value ?? `${days}d ago`;
 }

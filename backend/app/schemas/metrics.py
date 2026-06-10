@@ -62,3 +62,63 @@ class BreakdownRow(BaseModel):
 class Breakdown(BaseModel):
     dimension: str
     rows: list[BreakdownRow]
+
+
+# --- Command Center narrative 1: savings vs baseline over time ---
+
+
+class SavingsTrendPoint(BaseModel):
+    date: date
+    # baseline = naive retail (what it would have cost without Varsten) =
+    # optimized + saved; optimized = actual Varsten-metered spend.
+    baseline_usd: Decimal
+    optimized_usd: Decimal
+    saved_usd: Decimal
+    cumulative_saved_usd: Decimal
+
+
+class SavingsTrend(BaseModel):
+    granularity: str
+    points: list[SavingsTrendPoint]
+    total_saved_usd: Decimal
+    total_baseline_usd: Decimal
+
+
+# --- Command Center narrative 2: proxy traffic health ---
+
+
+class CacheTrafficPoint(BaseModel):
+    date: date
+    requests: int
+    hit_rate: Decimal | None
+
+
+class LatencyPoint(BaseModel):
+    date: date
+    p50_ms: int | None
+    p95_ms: int | None
+    p99_ms: int | None
+
+
+class ProxyTraffic(BaseModel):
+    """Cache, batching, and latency health for proxy traffic over the window.
+
+    The ledger records cache as hit vs miss (exact-hash is the Day One lever;
+    semantic, when enabled, is also counted as a hit). Latency is the per-event
+    proxy time-to-first-byte; percentiles are over events that carry it, so a
+    fresh project reports null until proxy traffic accrues."""
+
+    window_days: int
+    requests: int
+    hit: int
+    miss: int
+    hit_rate: Decimal | None
+    cache_saved_usd: Decimal
+    cache_series: list[CacheTrafficPoint]
+    batch_jobs: int
+    batch_requests: int
+    batch_saved_usd: Decimal
+    latency_p50_ms: int | None
+    latency_p95_ms: int | None
+    latency_p99_ms: int | None
+    latency_series: list[LatencyPoint]

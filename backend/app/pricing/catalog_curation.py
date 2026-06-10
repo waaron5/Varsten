@@ -11,6 +11,7 @@ cheaper model is a credible drop-in for general workloads on the same provider.
 The eval/replay gate (later) is what proves a swap is safe per route; this map
 only seeds the candidate so the cheaper-model lever has something to evaluate.
 """
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -54,16 +55,12 @@ def apply_curation(db: Session) -> int:
     Returns the number of fields changed. No-ops for models not in the maps."""
     changed = 0
     for model_key, tier in TIERS.items():
-        for catalog in db.scalars(
-            select(ModelCatalog).where(ModelCatalog.model_key == model_key)
-        ):
+        for catalog in db.scalars(select(ModelCatalog).where(ModelCatalog.model_key == model_key)):
             if catalog.tier != tier:
                 catalog.tier = tier
                 changed += 1
     for model_key, substitute in SUBSTITUTES.items():
-        for catalog in db.scalars(
-            select(ModelCatalog).where(ModelCatalog.model_key == model_key)
-        ):
+        for catalog in db.scalars(select(ModelCatalog).where(ModelCatalog.model_key == model_key)):
             if catalog.cheaper_substitute_key != substitute:
                 catalog.cheaper_substitute_key = substitute
                 changed += 1

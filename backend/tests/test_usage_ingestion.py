@@ -3,25 +3,47 @@
 Uses the API-key path. A ModelPrice row is inserted via the same test session so
 the endpoint can derive cost; the client and db_session share one transaction.
 """
+
 from decimal import Decimal
 
+import pytest
+
+from app.db.session import SessionLocal
 from app.models import ModelCatalog, ModelPrice
+
+# The ingestion endpoint derives cost via an async pricing bridge that runs on a
+# separate connection, so a price flushed into the test's savepoint transaction is
+# invisible to it. Seed prices with a real commit (visible across connections under
+# READ COMMITTED) and delete them after the test. Catalog rows are read by the sync
+# control plane on the test's own connection, so they stay on the savepoint.
+_seeded_price_ids: list = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_committed_prices():
+    yield
+    if not _seeded_price_ids:
+        return
+    s = SessionLocal()
+    try:
+        for pid in _seeded_price_ids:
+            row = s.get(ModelPrice, pid)
+            if row is not None:
+                s.delete(row)
+        s.commit()
+    finally:
+        s.close()
+        _seeded_price_ids.clear()
 
 
 def _key(client) -> str:
     # Provision through the authenticated endpoints: sync a user (bootstrapping
     # their personal org), then create a project and an ingestion key in it.
     sub = "auth0|ingest"
-    user = client.post(
-        "/v1/auth/sync", headers=_bearer(sub), json={"email": "ingest@example.com", "name": None}
-    ).json()
+    user = client.post("/v1/auth/sync", headers=_bearer(sub), json={"email": "ingest@example.com", "name": None}).json()
     org_id = user["organizations"][0]["id"]
-    proj = client.post(
-        f"/v1/organizations/{org_id}/projects", headers=_bearer(sub), json={"name": "p"}
-    ).json()
-    key = client.post(
-        f"/v1/projects/{proj['id']}/api-keys", headers=_bearer(sub), json={"name": "k"}
-    ).json()
+    proj = client.post(f"/v1/organizations/{org_id}/projects", headers=_bearer(sub), json={"name": "p"}).json()
+    key = client.post(f"/v1/projects/{proj['id']}/api-keys", headers=_bearer(sub), json={"name": "k"}).json()
     return key["plaintext_key"]
 
 
@@ -38,21 +60,24 @@ def _seed_price(
     batch_input_cost=None,
     batch_output_cost=None,
 ):
-    db.add(
-        ModelPrice(
+    # Commit on a real connection so the async pricing bridge sees it; tracked for
+    # cleanup by the autouse fixture. (db param kept for call-site compatibility.)
+    s = SessionLocal()
+    try:
+        row = ModelPrice(
             model_key=model_key,
             provider=provider,
             input_cost_per_token=Decimal(input_cost),
             output_cost_per_token=Decimal(output_cost),
-            input_cost_per_token_batch=(
-                Decimal(batch_input_cost) if batch_input_cost is not None else None
-            ),
-            output_cost_per_token_batch=(
-                Decimal(batch_output_cost) if batch_output_cost is not None else None
-            ),
+            input_cost_per_token_batch=(Decimal(batch_input_cost) if batch_input_cost is not None else None),
+            output_cost_per_token_batch=(Decimal(batch_output_cost) if batch_output_cost is not None else None),
         )
-    )
-    db.flush()
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+        _seeded_price_ids.append(row.id)
+    finally:
+        s.close()
 
 
 def _seed_catalog(

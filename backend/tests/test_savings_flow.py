@@ -4,6 +4,7 @@ Exercises the demo path a buyer sees: the seed builds a workspace, the engine
 produces recommendations from real usage and pricing, applying one writes a real
 savings attribution, and Proof / Command Center / Levers report derived numbers.
 """
+
 from decimal import Decimal
 
 import pytest
@@ -58,7 +59,7 @@ def test_seed_drives_real_dashboards_and_proof(client, db_session):
 
     # Lever savings-to-date is the sum of attributions, not a seeded constant.
     levers = client.get("/v1/engine/levers", headers=_bearer(token)).json()
-    assert sum(_num(l["savings_to_date_usd"]) for l in levers) == gross
+    assert sum(_num(lever["savings_to_date_usd"]) for lever in levers) == gross
 
     # Proof attribution rows trace to applied recommendations.
     attribution = client.get("/v1/proof/attribution", headers=_bearer(token)).json()
@@ -72,13 +73,17 @@ def test_applying_a_recommendation_creates_derived_savings(client, db_session):
 
     before = _num(client.get("/v1/proof/savings", headers=_bearer(token)).json()["gross_savings_usd"])
 
-    # Apply one open recommendation that carries a dollar lever savings.
+    # Apply one open recommendation that carries a dollar lever savings. Skip the
+    # gated model-swap levers (cheaper_model, smart_routing): those now require a
+    # passing shadow eval before they can be applied, which is covered in
+    # test_eval_harness.py.
+    gated = {"cheaper_model", "smart_routing"}
     open_recs = client.get("/v1/engine/recommendations", headers=_bearer(token)).json()
     target = next(
-        (r for r in open_recs if r["lever"] and r["estimated_monthly_savings_usd"]),
+        (r for r in open_recs if r["lever"] and r["lever"] not in gated and r["estimated_monthly_savings_usd"]),
         None,
     )
-    assert target is not None, "expected at least one open lever recommendation"
+    assert target is not None, "expected at least one open non-gated lever recommendation"
 
     # Mutations require a user session (an API key cannot apply cuts), so use the
     # seeded demo user's subject plus the project_id session reads need.

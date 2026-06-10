@@ -1,5 +1,5 @@
-import { CommandCenterView } from "@/components/EngineViews";
+import { CommandCenter } from "@/components/command-center/CommandCenter";
 
 export default function CommandCenterPage() {
-  return <CommandCenterView />;
+  return <CommandCenter />;
 }

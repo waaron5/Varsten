@@ -1,6 +1,6 @@
-import uuid
 import secrets
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -11,9 +11,18 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
+from app.eval.gate import (
+    EvalGateError,
+    apply_measured_savings,
+    assert_appliable,
+    is_gated,
+    latest_run,
+)
 from app.models import (
+    ROUTING_LEVERS,
     AlertRule,
     ApiKey,
+    BatchJob,
     BudgetRule,
     CustomerEconomics,
     LeverConfig,
@@ -21,6 +30,7 @@ from app.models import (
     OrgMembership,
     Project,
     ProviderConnection,
+    ProxyPolicy,
     QualityGuardrail,
     Recommendation,
     RecommendationAction,
@@ -28,8 +38,13 @@ from app.models import (
     UsageEvent,
     User,
 )
+from app.proxy.drift import check_and_rollback_drift, evaluate_drift
+from app.proxy.execution import activate_execution, deactivate_execution
+from app.proxy.experiment import compute_experiment
+from app.proxy.trim import LEVER as TRIM_LEVER
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
+from app.schemas.eval import EvalRunSummary
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
 
 router = APIRouter(tags=["product-sections"])
@@ -104,10 +119,7 @@ def _json_decimal(value: Decimal | None) -> str | None:
 
 def _ensure_lever_configs(db: Session, project: Project) -> list[LeverConfig]:
     existing = {
-        config.lever: config
-        for config in db.scalars(
-            select(LeverConfig).where(LeverConfig.project_id == project.id)
-        )
+        config.lever: config for config in db.scalars(select(LeverConfig).where(LeverConfig.project_id == project.id))
     }
     changed = False
     for lever, default_mode in LEVERS:
@@ -124,11 +136,7 @@ def _ensure_lever_configs(db: Session, project: Project) -> list[LeverConfig]:
     if changed:
         db.commit()
     return list(
-        db.scalars(
-            select(LeverConfig)
-            .where(LeverConfig.project_id == project.id)
-            .order_by(LeverConfig.lever.asc())
-        )
+        db.scalars(select(LeverConfig).where(LeverConfig.project_id == project.id).order_by(LeverConfig.lever.asc()))
     )
 
 
@@ -147,7 +155,7 @@ def _refresh_open_recommendations(db: Session, project: Project) -> list[Recomme
 
 
 def _data_quality(db: Session, project: Project) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     row = db.execute(
         select(
@@ -312,7 +320,7 @@ def _monthly_report_payload(report: MonthlyReport) -> dict:
 
 
 def _report_snapshot(db: Session, project: Project) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     end = _next_month_start(start)
     quality = _data_quality(db, project)
@@ -380,10 +388,7 @@ def _report_snapshot(db: Session, project: Project) -> dict:
         "priced_event_count": quality["priced_event_count"],
         "unpriced_event_count": quality["unpriced_event_count"],
         "requests_month": quality["requests_month"],
-        "metadata_quality": {
-            key: _json_decimal(value)
-            for key, value in quality["metadata_quality"].items()
-        },
+        "metadata_quality": {key: _json_decimal(value) for key, value in quality["metadata_quality"].items()},
         "attribution_rows": attribution_rows,
         "top_recommendations": top_recommendations,
     }
@@ -406,7 +411,7 @@ def command_center(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = _month_start(now)
     recommendations = _refresh_open_recommendations(db, project)
     quality = _data_quality(db, project)
@@ -426,12 +431,19 @@ def command_center(
         )
     )
     top_waste = recommendations[0] if recommendations else None
+    # Data integrity: a value appears only when there is data behind it. No usage
+    # events this month means no spend to report; no attributed savings means no
+    # savings figure. A zero-traffic project shows "—" everywhere (null here),
+    # never a fabricated $0 that implies a measurement that never happened.
+    gross = summary["gross_savings_usd"]
+    has_events = spend_row.requests_month > 0
+    has_savings = gross != Decimal("0")
     return {
         "live_savings": {
-            "spend_month": spend_row.spend_month,
-            "saved_month": summary["gross_savings_usd"],
-            "net_saved_month": summary["net_savings_usd"],
-            "annual_run_rate": _money(summary["gross_savings_usd"]) * Decimal("12"),
+            "spend_month": spend_row.spend_month if has_events else None,
+            "saved_month": gross if has_savings else None,
+            "net_saved_month": summary["net_savings_usd"] if has_savings else None,
+            "annual_run_rate": (_money(gross) * Decimal("12")) if has_savings else None,
             "trust_score": quality["trust_score"],
         },
         "decision_queue": [_recommendation_payload(rec) for rec in recommendations[:5]],
@@ -441,12 +453,24 @@ def command_center(
     }
 
 
+def _engine_recommendation_out(db: Session, rec: Recommendation) -> RecommendationOut:
+    """Recommendation plus its eval-gate state, so the Engine card can show the
+    verdict and decide between Evaluate and Apply without another request."""
+    out = RecommendationOut.model_validate(rec)
+    if is_gated(rec):
+        out.gated = True
+        run = latest_run(db, rec.id)
+        if run is not None:
+            out.latest_eval = EvalRunSummary.model_validate(run)
+    return out
+
+
 @router.get("/engine/recommendations", response_model=list[RecommendationOut])
 def engine_recommendations(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
-) -> list[Recommendation]:
-    return _refresh_open_recommendations(db, project)
+) -> list[RecommendationOut]:
+    return [_engine_recommendation_out(db, r) for r in _refresh_open_recommendations(db, project)]
 
 
 @router.patch("/engine/recommendations/{recommendation_id}", response_model=RecommendationOut)
@@ -461,16 +485,28 @@ def engine_update_recommendation(
     if recommendation is None or recommendation.project_id != project.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found")
     _assert_member(user, project, db)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
+    if payload.status == "applied":
+        # Medium-risk model-swap levers must clear a shadow eval before applying.
+        # The gate raises if the route is unproven; a passing run lets us attribute
+        # the MEASURED savings instead of the estimate.
+        try:
+            gating_run = assert_appliable(db, recommendation, automated=False)
+        except EvalGateError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        apply_measured_savings(recommendation, gating_run)
+        # Execution: activate the lever's policy (routing swap, trim transform, ...).
+        activate_execution(db, project, recommendation, gating_run, now=now)
+    elif payload.status in {"dismissed", "rolled_back"}:
+        # Stop executing this lever; traffic returns to the original behaviour.
+        deactivate_execution(db, recommendation)
     recommendation.status = payload.status
     recommendation.updated_at = now
     recommendation.resolved_at = now if payload.status != "open" else None
     if payload.status == "applied":
         # Applying writes the action, the derived savings attribution, and the
         # refreshed lever total in one place, so Proof reflects real applied cuts.
-        record_applied_savings(
-            db, project, recommendation, actor_user_id=user.id, source="user", now=now
-        )
+        record_applied_savings(db, project, recommendation, actor_user_id=user.id, source="user", now=now)
     elif payload.status != "open":
         db.add(
             RecommendationAction(
@@ -500,6 +536,232 @@ def engine_levers(
     return [_lever_payload(config) for config in _ensure_lever_configs(db, project)]
 
 
+def _route_str(value) -> str | None:
+    return str(value) if value is not None else None
+
+
+@router.get("/engine/routes", response_model=None)
+def engine_routes(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Active cheaper-model routes the proxy is executing now, each with its live
+    holdback A/B: the control vs treatment arm costs and the rigorous measured
+    savings with a confidence interval. The operational view that proves the
+    engine is actually saving money, measured not modelled."""
+    now = datetime.now(UTC)
+    start = _month_start(now)
+    rules = list(
+        db.scalars(
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project.id,
+                ProxyPolicy.lever.in_(ROUTING_LEVERS),
+                ProxyPolicy.enabled.is_(True),
+            )
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
+        )
+    )
+    titles = dict(
+        db.execute(
+            select(Recommendation.id, Recommendation.title).where(
+                Recommendation.id.in_([r.source_recommendation_id for r in rules if r.source_recommendation_id])
+            )
+        ).all()
+    )
+
+    out = []
+    for rule in rules:
+        ab = compute_experiment(db, project.id, rule.incumbent_model, rule.candidate_model, start)
+        drift = evaluate_drift(db, project.id, rule.incumbent_model, rule.candidate_model, start)
+        out.append(
+            {
+                "id": rule.id,
+                "lever": rule.lever,
+                "incumbent_model": rule.incumbent_model,
+                "candidate_model": rule.candidate_model,
+                "predicate": (rule.params or {}).get("predicate"),
+                "enabled": rule.enabled,
+                "holdback_percent": _route_str(rule.holdback_percent),
+                "activated_at": rule.activated_at,
+                "source_recommendation_id": rule.source_recommendation_id,
+                "source_title": titles.get(rule.source_recommendation_id),
+                "control_requests": ab["control_requests"],
+                "treatment_requests": ab["treatment_requests"],
+                "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
+                "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
+                "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
+                "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
+                "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
+                "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
+                "has_signal": ab["has_signal"],
+                "control_ok_rate": drift["control_ok_rate"],
+                "treatment_ok_rate": drift["treatment_ok_rate"],
+                "quality_drop": drift["quality_drop"],
+                "drifted": drift["drifted"],
+            }
+        )
+    return out
+
+
+@router.get("/engine/trims", response_model=None)
+def engine_trims(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Active token-trim policies the proxy is executing now, each with its live
+    holdback A/B. Trim is a same-model experiment (the treatment arm sends a
+    trimmed body, so it bills fewer input tokens), so the measured savings is the
+    arm cost-per-request difference, like routing."""
+    now = datetime.now(UTC)
+    start = _month_start(now)
+    policies = list(
+        db.scalars(
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project.id,
+                ProxyPolicy.lever == TRIM_LEVER,
+                ProxyPolicy.enabled.is_(True),
+            )
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
+        )
+    )
+    titles = dict(
+        db.execute(
+            select(Recommendation.id, Recommendation.title).where(
+                Recommendation.id.in_([p.source_recommendation_id for p in policies if p.source_recommendation_id])
+            )
+        ).all()
+    )
+
+    out = []
+    for policy in policies:
+        model = policy.target_key
+        ab = compute_experiment(db, project.id, model, model, start)
+        drift = evaluate_drift(db, project.id, model, model, start)
+        out.append(
+            {
+                "id": policy.id,
+                "model": model,
+                "enabled": policy.enabled,
+                "holdback_percent": _route_str(policy.holdback_percent),
+                "activated_at": policy.activated_at,
+                "source_recommendation_id": policy.source_recommendation_id,
+                "source_title": titles.get(policy.source_recommendation_id),
+                "control_requests": ab["control_requests"],
+                "treatment_requests": ab["treatment_requests"],
+                "control_avg_cost_usd": _route_str(ab["control_avg_cost_usd"]),
+                "treatment_avg_cost_usd": _route_str(ab["treatment_avg_cost_usd"]),
+                "savings_per_request_usd": _route_str(ab["savings_per_request_usd"]),
+                "measured_savings_usd": _route_str(ab["measured_savings_usd"]),
+                "measured_savings_ci_low_usd": _route_str(ab["measured_savings_ci_low_usd"]),
+                "measured_savings_ci_high_usd": _route_str(ab["measured_savings_ci_high_usd"]),
+                "has_signal": ab["has_signal"],
+                "control_ok_rate": drift["control_ok_rate"],
+                "treatment_ok_rate": drift["treatment_ok_rate"],
+                "quality_drop": drift["quality_drop"],
+                "drifted": drift["drifted"],
+            }
+        )
+    return out
+
+
+@router.post("/engine/routes/check-drift", response_model=None)
+def engine_check_drift(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Run the quality-drift safety sweep and auto-roll-back any drifted route. The
+    production trigger is a scheduled job; exposed as an endpoint so a cron (or the
+    operator) can drive it."""
+    now = datetime.now(UTC)
+    rolled = check_and_rollback_drift(db, project, _month_start(now), now=now)
+    return {"rolled_back": rolled}
+
+
+class RouteConfigUpdate(BaseModel):
+    enabled: bool | None = None
+    holdback_percent: Decimal | None = Field(default=None, ge=0, le=Decimal("0.5"))
+
+
+@router.patch("/engine/routes/{rule_id}", response_model=None)
+def engine_update_route(
+    rule_id: uuid.UUID,
+    payload: RouteConfigUpdate,
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Adjust a live route: pause it (traffic returns to the incumbent) or change
+    the holdback fraction. Holdback is capped at 50% so a route can never send the
+    majority of traffic to the unproven arm by mistake."""
+    rule = db.get(ProxyPolicy, rule_id)
+    if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
+    if payload.enabled is not None:
+        rule.enabled = payload.enabled
+    if payload.holdback_percent is not None:
+        rule.holdback_percent = payload.holdback_percent
+    db.commit()
+    return {
+        "id": rule.id,
+        "enabled": rule.enabled,
+        "holdback_percent": _route_str(rule.holdback_percent),
+    }
+
+
+@router.patch("/engine/trims/{policy_id}", response_model=None)
+def engine_update_trim(
+    policy_id: uuid.UUID,
+    payload: RouteConfigUpdate,
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Adjust a live token-trim policy: pause it (traffic stops being trimmed) or
+    change the holdback fraction. Same 50% holdback cap as routes."""
+    policy = db.get(ProxyPolicy, policy_id)
+    if policy is None or policy.project_id != project.id or policy.lever != TRIM_LEVER:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="trim policy not found")
+    if payload.enabled is not None:
+        policy.enabled = payload.enabled
+    if payload.holdback_percent is not None:
+        policy.holdback_percent = payload.holdback_percent
+    db.commit()
+    return {
+        "id": policy.id,
+        "enabled": policy.enabled,
+        "holdback_percent": _route_str(policy.holdback_percent),
+    }
+
+
+@router.get("/engine/batches", response_model=None)
+def engine_batches(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Recent batch jobs and their measured savings, for the dashboard. The
+    client-facing submit/poll API is the API-key-authed /v1/batches; this is the
+    session-authed read the Engine view uses."""
+    jobs = db.scalars(
+        select(BatchJob).where(BatchJob.project_id == project.id).order_by(BatchJob.created_at.desc()).limit(50)
+    )
+    return [
+        {
+            "id": str(job.id),
+            "status": job.status,
+            "request_count": job.request_count,
+            "input_tokens": job.input_tokens,
+            "output_tokens": job.output_tokens,
+            "actual_cost_usd": _route_str(job.actual_cost_usd),
+            "naive_cost_usd": _route_str(job.naive_cost_usd),
+            "saved_usd": _route_str(job.saved_usd),
+            "submitted_at": job.submitted_at,
+            "completed_at": job.completed_at,
+            "created_at": job.created_at,
+        }
+        for job in jobs
+    ]
+
+
 @router.patch("/engine/levers/{lever}", response_model=None)
 def engine_update_lever(
     lever: str,
@@ -510,16 +772,12 @@ def engine_update_lever(
     if lever not in VALID_LEVERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown lever")
     _ensure_lever_configs(db, project)
-    config = db.scalar(
-        select(LeverConfig).where(
-            LeverConfig.project_id == project.id, LeverConfig.lever == lever
-        )
-    )
+    config = db.scalar(select(LeverConfig).where(LeverConfig.project_id == project.id, LeverConfig.lever == lever))
     if config is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lever not found")
     if payload.enabled is not None:
         config.enabled = payload.enabled
-        config.paused_at = None if payload.enabled else datetime.now(timezone.utc)
+        config.paused_at = None if payload.enabled else datetime.now(UTC)
     if payload.automation_mode is not None:
         config.automation_mode = payload.automation_mode
     db.commit()
@@ -571,7 +829,7 @@ def create_report(
             MonthlyReport.period_end == snapshot["period_end"],
         )
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if report is None:
         report = MonthlyReport(
             organization_id=project.organization_id,
@@ -615,7 +873,7 @@ def update_report(
     if report is None or report.project_id != project.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report not found")
     report.status = payload.status
-    report.published_at = datetime.now(timezone.utc) if payload.status == "published" else None
+    report.published_at = datetime.now(UTC) if payload.status == "published" else None
     db.commit()
     db.refresh(report)
     return _monthly_report_payload(report)
@@ -760,9 +1018,7 @@ def guardrails_alerts(
     return [
         _alert_rule_payload(rule)
         for rule in db.scalars(
-            select(AlertRule)
-            .where(AlertRule.project_id == project.id)
-            .order_by(AlertRule.created_at.desc())
+            select(AlertRule).where(AlertRule.project_id == project.id).order_by(AlertRule.created_at.desc())
         )
     ]
 
@@ -921,17 +1177,9 @@ def admin_connections(
             .order_by(ProviderConnection.provider.asc())
         )
     )
-    keys = list(
-        db.scalars(
-            select(ApiKey)
-            .where(ApiKey.project_id == project.id)
-            .order_by(ApiKey.created_at.desc())
-        )
-    )
+    keys = list(db.scalars(select(ApiKey).where(ApiKey.project_id == project.id).order_by(ApiKey.created_at.desc())))
     return {
-        "provider_connections": [
-            _provider_connection_payload(connection) for connection in connections
-        ],
+        "provider_connections": [_provider_connection_payload(connection) for connection in connections],
         "api_keys": [_api_key_payload(api_key) for api_key in keys],
     }
 

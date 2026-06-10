@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import require_org_member, require_project_member, require_user
 from app.db.session import get_db
@@ -20,6 +20,7 @@ def list_my_projects(
         select(Project)
         .join(OrgMembership, OrgMembership.organization_id == Project.organization_id)
         .where(OrgMembership.user_id == user.id)
+        .options(joinedload(Project.organization))  # is_demo reads org; avoid N+1
         .order_by(Project.created_at.desc())
     )
     return list(db.scalars(stmt))
@@ -50,11 +51,7 @@ def list_projects(
     org: Organization = Depends(require_org_member),
     db: Session = Depends(get_db),
 ) -> list[Project]:
-    stmt = (
-        select(Project)
-        .where(Project.organization_id == org.id)
-        .order_by(Project.created_at.desc())
-    )
+    stmt = select(Project).where(Project.organization_id == org.id).order_by(Project.created_at.desc())
     return list(db.scalars(stmt))
 
 

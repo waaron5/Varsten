@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.18.4",
+    "boto3>=1.35.0",
     "fastapi>=0.136.3",
     "httpx>=0.28.1",
     "psycopg[binary]>=3.3.4",
@@ -15,13 +16,130 @@ dependencies = [
     "sentry-sdk>=2.0.0",
     "sqlalchemy>=2.0.50",
     "uvicorn[standard]>=0.48.0",
+    "pydantic>=2.13.4",
+    "botocore>=1.43.24",
+    "cachetools>=7.1.4",
 ]
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
+    "cryptography>=48.0.0",
+    "deptry>=0.25.1",
+    "mypy>=2.1.0",
+    "pip-audit>=2.10.0",
     "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "radon>=6.0.1",
+    "ruff>=0.15.16",
+    "vulture>=2.16",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+omit = [
+    "scripts/benchmark_runner.py",
+    "scripts/check_complexity.py",
+]
+source = ["app", "scripts"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+fail_under = 80
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = [
+    "alembic/versions",
+]
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "C4",
+    "E",
+    "F",
+    "I",
+    "RUF",
+    "SIM",
+    "UP",
+]
+ignore = [
+    "B008",
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",
+]
+
+[tool.mypy]
+python_version = "3.13"
+check_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+no_site_packages = true
+pretty = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_return_any = false
+warn_unreachable = false
+warn_unused_ignores = true
+exclude = [
+    "alembic/versions/",
+]
+
+[tool.bandit]
+exclude_dirs = [
+    "alembic/versions",
+    "tests",
+]
+skips = [
+    "B101",
+    "B105",
+]
+
+[tool.deptry]
+exclude = [
+    "alembic/versions",
+]
+known_first_party = [
+    "app",
+    "scripts",
+]
+
+[tool.deptry.per_rule_ignores]
+DEP002 = [
+    "alembic",
+    "psycopg",
+    "uvicorn",
+]
+DEP004 = [
+    "radon",
+]
+
+[tool.vulture]
+exclude = [
+    "alembic/versions",
+]
+ignore_decorators = [
+    "@app.*",
+    "@router.*",
+]
+min_confidence = 90
+paths = [
+    "app",
+    "scripts",
+]

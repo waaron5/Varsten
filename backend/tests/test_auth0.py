@@ -5,7 +5,7 @@ tenant JWKS, so the full verify path (signature, issuer, audience, expiry) is
 exercised without any network access or a live Auth0 tenant.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
@@ -39,7 +39,7 @@ def configure_and_inject(monkeypatch, keypair):
 
 
 def make_token(keypair, **overrides) -> str:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     payload = {
         "sub": "auth0|abc123",
         "aud": AUDIENCE,
@@ -58,7 +58,7 @@ def test_valid_token_returns_claims(keypair):
 
 
 def test_expired_token_rejected(keypair):
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     token = make_token(keypair, iat=now - timedelta(hours=2), exp=now - timedelta(hours=1))
     with pytest.raises(jwt.ExpiredSignatureError):
         verify_access_token(token)

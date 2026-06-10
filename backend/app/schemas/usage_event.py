@@ -61,9 +61,7 @@ class UsageEventCreate(BaseModel):
         if self.environment is None:
             raw_environment = self.metadata.get("environment")
             self.environment = (
-                str(raw_environment)
-                if raw_environment is not None and str(raw_environment).strip()
-                else "unknown"
+                str(raw_environment) if raw_environment is not None and str(raw_environment).strip() else "unknown"
             )
         if self.team is None and self.metadata.get("team") is not None:
             self.team = str(self.metadata["team"])

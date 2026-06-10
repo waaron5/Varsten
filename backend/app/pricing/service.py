@@ -5,18 +5,34 @@ override first, then the synced public catalog, always choosing the row whose
 effective_at is the latest one at or before the event's time. That keeps history
 stable when prices change and lets new prices land via a sync, not a deploy.
 """
+
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from cachetools import TTLCache
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ModelPrice, OrgModelPriceOverride
 
 # usage_events.cost_usd is Numeric(18, 8); quantize calculated costs to match.
 COST_QUANTUM = Decimal("0.00000001")
+
+# In-memory TTL cache for resolved prices, to keep the two catalog/override queries
+# off the hot path. Keyed by (org, model, provider); only near-current lookups are
+# cached (see resolve_price) so backfilled historical events still read the
+# period-correct rate. Prices change at most daily, so a 1h TTL is safe; the sync
+# loader and override writes call clear_price_cache() to take effect immediately.
+_PRICE_CACHE_TTL_SECONDS = 3600
+_price_cache: TTLCache = TTLCache(maxsize=4096, ttl=_PRICE_CACHE_TTL_SECONDS)
+
+
+def clear_price_cache() -> None:
+    """Drop all cached prices. Call after a catalog sync or override change so new
+    rates apply at once instead of after the TTL. Tests call it for isolation."""
+    _price_cache.clear()
 
 
 @dataclass(frozen=True)
@@ -30,8 +46,8 @@ class ResolvedPrice:
     price_version_id: uuid.UUID | None
 
 
-def _override_for(
-    db: Session,
+async def _override_for(
+    db: AsyncSession,
     organization_id: uuid.UUID,
     model_key: str,
     provider: str,
@@ -43,14 +59,13 @@ def _override_for(
         .where(
             OrgModelPriceOverride.organization_id == organization_id,
             OrgModelPriceOverride.model_key == model_key,
-            (OrgModelPriceOverride.provider == provider)
-            | (OrgModelPriceOverride.provider.is_(None)),
+            (OrgModelPriceOverride.provider == provider) | (OrgModelPriceOverride.provider.is_(None)),
             OrgModelPriceOverride.effective_at <= at,
         )
         .order_by(OrgModelPriceOverride.effective_at.desc())
         .limit(1)
     )
-    row = db.scalars(stmt).first()
+    row = (await db.scalars(stmt)).first()
     if row is None:
         return None
     return ResolvedPrice(
@@ -62,12 +77,8 @@ def _override_for(
     )
 
 
-def _catalog_price_for(
-    db: Session, model_key: str, provider: str, at: datetime
-) -> ResolvedPrice | None:
-    base = select(ModelPrice).where(
-        ModelPrice.model_key == model_key, ModelPrice.effective_at <= at
-    )
+async def _catalog_price_for(db: AsyncSession, model_key: str, provider: str, at: datetime) -> ResolvedPrice | None:
+    base = select(ModelPrice).where(ModelPrice.model_key == model_key, ModelPrice.effective_at <= at)
     # Prefer an exact (model_key, provider) row. Fall back to the model_key alone,
     # since callers' provider strings ("openai") do not always match the feed's
     # litellm_provider, and most model_keys are globally unique anyway.
@@ -75,9 +86,7 @@ def _catalog_price_for(
         base.where(ModelPrice.provider == provider),
         base,
     ):
-        row = db.scalars(
-            stmt.order_by(ModelPrice.effective_at.desc()).limit(1)
-        ).first()
+        row = (await db.scalars(stmt.order_by(ModelPrice.effective_at.desc()).limit(1))).first()
         if row is not None:
             return ResolvedPrice(
                 input_cost_per_token=row.input_cost_per_token,
@@ -89,18 +98,32 @@ def _catalog_price_for(
     return None
 
 
-def resolve_price(
-    db: Session,
+async def resolve_price(
+    db: AsyncSession,
     organization_id: uuid.UUID,
     model_key: str,
     provider: str,
     at: datetime,
 ) -> ResolvedPrice | None:
     """The price to apply, override taking precedence over the public catalog.
-    Returns None when nothing covers the model at that time."""
-    return _override_for(db, organization_id, model_key, provider, at) or _catalog_price_for(
+    Returns None when nothing covers the model at that time.
+
+    Near-current lookups are served from an in-memory TTL cache to keep the two
+    DB queries off the hot path. Historical lookups (a backfilled event whose `at`
+    is older than the cache TTL) bypass the cache and read the versioned catalog
+    directly, so they get the rate that was in effect then, not today's."""
+    now = datetime.now(at.tzinfo) if at.tzinfo else datetime.now(UTC).replace(tzinfo=None)
+    cacheable = at >= now - timedelta(seconds=_PRICE_CACHE_TTL_SECONDS)
+    key = (organization_id, model_key, provider)
+    if cacheable and key in _price_cache:
+        return _price_cache[key]
+
+    price = await _override_for(db, organization_id, model_key, provider, at) or await _catalog_price_for(
         db, model_key, provider, at
     )
+    if cacheable:
+        _price_cache[key] = price  # negative results cached too, to skip repeated misses
+    return price
 
 
 def compute_cost(
@@ -120,16 +143,12 @@ def compute_cost(
         if price.cache_read_input_token_cost is not None
         else price.input_cost_per_token
     )
-    raw = (
-        uncached * price.input_cost_per_token
-        + cached * cache_rate
-        + output_tokens * price.output_cost_per_token
-    )
+    raw = uncached * price.input_cost_per_token + cached * cache_rate + output_tokens * price.output_cost_per_token
     return raw.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP)
 
 
-def price_usage_event(
-    db: Session,
+async def price_usage_event(
+    db: AsyncSession,
     organization_id: uuid.UUID,
     model_key: str,
     provider: str,
@@ -148,7 +167,7 @@ def price_usage_event(
     if input_tokens == 0 and output_tokens == 0 and reported_cost_usd is None:
         return None, "unknown", "missing_token_counts", None
 
-    price = resolve_price(db, organization_id, model_key, provider, at)
+    price = await resolve_price(db, organization_id, model_key, provider, at)
     if price is not None:
         cost = compute_cost(price, input_tokens, output_tokens, cached_input_tokens)
         return cost, price.source, "priced", price.price_version_id

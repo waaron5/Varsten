@@ -19,13 +19,17 @@ import {
 import { api } from "@/lib/api";
 import { compact, relativeTime, usd } from "@/lib/format";
 import type {
+  ActiveRoute,
+  ActiveTrim,
   AutomationLever,
   AutomationMode,
-  CommandCenter,
+  BatchJob,
+  EvalRunSummary,
+  HoldbackMeasurement,
   LeverConfig,
   Recommendation,
-  RecommendationAction,
   RecommendationStatus,
+  RoutePredicate,
 } from "@/lib/types";
 
 const ENGINE_TABS = [
@@ -112,206 +116,247 @@ function EngineDataCard<T>({
   );
 }
 
+// Eval verdict -> badge label + pill class. Drives whether Apply is allowed.
+const EVAL_VERDICT: Record<string, { label: string; cls: string }> = {
+  safe: { label: "Eval passed", cls: "green" },
+  needs_human: { label: "Approve manually", cls: "accent" },
+  unsafe: { label: "Eval failed", cls: "amber" },
+  insufficient_data: { label: "More samples needed", cls: "neutral" },
+};
+
+function evalIsRunning(run: EvalRunSummary | null | undefined): boolean {
+  return run?.status === "pending" || run?.status === "running";
+}
+
+// A gated recommendation may be applied only after a completed run cleared as
+// safe or needs_human. The server enforces this too; this keeps the UI honest.
+function canApplyRecommendation(rec: Recommendation): boolean {
+  if (!rec.gated) return true;
+  const run = rec.latest_eval;
+  return run?.status === "completed" && (run.verdict === "safe" || run.verdict === "needs_human");
+}
+
+function EvalMetric({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <>
+      <span>{label}</span>
+      <b>{value}</b>
+    </>
+  );
+}
+
+function evalQualityDelta(run: EvalRunSummary): string {
+  const interval =
+    run.score_delta_ci_low !== null && run.score_delta_ci_high !== null
+      ? ` (CI ${run.score_delta_ci_low}, ${run.score_delta_ci_high})`
+      : "";
+  return `${run.score_delta}${interval}`;
+}
+
+function EvalVerdictBadge({ run }: { run: EvalRunSummary }) {
+  if (!run.verdict) return null;
+  const verdict = EVAL_VERDICT[run.verdict] ?? { label: titleize(run.verdict), cls: "neutral" };
+  return <span className={`pill ${verdict.cls}`}>{verdict.label}</span>;
+}
+
+function EvalEvidence({ run }: { run: EvalRunSummary }) {
+  return (
+    <div className="eval-evidence">
+      <div className="meta-row">
+        <EvalVerdictBadge run={run} />
+        <span className="pill neutral">candidate {run.candidate_model}</span>
+        {run.scorer_type ? <span className="pill neutral">{titleize(run.scorer_type)} scoring</span> : null}
+      </div>
+      <div className="rec-meta">
+        <EvalMetric label="Samples" value={run.sample_count} />
+        {run.objective_pass_rate !== null ? <EvalMetric label="Objective parity" value={percent(run.objective_pass_rate, 100)} /> : null}
+        {run.score_delta !== null ? <EvalMetric label="Quality delta" value={evalQualityDelta(run)} /> : null}
+        {run.cost_delta_usd !== null ? <EvalMetric label="Measured savings" value={`${usd(run.cost_delta_usd, 0)}/mo`} /> : null}
+      </div>
+      {run.notes ? <p className="eval-note">{run.notes}</p> : null}
+    </div>
+  );
+}
+
+function RecommendationBadges({ recommendation }: { recommendation: Recommendation }) {
+  return (
+    <div className="meta-row">
+      <span className="pill accent">{leverLabel(recommendation.lever)}</span>
+      <span className={`pill ${riskClass(recommendation.risk_level)}`}>
+        {titleize(recommendation.risk_level)} risk
+      </span>
+      <span className="pill neutral">{percent(recommendation.confidence)} confidence</span>
+      {recommendation.gated ? <span className="pill neutral">Eval gated</span> : null}
+    </div>
+  );
+}
+
+function RecommendationMeta({ recommendation }: { recommendation: Recommendation }) {
+  const targetLabel = recommendation.target_type ? titleize(recommendation.target_type) : "Target";
+  const target = recommendation.target_key ?? recommendation.related_feature ?? recommendation.related_model ?? "project-wide";
+  return (
+    <div className="rec-meta">
+      <EvalMetric label={targetLabel} value={target} />
+      <EvalMetric label="Method" value={titleize(recommendation.measurement_method)} />
+      {recommendation.monthly_request_volume !== null ? (
+        <EvalMetric label="Requests" value={compact(recommendation.monthly_request_volume)} />
+      ) : null}
+    </div>
+  );
+}
+
+function RecommendationEvalStatus({
+  gated,
+  run,
+  running,
+}: {
+  gated: boolean;
+  run: EvalRunSummary | null | undefined;
+  running: boolean | undefined;
+}) {
+  if (run) return <EvalEvidence run={run} />;
+  if (running) return <p className="eval-note">Replaying real traffic through the candidate model…</p>;
+  if (gated) return <p className="eval-note">This model swap must clear a shadow eval on real traffic before it can be applied.</p>;
+  return null;
+}
+
+function evaluateButtonLabel(running: boolean | undefined, run: EvalRunSummary | null | undefined): string {
+  if (running) return "Evaluating…";
+  return run ? "Re-evaluate" : "Evaluate";
+}
+
+function RecommendationEvaluateButton({
+  busy,
+  id,
+  onEvaluate,
+  run,
+  running,
+}: {
+  busy?: boolean;
+  id: string;
+  onEvaluate: (id: string) => void;
+  run: EvalRunSummary | null | undefined;
+  running: boolean | undefined;
+}) {
+  return (
+    <button className="btn" disabled={busy || running} onClick={() => onEvaluate(id)} type="button">
+      {evaluateButtonLabel(running, run)}
+    </button>
+  );
+}
+
+function RecommendationStatusButton({
+  busy,
+  children,
+  className = "btn",
+  disabled,
+  id,
+  onStatus,
+  status,
+  title,
+}: {
+  busy?: boolean;
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  id: string;
+  onStatus: (id: string, status: RecommendationStatus) => void;
+  status: RecommendationStatus;
+  title?: string;
+}) {
+  return (
+    <button className={className} disabled={busy || disabled} title={title} onClick={() => onStatus(id, status)} type="button">
+      {children}
+    </button>
+  );
+}
+
+function RecommendationActions({
+  busy,
+  gated,
+  gatedBlocked,
+  id,
+  onEvaluate,
+  onStatus,
+  run,
+  running,
+}: {
+  busy?: boolean;
+  gated: boolean;
+  gatedBlocked: boolean;
+  id: string;
+  onEvaluate?: (id: string) => void;
+  onStatus?: (id: string, status: RecommendationStatus) => void;
+  run: EvalRunSummary | null | undefined;
+  running: boolean | undefined;
+}) {
+  if (!onStatus) return null;
+  const showEvaluate = gated && onEvaluate;
+  return (
+    <div className="rec-actions">
+      {showEvaluate ? <RecommendationEvaluateButton id={id} busy={busy} run={run} running={running} onEvaluate={onEvaluate} /> : null}
+      <RecommendationStatusButton
+        className="btn primary"
+        disabled={running || gatedBlocked}
+        busy={busy}
+        id={id}
+        onStatus={onStatus}
+        status="applied"
+        title={gatedBlocked ? "Run a shadow eval that clears before applying" : undefined}
+      >
+        Apply
+      </RecommendationStatusButton>
+      <RecommendationStatusButton busy={busy} disabled={running} id={id} onStatus={onStatus} status="dismissed">
+        Dismiss
+      </RecommendationStatusButton>
+    </div>
+  );
+}
+
 function RecommendationCard({
   recommendation,
   busy,
+  evaluating,
   onStatus,
+  onEvaluate,
 }: {
   recommendation: Recommendation;
   busy?: boolean;
+  evaluating?: boolean;
   onStatus?: (id: string, status: RecommendationStatus) => void;
+  onEvaluate?: (id: string) => void;
 }) {
   const savings = recommendation.estimated_monthly_savings_usd;
+  const run = recommendation.latest_eval;
+  const gated = Boolean(recommendation.gated);
+  const running = Boolean(evaluating || evalIsRunning(run));
+  const gatedBlocked = gated && !canApplyRecommendation(recommendation);
+  // Measured savings replace the estimate once an eval has produced them.
+  const measured = recommendation.measurement_method === "replay_measured";
   return (
     <div className="rec-card">
       <div className="rec-main">
-        <div className="meta-row">
-          <span className="pill accent">{leverLabel(recommendation.lever)}</span>
-          <span className={`pill ${riskClass(recommendation.risk_level)}`}>
-            {titleize(recommendation.risk_level)} risk
-          </span>
-          <span className="pill neutral">{percent(recommendation.confidence)} confidence</span>
-        </div>
+        <RecommendationBadges recommendation={recommendation} />
         <h3>{recommendation.title}</h3>
         <p>{recommendation.rationale ?? recommendation.description}</p>
-        <div className="rec-meta">
-          <span>{recommendation.target_type ? titleize(recommendation.target_type) : "Target"}</span>
-          <b>{recommendation.target_key ?? recommendation.related_feature ?? recommendation.related_model ?? "project-wide"}</b>
-          <span>Method</span>
-          <b>{titleize(recommendation.measurement_method)}</b>
-          {recommendation.monthly_request_volume !== null ? (
-            <>
-              <span>Requests</span>
-              <b>{compact(recommendation.monthly_request_volume)}</b>
-            </>
-          ) : null}
-        </div>
+        <RecommendationMeta recommendation={recommendation} />
+        <RecommendationEvalStatus gated={gated} run={run} running={running} />
       </div>
       <div className="rec-side">
         <div className="rec-money">{savings === null ? "Needs pricing" : usd(savings, 0)}</div>
-        <div className="rec-sub">estimated monthly savings</div>
-        {onStatus ? (
-          <div className="rec-actions">
-            <button
-              className="btn primary"
-              disabled={busy}
-              onClick={() => onStatus(recommendation.id, "applied")}
-              type="button"
-            >
-              Apply
-            </button>
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={() => onStatus(recommendation.id, "dismissed")}
-              type="button"
-            >
-              Dismiss
-            </button>
-          </div>
-        ) : null}
+        <div className="rec-sub">{measured ? "measured monthly savings" : "estimated monthly savings"}</div>
+        <RecommendationActions
+          busy={busy}
+          gated={gated}
+          gatedBlocked={gatedBlocked}
+          id={recommendation.id}
+          onEvaluate={onEvaluate}
+          onStatus={onStatus}
+          run={run}
+          running={running}
+        />
       </div>
     </div>
-  );
-}
-
-function ActionRow({ action }: { action: RecommendationAction }) {
-  const savings = action.realized_savings_usd ?? action.estimated_savings_usd;
-  return (
-    <div className="action-row">
-      <span className="step-dot" />
-      <div className="action-body">
-        <div className="action-title">
-          <b>{action.title}</b>
-          <span>{relativeTime(action.occurred_at)}</span>
-        </div>
-        <div className="action-detail">
-          {leverLabel(action.lever)} · {titleize(action.action_type)} · {titleize(action.status)}
-          {savings !== null && savings !== undefined ? ` · ${usd(savings, 0)}` : ""}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CommandKpis({ data }: { data: CommandCenter }) {
-  const trust = data.live_savings.trust_score === null ? "-" : percent(data.live_savings.trust_score);
-  return (
-    <div className="grid kpi-row">
-      <div className="card kpi">
-        <div className="label">Spend this month</div>
-        <div className="value">{usd(data.live_savings.spend_month, 0)}</div>
-        <div className="foot">{compact(data.requests_month)} requests measured</div>
-      </div>
-      <div className="card kpi">
-        <div className="label">Saved this month</div>
-        <div className="value">{usd(data.live_savings.saved_month, 0)}</div>
-        <div className="foot">gross savings attributed to levers</div>
-      </div>
-      <div className="card kpi">
-        <div className="label">Annualized savings</div>
-        <div className="value">{usd(data.live_savings.annual_run_rate, 0)}</div>
-        <div className="foot">based on current monthly savings pace</div>
-      </div>
-      <div className="card kpi">
-        <div className="label">Trust score</div>
-        <div className="value">{trust}</div>
-        <div className="foot">pricing and metadata coverage</div>
-      </div>
-    </div>
-  );
-}
-
-function DecisionQueue({
-  busyId,
-  onStatus,
-  recommendations,
-}: {
-  busyId: string | null;
-  onStatus: (id: string, status: RecommendationStatus) => void;
-  recommendations: Recommendation[];
-}) {
-  return (
-    <div className="card">
-      <div className="card-head">
-        <h3>Decision queue</h3>
-        <div className="right"><span className="pill neutral">{recommendations.length} open</span></div>
-      </div>
-      {recommendations.length === 0 ? (
-        <PageState empty="No open recommendations" emptyDetail="The engine has no savings decisions awaiting review." />
-      ) : (
-        <div className="rec-list">
-          {recommendations.slice(0, 6).map((rec) => (
-            <RecommendationCard key={rec.id} recommendation={rec} busy={busyId === rec.id} onStatus={onStatus} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TopWasteCard({
-  busyId,
-  onStatus,
-  recommendation,
-}: {
-  busyId: string | null;
-  onStatus: (id: string, status: RecommendationStatus) => void;
-  recommendation: Recommendation | null;
-}) {
-  return (
-    <div className="card">
-      <div className="card-head">
-        <h3>Top waste now</h3>
-      </div>
-      {recommendation ? (
-        <div className="card-pad">
-          <RecommendationCard recommendation={recommendation} busy={busyId === recommendation.id} onStatus={onStatus} />
-        </div>
-      ) : (
-        <PageState empty="No dominant waste source" emptyDetail="Savings opportunities will appear as usage accumulates." />
-      )}
-    </div>
-  );
-}
-
-function RecentActions({ actions }: { actions: RecommendationAction[] }) {
-  return (
-    <div className="card">
-      <div className="card-head">
-        <h3>Recent actions</h3>
-      </div>
-      {actions.length === 0 ? (
-        <PageState empty="No actions recorded" emptyDetail="Applied recommendations and engine actions will appear here." />
-      ) : (
-        <div className="action-list">
-          {actions.slice(0, 8).map((action) => <ActionRow key={action.id} action={action} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CommandCenterContent({
-  busyId,
-  data,
-  onStatus,
-}: {
-  busyId: string | null;
-  data: CommandCenter;
-  onStatus: (id: string, status: RecommendationStatus) => void;
-}) {
-  return (
-    <>
-      <CommandKpis data={data} />
-      <div className="grid cols-2">
-        <DecisionQueue busyId={busyId} recommendations={data.decision_queue} onStatus={onStatus} />
-        <div className="grid">
-          <TopWasteCard busyId={busyId} recommendation={data.top_waste_now} onStatus={onStatus} />
-          <RecentActions actions={data.recent_actions} />
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -346,50 +391,34 @@ function useEngineMutation() {
   return { busyId, updateRecommendation, updateLever };
 }
 
-export function CommandCenterView() {
-  return (
-    <RequireSession>
-      <CommandCenterBody />
-    </RequireSession>
+// Trigger a shadow eval and poll the recommendations list until the run finishes,
+// since it executes off-path in a background worker.
+function useEvaluateRecommendation(
+  refresh: () => Promise<Recommendation[]>,
+) {
+  const { getToken } = useSession();
+  const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
+
+  const evaluate = useCallback(
+    async (id: string) => {
+      setEvaluatingId(id);
+      try {
+        await api.evaluateRecommendation(await getToken(), id);
+        for (let i = 0; i < 12; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          const fresh = await refresh();
+          const rec = fresh.find((r) => r.id === id);
+          const status = rec?.latest_eval?.status;
+          if (status === "completed" || status === "failed") break;
+        }
+      } finally {
+        setEvaluatingId(null);
+      }
+    },
+    [getToken, refresh],
   );
-}
 
-function CommandCenterBody() {
-  const { busyId, updateRecommendation } = useEngineMutation();
-  const { data, loading, error, reload, setError } = useProjectResource<CommandCenter>(api.commandCenter);
-
-  const act = async (id: string, status: RecommendationStatus) => {
-    try {
-      await updateRecommendation(id, status);
-      await reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  if (loading || error || !data) {
-    return (
-      <div className="view">
-        <PageHeader
-          section="Operate"
-          title="Command Center"
-          description="Live savings, decision queue, recent engine actions, and the largest waste source."
-        />
-        <PageState loading={loading} error={error} empty={!data && !loading ? "No command data yet" : undefined} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="view">
-      <PageHeader
-        section="Operate"
-        title="Command Center"
-        description="The operating view for what Varsten should cut, prove, and watch right now."
-      />
-      <CommandCenterContent busyId={busyId} data={data} onStatus={act} />
-    </div>
-  );
+  return { evaluatingId, evaluate };
 }
 
 export function EngineRecommendationsView() {
@@ -403,12 +432,30 @@ export function EngineRecommendationsView() {
 function EngineRecommendationsBody() {
   const { busyId, updateRecommendation } = useEngineMutation();
   const {
+    activeProjectId,
     data: items,
-    loading,
     error,
+    getToken,
+    loading,
     setData: setItems,
     setError,
   } = useProjectResource<Recommendation[]>(api.engineRecommendations, []);
+
+  const refresh = useCallback(async () => {
+    const fresh = await api.engineRecommendations(await getToken(), activeProjectId ?? undefined);
+    setItems(fresh);
+    return fresh;
+  }, [activeProjectId, getToken, setItems]);
+
+  const { evaluatingId, evaluate } = useEvaluateRecommendation(refresh);
+
+  const runEvaluate = async (id: string) => {
+    try {
+      await evaluate(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const act = async (id: string, status: RecommendationStatus) => {
     try {
@@ -443,7 +490,9 @@ function EngineRecommendationsBody() {
                 key={rec.id}
                 recommendation={rec}
                 busy={busyId === rec.id}
+                evaluating={evaluatingId === rec.id}
                 onStatus={act}
+                onEvaluate={runEvaluate}
               />
             ))}
           </div>
@@ -553,6 +602,362 @@ function LeverRow({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; 
   );
 }
 
+function holdbackLabel(percent: string | null): string {
+  if (percent === null) return "-";
+  return `${Math.round(Number(percent) * 100)}%`;
+}
+
+function RouteSavings({ row }: { row: HoldbackMeasurement }) {
+  if (row.measured_savings_usd === null) {
+    return <span className="eval-note">gathering arms…</span>;
+  }
+  const band =
+    row.measured_savings_ci_low_usd !== null && row.measured_savings_ci_high_usd !== null
+      ? ` (CI ${usd(row.measured_savings_ci_low_usd, 2)}–${usd(row.measured_savings_ci_high_usd, 2)})`
+      : "";
+  return (
+    <span>
+      {usd(row.measured_savings_usd, 2)}
+      <span className="eval-note">{band}{row.has_signal ? "" : " · provisional"}</span>
+    </span>
+  );
+}
+
+function routeCostLabel(row: HoldbackMeasurement): string {
+  if (row.control_avg_cost_usd === null || row.treatment_avg_cost_usd === null) return "-";
+  return `${usd(row.control_avg_cost_usd, 4)} → ${usd(row.treatment_avg_cost_usd, 4)}`;
+}
+
+function ActiveRoutesEmpty({ error, routes }: { error: string | null; routes: ActiveRoute[] | null | undefined }) {
+  if (error && routes && routes.length === 0) {
+    return <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>;
+  }
+  return null;
+}
+
+function QuietEmptyState({
+  error,
+  items,
+}: {
+  error: string | null;
+  items: readonly unknown[] | null | undefined;
+}) {
+  return error && items && items.length === 0
+    ? <div className="card"><div className="card-pad"><p className="form-error">{error}</p></div></div>
+    : null;
+}
+
+function ActiveRoutesHeader({
+  busy,
+  onCheckDrift,
+}: {
+  busy: boolean;
+  onCheckDrift: () => void;
+}) {
+  return (
+    <div className="card-head">
+      <h3>Active routes</h3>
+      <span className="sub">live cheaper-model swaps, savings measured against a concurrent holdback</span>
+      <button className="btn" disabled={busy} onClick={onCheckDrift} type="button">
+        {busy ? "Checking…" : "Run drift check"}
+      </button>
+    </div>
+  );
+}
+
+function ActiveRouteRow({
+  busy,
+  onPause,
+  route,
+}: {
+  busy: boolean;
+  onPause: (route: ActiveRoute) => void;
+  route: ActiveRoute;
+}) {
+  return (
+    <tr>
+      <td>
+        <b>{route.incumbent_model}</b> &rarr; {route.candidate_model}
+        {route.lever === "smart_routing" ? <span className="pill neutral">predicate</span> : null}
+        {route.lever === "smart_routing" && route.predicate ? (
+          <span className="eval-note"> {predicateSummary(route.predicate)}</span>
+        ) : null}
+        {route.activated_at ? <span className="eval-note"> live {relativeTime(route.activated_at)}</span> : null}
+      </td>
+      <td className="r">{holdbackLabel(route.holdback_percent)}</td>
+      <td className="r">{compact(route.control_requests)} / {compact(route.treatment_requests)}</td>
+      <td className="r">{routeCostLabel(route)}</td>
+      <td className="r"><RouteQuality row={route} /></td>
+      <td className="r"><RouteSavings row={route} /></td>
+      <td className="r">
+        <button className="btn" disabled={busy} onClick={() => onPause(route)} type="button">
+          Pause
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function predicateSummary(p: RoutePredicate): string {
+  const parts: string[] = [];
+  if (p.max_prompt_chars != null) parts.push(`≤${compact(p.max_prompt_chars)} chars`);
+  if (p.max_completion_tokens != null) parts.push(`≤${compact(p.max_completion_tokens)} out`);
+  if (!p.route_when_tools) parts.push("no tools");
+  if (!p.route_when_json_schema) parts.push("no JSON");
+  return parts.join(" · ");
+}
+
+function ActiveRoutesTable({
+  busyId,
+  onPause,
+  routes,
+}: {
+  busyId: string | null;
+  onPause: (route: ActiveRoute) => void;
+  routes: ActiveRoute[];
+}) {
+  return (
+    <HoldbackTable firstHeader="Route">
+        {routes.map((route) => (
+          <ActiveRouteRow key={route.id} route={route} busy={busyId === route.id} onPause={onPause} />
+        ))}
+    </HoldbackTable>
+  );
+}
+
+function HoldbackTable({
+  children,
+  firstHeader,
+}: {
+  children: ReactNode;
+  firstHeader: string;
+}) {
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          <th>{firstHeader}</th>
+          <th className="r">Holdback</th>
+          <th className="r">Control / Treatment</th>
+          <th className="r">Cost / req</th>
+          <th className="r">Quality</th>
+          <th className="r">Measured savings (mo)</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>{children}</tbody>
+    </table>
+  );
+}
+
+function ActiveRoutesCard() {
+  const {
+    activeProjectId,
+    data: routes,
+    error,
+    getToken,
+    loading,
+    setData: setRoutes,
+    setError,
+  } = useProjectResource<ActiveRoute[]>(api.engineRoutes, []);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const pause = async (route: ActiveRoute) => {
+    setBusyId(route.id);
+    setError(null);
+    try {
+      await api.updateEngineRoute(await getToken(), activeProjectId ?? undefined, route.id, { enabled: false });
+      setRoutes((current) => (current ?? []).filter((r) => r.id !== route.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const checkDrift = async () => {
+    setBusyId("drift");
+    setError(null);
+    try {
+      const result = await api.checkRouteDrift(await getToken(), activeProjectId ?? undefined);
+      // Rolled-back routes are disabled, so refetch to drop them from the list.
+      const fresh = await api.engineRoutes(await getToken(), activeProjectId ?? undefined);
+      setRoutes(fresh);
+      if (result.rolled_back.length > 0) {
+        setError(`Rolled back ${result.rolled_back.length} route(s) on quality drift: ${result.rolled_back.map((r) => r.route).join(", ")}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Only meaningful once at least one cheaper-model swap is live; stay quiet otherwise.
+  if (loading || error || !routes || routes.length === 0) {
+    return <ActiveRoutesEmpty error={error} routes={routes} />;
+  }
+  return (
+    <div className="card">
+      <ActiveRoutesHeader busy={busyId === "drift"} onCheckDrift={checkDrift} />
+      {error ? <div className="card-pad"><p className="form-error">{error}</p></div> : null}
+      <ActiveRoutesTable routes={routes} busyId={busyId} onPause={pause} />
+    </div>
+  );
+}
+
+function RouteQuality({ row }: { row: HoldbackMeasurement }) {
+  if (row.drifted) {
+    return <span className="pill amber">drift</span>;
+  }
+  if (row.treatment_ok_rate === null || row.control_ok_rate === null) {
+    return <span className="eval-note">-</span>;
+  }
+  return (
+    <span>
+      {percent(row.treatment_ok_rate)}
+      <span className="eval-note"> vs {percent(row.control_ok_rate)}</span>
+    </span>
+  );
+}
+
+function ActiveTrimRow({
+  busy,
+  onPause,
+  trim,
+}: {
+  busy: boolean;
+  onPause: (trim: ActiveTrim) => void;
+  trim: ActiveTrim;
+}) {
+  return (
+    <tr>
+      <td>
+        <b>{trim.model}</b> <span className="eval-note">trimmed prompts</span>
+        {trim.activated_at ? <span className="eval-note"> · live {relativeTime(trim.activated_at)}</span> : null}
+      </td>
+      <td className="r">{holdbackLabel(trim.holdback_percent)}</td>
+      <td className="r">{compact(trim.control_requests)} / {compact(trim.treatment_requests)}</td>
+      <td className="r">{routeCostLabel(trim)}</td>
+      <td className="r"><RouteQuality row={trim} /></td>
+      <td className="r"><RouteSavings row={trim} /></td>
+      <td className="r">
+        <button className="btn" disabled={busy} onClick={() => onPause(trim)} type="button">
+          Pause
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function ActiveTrimsCard() {
+  const {
+    activeProjectId,
+    data: trims,
+    error,
+    getToken,
+    loading,
+    setData: setTrims,
+    setError,
+  } = useProjectResource<ActiveTrim[]>(api.engineTrims, []);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const pause = async (trim: ActiveTrim) => {
+    setBusyId(trim.id);
+    setError(null);
+    try {
+      await api.updateEngineTrim(await getToken(), activeProjectId ?? undefined, trim.id, { enabled: false });
+      setTrims((current) => (current ?? []).filter((t) => t.id !== trim.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Quiet until at least one trim policy is live.
+  if (loading || error || !trims || trims.length === 0) {
+    return <QuietEmptyState error={error} items={trims} />;
+  }
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Active trims</h3>
+        <span className="sub">live token-trim policies, savings measured against an untrimmed holdback</span>
+      </div>
+      {error ? <div className="card-pad"><p className="form-error">{error}</p></div> : null}
+      <HoldbackTable firstHeader="Model">
+          {trims.map((trim) => (
+            <ActiveTrimRow key={trim.id} trim={trim} busy={busyId === trim.id} onPause={pause} />
+          ))}
+      </HoldbackTable>
+    </div>
+  );
+}
+
+const BATCH_STATUS_CLASS: Record<string, string> = {
+  finalized: "green",
+  completed: "green",
+  failed: "amber",
+  expired: "amber",
+  cancelled: "neutral",
+};
+
+const BATCH_HEADERS = ["Submitted", "Status", "Requests", "Tokens in / out", "Naive cost", "Saved"];
+
+function BatchStatusPill({ status }: { status: string }) {
+  const cls = BATCH_STATUS_CLASS[status] ?? "accent";
+  return <span className={`pill ${cls}`}>{titleize(status)}</span>;
+}
+
+function BatchJobRow({ job }: { job: BatchJob }) {
+  return (
+    <tr>
+      <td>{relativeTime(job.submitted_at ?? job.created_at)}</td>
+      <td><BatchStatusPill status={job.status} /></td>
+      <td className="r">{compact(job.request_count)}</td>
+      <td className="r">{compact(job.input_tokens)} / {compact(job.output_tokens)}</td>
+      <td className="r">{job.naive_cost_usd === null ? "-" : usd(job.naive_cost_usd, 2)}</td>
+      <td className="r emphasis">{job.saved_usd === null ? "-" : usd(job.saved_usd, 2)}</td>
+    </tr>
+  );
+}
+
+function BatchJobsTable({ jobs }: { jobs: BatchJob[] }) {
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          {BATCH_HEADERS.map((header, index) => (
+            <th key={header} className={index > 1 ? "r" : undefined}>{header}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {jobs.map((job) => <BatchJobRow key={job.id} job={job} />)}
+      </tbody>
+    </table>
+  );
+}
+
+function BatchJobsCard() {
+  const { data: jobs, error, loading } = useProjectResource<BatchJob[]>(api.engineBatches, []);
+
+  // Quiet until the client has run at least one batch.
+  if (loading || error || !jobs || jobs.length === 0) {
+    return <QuietEmptyState error={error} items={jobs} />;
+  }
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Batch jobs</h3>
+        <span className="sub">async batch runs, ~50% off measured against synchronous pricing</span>
+      </div>
+      <BatchJobsTable jobs={jobs} />
+    </div>
+  );
+}
+
 function EngineLeversBody() {
   const { busyId, updateLever } = useEngineMutation();
   const {
@@ -593,6 +998,9 @@ function EngineLeversBody() {
           ))}
         </div>
       )}
+      <ActiveRoutesCard />
+      <ActiveTrimsCard />
+      <BatchJobsCard />
     </div>
   );
 }
