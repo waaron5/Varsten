@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = 2.0
     # Upstream request timeout (seconds) for the non-streaming path.
     proxy_upstream_timeout_seconds: float = 60.0
+    # Connection pool for the shared upstream client. Keep-alive connections are
+    # what spare a cache miss the TCP+TLS handshake; size the cap to expected
+    # concurrent in-flight upstream requests.
+    proxy_pool_max_connections: int = 100
+    proxy_pool_max_keepalive_connections: int = 20
     # Streaming-path timeouts. read = max gap between chunks before we treat the
     # upstream as hung (the guard against pinning an event-loop slot indefinitely);
     # total = wall-clock cap on a single stream as a backstop. connect mirrors the

@@ -17,8 +17,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.models import UsageEvent
-from app.proxy import circuit, providers
-from app.proxy import router as proxy_router
+from app.proxy import circuit, http_client, providers
 from app.proxy.providers.base import LLMAdapter, StreamTranslator
 from app.proxy.providers.canonical import CanonicalCompletion, CanonicalUsage
 
@@ -130,7 +129,7 @@ def _mock_echo_upstream(monkeypatch, *, stream: bool):
         return httpx.Response(200, json={"text": "hello world", "tokens": {"in": 5, "out": 2}})
 
     real = httpx.AsyncClient
-    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(http_client, "_client", real(transport=httpx.MockTransport(handler)))
 
 
 def _b(token: str) -> dict:

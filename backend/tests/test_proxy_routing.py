@@ -25,9 +25,8 @@ from app.models import (
     UsageEvent,
 )
 from app.models.eval import RUN_COMPLETED, VERDICT_SAFE
-from app.proxy import circuit
+from app.proxy import circuit, http_client
 from app.proxy import drift as drift_mod
-from app.proxy import router as proxy_router
 from app.proxy.ledger import record_proxy_usage
 from app.proxy.quality import response_quality_ok
 from app.proxy.routing import (
@@ -220,7 +219,7 @@ def _mock_openai(monkeypatch, seen: dict):
         )
 
     real = httpx.AsyncClient
-    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(http_client, "_client", real(transport=httpx.MockTransport(handler)))
 
 
 @pytest.mark.anyio

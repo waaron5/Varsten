@@ -897,6 +897,13 @@ a {
   color: var(--text-faint);
 }
 
+.lp-form-error {
+  margin-top: 9px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--neg);
+}
+
 .lp-modal-success {
   text-align: center;
   padding: 10px 0 14px;

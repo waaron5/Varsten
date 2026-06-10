@@ -63,7 +63,7 @@ function BudgetRuleRow({ item }: { item: BudgetRule }) {
       <td className="muted">{titleize(item.owner_type)}</td>
       <td className="r">{usd(item.monthly_budget_usd, 0)}</td>
       <td className="r">
-        <BinaryPill active={item.hard_cap_enabled} activeLabel="Hard" inactiveLabel="Review" activeTone="amber" />
+        <BinaryPill active={item.hard_cap_enabled} activeLabel="Critical" inactiveLabel="Review" activeTone="amber" />
       </td>
     </tr>
   );
@@ -650,7 +650,7 @@ function GuardrailsBudgetsBody() {
       <PageHeader
         section="Guardrails"
         title="Budgets"
-        description="Caps by team, feature, or customer so the engine can prevent surprises before they happen."
+        description="Smart monitoring & alerts: spend is tracked against each monthly budget and alerts fire when a cap is exceeded. Budgets never block live traffic."
       />
       <Tabs tabs={GUARDRAIL_TABS} active="/guardrails/budgets" />
       <div className="grid cols-2">
@@ -662,7 +662,7 @@ function GuardrailsBudgetsBody() {
           getKey={(item) => item.id}
           empty="No budget rules"
           emptyDetail="Create caps for teams, features, or customers that need spend control."
-          headers={<tr><th>Owner</th><th>Type</th><th className="r">Monthly cap</th><th className="r">Hard cap</th></tr>}
+          headers={<tr><th>Owner</th><th>Type</th><th className="r">Monthly budget</th><th className="r">Alert level</th></tr>}
           right={<div className="right"><span className="pill neutral">{usd(monthlyTotal, 0)} total cap</span></div>}
         >
           {(item) => <BudgetRuleRow item={item} />}
@@ -679,7 +679,7 @@ function GuardrailsBudgetsBody() {
             <input className="input" placeholder="Monthly budget USD" value={budget} onChange={(e) => setBudget(e.target.value)} />
             <label className="check-row">
               <input type="checkbox" checked={hardCap} onChange={(e) => setHardCap(e.target.checked)} />
-              Hard cap instead of review threshold
+              Raise a critical alert (instead of review) when exceeded
             </label>
             <button className="btn primary" disabled={busy || !ownerKey.trim() || !budget} type="submit">{busy ? "Adding..." : "Add budget"}</button>
           </form>

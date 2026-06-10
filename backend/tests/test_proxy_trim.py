@@ -16,9 +16,8 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.models import ModelPrice, Project, ProxyPolicy, Recommendation, UsageEvent
-from app.proxy import circuit
+from app.proxy import circuit, http_client
 from app.proxy import drift as drift_mod
-from app.proxy import router as proxy_router
 from app.proxy.execution import activate_execution, deactivate_execution
 from app.proxy.trim import LEVER, apply_trim, resolve_trim, trim_messages
 
@@ -186,7 +185,7 @@ def _mock_openai(monkeypatch, seen: dict):
         )
 
     real = httpx.AsyncClient
-    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(http_client, "_client", real(transport=httpx.MockTransport(handler)))
 
 
 def _redundant_messages() -> list[dict]:

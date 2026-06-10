@@ -6,10 +6,9 @@ cache miss and forwards (fail-open). Embedding the prompt is no new data boundar
 since the prompt is already sent to OpenAI for the completion.
 """
 
-import httpx
-
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.proxy import http_client
 
 logger = get_logger("varsten.embedding")
 
@@ -44,8 +43,10 @@ async def embed(text: str, client_key: str) -> list[float] | None:
     try:
         # Tightly bounded: this is on the cache-miss hot path. A slow embedding
         # must fail open to a normal forward, never add seconds to the request.
-        async with httpx.AsyncClient(timeout=settings.embedding_timeout_seconds) as client:
-            resp = await client.post(url, headers=headers, json=payload)
+        # Shared pooled client so the embedding call rides a warm connection.
+        resp = await http_client.get_client().post(
+            url, headers=headers, json=payload, timeout=settings.embedding_timeout_seconds
+        )
         if resp.status_code != 200:
             logger.warning("embedding upstream non-200", extra={"status": resp.status_code})
             return None

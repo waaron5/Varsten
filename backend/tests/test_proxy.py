@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.models import Project, ProxyCacheEntry, UsageEvent
 from app.proxy import cache as proxy_cache
-from app.proxy import circuit
+from app.proxy import circuit, http_client
 from app.proxy import router as proxy_router
 
 
@@ -92,11 +92,7 @@ def mock_openai(monkeypatch):
         return httpx.Response(200, json=NONSTREAM_RESPONSE)
 
     real_async_client = httpx.AsyncClient
-
-    def factory(*args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", factory)
+    monkeypatch.setattr(http_client, "_client", real_async_client(transport=httpx.MockTransport(handler)))
     return calls
 
 
@@ -124,11 +120,7 @@ def controllable_openai(monkeypatch):
         return httpx.Response(200, json=NONSTREAM_RESPONSE)
 
     real_async_client = httpx.AsyncClient
-
-    def factory(*args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", factory)
+    monkeypatch.setattr(http_client, "_client", real_async_client(transport=httpx.MockTransport(handler)))
     return state
 
 
@@ -517,7 +509,7 @@ async def test_streaming_upstream_hang_is_cut_by_timeout(async_client, async_pro
     monkeypatch.setattr(settings, "proxy_cache_enabled", False)
     # Tiny total cap so the hang is cut fast instead of pinning the slot.
     monkeypatch.setattr(settings, "proxy_stream_total_timeout_seconds", 0.2)
-    monkeypatch.setattr(proxy_router.httpx, "AsyncClient", lambda *a, **k: _HangingClient())
+    monkeypatch.setattr(http_client, "_client", _HangingClient())
 
     start = perf_counter()
     res = await async_client.post(

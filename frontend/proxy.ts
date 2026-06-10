@@ -6,6 +6,11 @@ export async function proxy(request: Request) {
   return await auth0.middleware(request);
 }
 
+// Run only on application pages. Exclude all Next internals (_next/*), the
+// favicon and SEO files, and any path with a static-asset extension so the
+// Auth0 session handling never intercepts public assets (logos, fonts, css).
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: [
+    "/((?!_next|favicon\\.ico|sitemap\\.xml|robots\\.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|css|js|map|txt|xml|woff2?|ttf|otf)$).*)",
+  ],
 };

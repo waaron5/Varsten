@@ -117,16 +117,20 @@ function EmailSuccess({ email }: { email: string }) {
 
 function EmailForm({
   email,
+  error,
   inputRef,
   onCancel,
   onEmailChange,
   onSubmit,
+  submitting,
 }: {
   email: string;
+  error: string | null;
   inputRef: RefObject<HTMLInputElement | null>;
   onCancel: () => void;
   onEmailChange: (email: string) => void;
   onSubmit: (e: FormEvent) => void;
+  submitting: boolean;
 }) {
   return (
     <form onSubmit={onSubmit}>
@@ -145,13 +149,14 @@ function EmailForm({
           required
           autoComplete="email"
         />
+        {error ? <p className="lp-form-error" role="alert">{error}</p> : null}
       </div>
       <div className="lp-modal-foot">
         <button type="button" className="lp-btn lp-btn-ghost" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className="lp-btn lp-btn-primary" disabled={!email.trim()}>
-          Confirm
+        <button type="submit" className="lp-btn lp-btn-primary" disabled={!email.trim() || submitting}>
+          {submitting ? "Sending..." : "Confirm"}
         </button>
       </div>
     </form>
@@ -176,15 +181,19 @@ function EmailModalHeader({ submitted, onClose }: { submitted: boolean; onClose:
 
 function EmailModalContent({
   email,
+  error,
   inputRef,
   submitted,
+  submitting,
   onClose,
   onEmailChange,
   onSubmit,
 }: {
   email: string;
+  error: string | null;
   inputRef: RefObject<HTMLInputElement | null>;
   submitted: boolean;
+  submitting: boolean;
   onClose: () => void;
   onEmailChange: (email: string) => void;
   onSubmit: (e: FormEvent) => void;
@@ -205,10 +214,12 @@ function EmailModalContent({
   return (
     <EmailForm
       email={email}
+      error={error}
       inputRef={inputRef}
       onCancel={onClose}
       onEmailChange={onEmailChange}
       onSubmit={onSubmit}
+      submitting={submitting}
     />
   );
 }
@@ -216,6 +227,8 @@ function EmailModalContent({
 function EmailModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEscapeClose(onClose);
@@ -224,9 +237,26 @@ function EmailModal({ onClose }: { onClose: () => void }) {
     inputRef.current?.focus();
   }, []);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setSubmitted(true);
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), source: "landing-cta" }),
+      });
+      if (!res.ok) {
+        throw new Error(`request failed (${res.status})`);
+      }
+      setSubmitted(true);
+    } catch {
+      setError("Something went wrong sending your email. Please try again in a moment.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -234,8 +264,10 @@ function EmailModal({ onClose }: { onClose: () => void }) {
       <EmailModalHeader submitted={submitted} onClose={onClose} />
       <EmailModalContent
         email={email}
+        error={error}
         inputRef={inputRef}
         submitted={submitted}
+        submitting={submitting}
         onClose={onClose}
         onEmailChange={setEmail}
         onSubmit={handleSubmit}
@@ -396,16 +428,18 @@ function Feature({
   title,
   body,
   chip,
+  id,
   reverse,
 }: {
   eyebrow: string;
   title: string;
   body: string;
   chip: string;
+  id?: string;
   reverse?: boolean;
 }) {
   return (
-    <article className={`lp-feature${reverse ? " rev" : ""}`}>
+    <article className={`lp-feature${reverse ? " rev" : ""}`} id={id}>
       <div className="lp-feature-text">
         <p className="lp-eyebrow">{eyebrow}</p>
         <h3>{title}</h3>
@@ -439,6 +473,7 @@ function Features() {
           chip="swap · quality held · CI reported"
         />
         <Feature
+          id="reliability"
           eyebrow="Reliability"
           title="Inline, but it can't take you down."
           body="The data plane fails open. If anything upstream is unreachable, requests pass through to your original provider unchanged — you stop saving, you never stop serving. Strict read and total timeouts mean a hung upstream can't pin a connection."
@@ -699,10 +734,13 @@ function Footer({ onStartTrial, onWatchDemo }: { onStartTrial: () => void; onWat
     <footer className="lp-footer">
       <div className="lp-container lp-footer-inner">
         <span>© 2026 Varsten · AI savings engine</span>
+        {/* Footer links only advertise what exists: real in-page sections and the
+            app. Docs / Security / Status pages get links here once they are live. */}
         <nav className="lp-footer-links">
-          <a href="#how-it-works">Docs</a>
-          <a href="#how">Security</a>
-          <a href={APP_URL}>Status</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#reliability">Reliability</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#savings-proof">Savings proof</a>
           <a href={APP_URL}>Sign in</a>
         </nav>
         <div className="lp-footer-actions">

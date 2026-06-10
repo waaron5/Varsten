@@ -15,8 +15,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.models import ProxyCacheEntry, UsageEvent
-from app.proxy import circuit
-from app.proxy import router as proxy_router
+from app.proxy import circuit, http_client
 from app.proxy.providers import canonical
 from app.proxy.providers import openai as openai_ops
 
@@ -175,9 +174,7 @@ def mock_tool_openai(monkeypatch):
         return httpx.Response(200, json=TOOL_NONSTREAM_RESPONSE)
 
     real_async_client = httpx.AsyncClient
-    monkeypatch.setattr(
-        proxy_router.httpx, "AsyncClient", lambda *a, **k: real_async_client(transport=httpx.MockTransport(handler))
-    )
+    monkeypatch.setattr(http_client, "_client", real_async_client(transport=httpx.MockTransport(handler)))
     return calls
 
 

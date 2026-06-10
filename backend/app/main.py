@@ -7,6 +7,7 @@ from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.core.observability import RequestContextMiddleware, init_sentry
+from app.proxy import http_client
 from app.scheduler import scheduler
 
 configure_logging()
@@ -16,6 +17,9 @@ logger = get_logger("varsten.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Warm the shared upstream HTTP pool so the first proxied request does not
+    # pay the client construction cost, and close it cleanly on shutdown.
+    http_client.get_client()
     # Start the background scheduler (drift sweep + batch poller) when enabled.
     # Off by default so tests and one-off processes never spawn loops.
     if settings.scheduler_enabled:
@@ -25,6 +29,7 @@ async def lifespan(app: FastAPI):
     finally:
         if settings.scheduler_enabled:
             await scheduler.stop()
+        await http_client.aclose()
 
 
 app = FastAPI(title="Varsten", version="0.1.0", lifespan=lifespan)

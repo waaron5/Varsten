@@ -22,7 +22,7 @@ from app.core.logging import get_logger
 from app.db.session import get_async_db
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import cache, quality, routing, trim
+from app.proxy import cache, http_client, quality, routing, trim
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.embedding import embed, embedding_input
 from app.proxy.keys import openai_key_for_project
@@ -352,17 +352,18 @@ async def _stream_through(
     )
     ok = False
 
+    # The shared pooled client: a warm keep-alive connection spares this miss the
+    # upstream TLS handshake. Per-request timeout; never closed here.
+    client = http_client.get_client()
     try:
         async with asyncio.timeout(settings.proxy_stream_total_timeout_seconds):
-            async with (
-                httpx.AsyncClient(timeout=timeout) as client,
-                client.stream(
-                    "POST",
-                    adapter.endpoint(),
-                    headers=adapter.headers(client_key),
-                    json=upstream_body,
-                ) as resp,
-            ):
+            async with client.stream(
+                "POST",
+                adapter.endpoint(),
+                headers=adapter.headers(client_key),
+                json=upstream_body,
+                timeout=timeout,
+            ) as resp:
                 ok = resp.status_code == 200
                 if not ok:
                     # The upstream responded but with an error. Trip the breaker on
@@ -452,12 +453,12 @@ async def _forward_once(
 ) -> JSONResponse:
     upstream_body = adapter.prepare_request(body, model=upstream_model or model, stream=False)
     try:
-        async with httpx.AsyncClient(timeout=settings.proxy_upstream_timeout_seconds) as client:
-            resp = await client.post(
-                adapter.endpoint(),
-                headers=adapter.headers(client_key),
-                json=upstream_body,
-            )
+        resp = await http_client.get_client().post(
+            adapter.endpoint(),
+            headers=adapter.headers(client_key),
+            json=upstream_body,
+            timeout=settings.proxy_upstream_timeout_seconds,
+        )
     except httpx.RequestError as exc:
         # OpenAI unreachable/slow: count it against the breaker, clean 502.
         breaker.record_failure()

@@ -31,6 +31,22 @@ function toNum(value: string | number | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function liveMoneyValue(live: CommandCenterLiveSavings | undefined, key: "annual_run_rate" | "net_saved_month"): string {
+  return money(live ? live[key] : null);
+}
+
+function grossAndFee(live: CommandCenterLiveSavings | undefined): { gross: number | null; fee: number | null } {
+  const gross = toNum(live ? live.saved_month : null);
+  const net = toNum(live ? live.net_saved_month : null);
+  return { gross, fee: gross === null || net === null ? null : gross - net };
+}
+
+function netSavingsSubtitle(live: CommandCenterLiveSavings | undefined): string | undefined {
+  const { gross, fee } = grossAndFee(live);
+  if (gross === null || fee === null) return undefined;
+  return `${usd(gross, 0)} gross − ${usd(fee, 0)} Varsten fee`;
+}
+
 // A sparkline is honest only when there is a real series behind it (>1 point).
 // Otherwise the tile is just its number.
 function spark(series: (number | null)[], color: string): ReactNode {
@@ -43,16 +59,18 @@ function spark(series: (number | null)[], color: string): ReactNode {
 // subtraction live in the subtitle so finance sees the full equation without a
 // second tile competing for the eye.
 function NetSavedTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
-  const gross = toNum(live?.saved_month ?? null);
-  const net = toNum(live?.net_saved_month ?? null);
-  const fee = gross !== null && net !== null ? gross - net : null;
-  const sub =
-    gross !== null && fee !== null ? `${usd(gross, 0)} gross − ${usd(fee, 0)} Varsten fee` : undefined;
-  return <KpiTile label="Net savings (30d)" value={money(live?.net_saved_month)} tone="pos" sub={sub} />;
+  return (
+    <KpiTile
+      label="Net savings (30d)"
+      value={liveMoneyValue(live, "net_saved_month")}
+      tone="pos"
+      sub={netSavingsSubtitle(live)}
+    />
+  );
 }
 
 function AnnualRunRateTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
-  return <KpiTile label="Annual run-rate" value={money(live?.annual_run_rate)} />;
+  return <KpiTile label="Annual run-rate" value={liveMoneyValue(live, "annual_run_rate")} />;
 }
 
 function CacheHitRateTile({ proxyTraffic }: { proxyTraffic: ProxyTraffic | undefined }) {

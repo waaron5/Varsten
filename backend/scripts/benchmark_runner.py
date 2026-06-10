@@ -200,18 +200,12 @@ def install_fake_upstream() -> None:
             },
         )
 
-    real = httpx.AsyncClient
+    # Install the deterministic upstream as the shared pooled client. Every
+    # hot-path upstream call (completions, embeddings) goes through this one
+    # seam, and the script's own ASGI client stays untouched.
+    from app.proxy import http_client
 
-    # Override ONLY the router's httpx.AsyncClient, via a shim that delegates every
-    # other attribute (RequestError, etc.) to the real module. Mutating the global
-    # httpx.AsyncClient would also hijack this script's own ASGI client.
-    class _HttpxShim:
-        AsyncClient = staticmethod(lambda *_args, **_kwargs: real(transport=httpx.MockTransport(handler)))
-
-        def __getattr__(self, name):
-            return getattr(httpx, name)
-
-    proxy_router.httpx = _HttpxShim()
+    http_client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     async def fake_embed(text: str, key: str) -> list[float]:
         # Deterministic per-text vector: identical prompts collide (and hit the
