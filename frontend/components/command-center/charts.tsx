@@ -224,23 +224,30 @@ export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
   );
 }
 
+// Latency tick in human units: raw ms under a second, seconds above it. `compact`
+// here renders 1100 as "1.1Kms" (kilo-milliseconds), which is not a unit.
+function latencyTick(v: number): string {
+  return v < 1000 ? `${v}ms` : `${(v / 1000).toFixed(1)}s`;
+}
+
+// p95 and p99 only. p50 is the happy-path median; p95/p99 are the tails that catch
+// performance regressions, so they are what the panel surfaces.
 export function LatencyChart({ data }: { data: LatencyPoint[] }) {
-  const series = data.map((p) => ({ date: p.date, p50_ms: p.p50_ms, p95_ms: p.p95_ms, p99_ms: p.p99_ms }));
+  const series = data.map((p) => ({ date: p.date, p95_ms: p.p95_ms, p99_ms: p.p99_ms }));
   return (
     <ChartFrame>
       <LineChart data={series} margin={MARGIN}>
         <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 4" />
         <DateAxis />
-        <YAxis tickFormatter={(v) => `${compact(v)}ms`} tick={AXIS} tickLine={false} axisLine={false} width={50} />
+        <YAxis tickFormatter={latencyTick} tick={AXIS} tickLine={false} axisLine={false} width={50} />
         <ChartTooltip
           rowsForPoint={(point) => [
-            { name: "p50", value: `${point?.p50_ms ?? "-"}ms`, color: "var(--c1)" },
             { name: "p95", value: `${point?.p95_ms ?? "-"}ms`, color: "var(--c3)" },
             { name: "p99 (tail)", value: `${point?.p99_ms ?? "-"}ms`, color: "var(--c3)" },
           ]}
         />
         {/* p99 tail: a faint dashed upper line so the latency tail is visible
-            without competing with the p50/p95 reads. */}
+            without competing with the p95 read. */}
         <Line
           type="monotone"
           dataKey="p99_ms"
@@ -251,7 +258,6 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
           dot={false}
           connectNulls
         />
-        <Line type="monotone" dataKey="p50_ms" stroke="var(--c1)" strokeWidth={2} dot={false} connectNulls />
         <Line type="monotone" dataKey="p95_ms" stroke="var(--c3)" strokeWidth={2} dot={false} connectNulls />
       </LineChart>
     </ChartFrame>

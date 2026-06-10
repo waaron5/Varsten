@@ -8,13 +8,16 @@
 import type { ReactNode } from "react";
 import { percent } from "@/components/viewPrimitives";
 import { compact, usd } from "@/lib/format";
-import type { ActiveRoute, CommandCenterLiveSavings, ProxyTraffic, SavingsTrend } from "@/lib/types";
+import type { ActiveRoute, CommandCenterLiveSavings, ProxyTraffic } from "@/lib/types";
 import { useCommandCenter } from "./CommandCenterProvider";
 import { CumulativeSavingsChart, HitRateChart, LatencyChart, Sparkline } from "./lazyCharts";
 import { KpiTile, Panel, PanelEmpty, PanelSkeleton } from "./primitives";
 
+// Latency in human units: raw ms under a second, seconds with one decimal above
+// it. Never `${compact(ms)}ms`, which renders 1100 as the unreadable "1.1Kms".
 function latency(ms: number | null | undefined): string {
-  return ms === null || ms === undefined ? "—" : `${compact(ms)}ms`;
+  if (ms === null || ms === undefined) return "—";
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 // A money value renders "—" when null/undefined (no data behind it), never $0.
@@ -36,26 +39,16 @@ function spark(series: (number | null)[], color: string): ReactNode {
 
 // --- KPI strip (Margin + Proxy headline numbers) ------------------------------
 
-function GrossSavedTile({
-  live,
-  savingsTrend,
-}: {
-  live: CommandCenterLiveSavings | undefined;
-  savingsTrend: SavingsTrend | undefined;
-}) {
-  const savedSpark = (savingsTrend?.points ?? []).map((p) => toNum(p.cumulative_saved_usd));
-  return (
-    <KpiTile
-      label="Gross saved (mo)"
-      value={money(live?.saved_month)}
-      tone="pos"
-      spark={spark(savedSpark, "var(--brand)")}
-    />
-  );
-}
-
+// The hero metric: net savings after the Varsten fee. The gross figure and the fee
+// subtraction live in the subtitle so finance sees the full equation without a
+// second tile competing for the eye.
 function NetSavedTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
-  return <KpiTile label="Net after fee (mo)" value={money(live?.net_saved_month)} />;
+  const gross = toNum(live?.saved_month ?? null);
+  const net = toNum(live?.net_saved_month ?? null);
+  const fee = gross !== null && net !== null ? gross - net : null;
+  const sub =
+    gross !== null && fee !== null ? `${usd(gross, 0)} gross − ${usd(fee, 0)} Varsten fee` : undefined;
+  return <KpiTile label="Net savings (30d)" value={money(live?.net_saved_month)} tone="pos" sub={sub} />;
 }
 
 function AnnualRunRateTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
@@ -85,29 +78,45 @@ function P95LatencyTile({ proxyTraffic }: { proxyTraffic: ProxyTraffic | undefin
   );
 }
 
-function TrustScoreTile({ live }: { live: CommandCenterLiveSavings | undefined }) {
-  return <KpiTile label="Trust score" value={percent(live?.trust_score)} />;
-}
-
 export function KpiStrip() {
-  const { commandCenter, proxyTraffic, savingsTrend } = useCommandCenter();
+  const { commandCenter, proxyTraffic } = useCommandCenter();
   const live = commandCenter.data?.live_savings;
-  const pt = proxyTraffic.data;
-  // Every tile resolves to "—" when its field is null: money() for the savings
-  // figures, percent()/latency() already return "—" for null/undefined.
+  const pt = proxyTraffic.data ?? undefined;
+  // Four core metrics: the hero (net savings) plus run-rate, cache hit-rate, and
+  // p95 latency. Every tile resolves to "—" when its field is null: money() for
+  // the savings figures, percent()/latency() already return "—" for null/undefined.
   return (
     <div className="cc-kpi-strip">
-      <GrossSavedTile live={live} savingsTrend={savingsTrend.data} />
       <NetSavedTile live={live} />
       <AnnualRunRateTile live={live} />
       <CacheHitRateTile proxyTraffic={pt} />
       <P95LatencyTile proxyTraffic={pt} />
-      <TrustScoreTile live={live} />
     </div>
   );
 }
 
 // --- Narrative 1: Margin engine (hero) ----------------------------------------
+
+// The legend the wedge chart needs: a key for the dashed top line (what they would
+// have paid), the solid bottom line (what they actually pay), and the shaded gap.
+function SavingsLegend() {
+  return (
+    <span className="cc-legend">
+      <span>
+        <i className="dash" style={{ borderColor: "var(--text-3)" }} />
+        Standard API cost
+      </span>
+      <span>
+        <i style={{ borderColor: "var(--text)" }} />
+        Your cost with Varsten
+      </span>
+      <span>
+        <i className="fill" style={{ background: "var(--brand)" }} />
+        Money saved
+      </span>
+    </span>
+  );
+}
 
 export function MarginEnginePanel() {
   const { savingsTrend } = useCommandCenter();
@@ -116,9 +125,9 @@ export function MarginEnginePanel() {
   return (
     <Panel
       place="cc-pos-margin"
-      title="Margin engine"
-      sub="cumulative savings vs naive-retail baseline · 30 days"
-      right={hasSeries && data ? <span className="cc-panel-stat">{usd(data.total_saved_usd, 0)} saved</span> : null}
+      title="Cumulative savings"
+      sub="Actual cost vs unoptimized API cost · 30 days"
+      right={hasSeries ? <SavingsLegend /> : null}
     >
       {savingsTrend.loading ? (
         <PanelSkeleton />
@@ -158,7 +167,7 @@ export function ProxyHitRatePanel() {
 export function ProxyLatencyPanel() {
   const { proxyTraffic } = useCommandCenter();
   const data = proxyTraffic.data;
-  const hasLatency = !!data && data.latency_series.some((p) => p.p50_ms !== null);
+  const hasLatency = !!data && data.latency_series.some((p) => p.p95_ms !== null);
   return (
     <Panel
       place="cc-pos-latency"
@@ -167,9 +176,6 @@ export function ProxyLatencyPanel() {
       right={
         hasLatency && data ? (
           <span className="cc-panel-stat cc-lat-stats">
-            <span>
-              <i style={{ background: "var(--c1)" }} />p50 {latency(data.latency_p50_ms)}
-            </span>
             <span>
               <i style={{ background: "var(--c3)" }} />p95 {latency(data.latency_p95_ms)}
             </span>
@@ -198,33 +204,39 @@ function RouteStatus({ route }: { route: ActiveRoute }) {
   return <span className={`pill ${saving ? "green" : "amber"}`}>{saving ? "saving" : "watch"}</span>;
 }
 
+// Measured A/B savings, with the 95% confidence interval tucked into a hover
+// tooltip rather than its own column. The CI is the statistical proof the saving
+// is real, but it is a deep-dive detail, not a headline number.
 function RouteSavings({ route }: { route: ActiveRoute }): ReactNode {
   if (!route.has_signal) return <span className="eval-note">gathering signal</span>;
-  return <span>{usd(route.measured_savings_usd ?? 0, 2)}</span>;
-}
-
-// The 95% confidence interval on the measured A/B savings. A point estimate with
-// no interval is a number a CFO argues with; the CI is the statistical proof the
-// saving is real. Shown only once the arms have enough samples for an interval.
-function RouteCI({ route }: { route: ActiveRoute }): ReactNode {
   const low = route.measured_savings_ci_low_usd;
   const high = route.measured_savings_ci_high_usd;
-  if (!route.has_signal || low === null || high === null) return <span className="eval-note">—</span>;
+  const ci = low !== null && high !== null ? `95% CI ${usd(low, 2)} – ${usd(high, 2)}` : undefined;
   return (
-    <span className="eval-note cc-ci">
-      {usd(low, 2)} – {usd(high, 2)}
+    <span className={ci ? "cc-has-tip" : undefined} title={ci}>
+      {usd(route.measured_savings_usd ?? 0, 2)}
     </span>
   );
 }
 
+// Quality as a single actionable read: the cheaper arm's pass rate relative to the
+// incumbent, plus a green/red dot saying whether the swap is safe. "99% match · ●"
+// beats "96% vs 97%", which makes the reader do the division. `drifted` is the
+// authoritative guardrail signal, so it drives the dot, not an arbitrary cutoff.
 function RouteQuality({ route }: { route: ActiveRoute }): ReactNode {
   if (route.treatment_ok_rate === null || route.control_ok_rate === null) {
-    return <span className="eval-note">-</span>;
+    return <span className="eval-note">gathering</span>;
   }
+  const ratio = route.control_ok_rate === 0 ? 1 : route.treatment_ok_rate / route.control_ok_rate;
+  const match = Math.min(100, Math.round(ratio * 100));
+  const safe = !route.drifted;
   return (
-    <span>
-      {percent(route.treatment_ok_rate)}
-      <span className="eval-note"> vs {percent(route.control_ok_rate)}</span>
+    <span
+      className="cc-quality-match"
+      title={`Treatment ${percent(route.treatment_ok_rate)} vs control ${percent(route.control_ok_rate)}`}
+    >
+      {match}% match
+      <i className={safe ? "ok" : "bad"} />
     </span>
   );
 }
@@ -247,12 +259,11 @@ export function QualityGuardrailsPanel() {
           <table className="tbl">
             <thead>
               <tr>
-                <th>Route</th>
+                <th>Model swap</th>
                 <th className="r">Holdback</th>
-                <th className="r">Control / Treatment</th>
+                <th className="r">Traffic (held / routed)</th>
                 <th className="r">Measured savings</th>
-                <th className="r">95% CI</th>
-                <th className="r">Quality (treat vs control)</th>
+                <th className="r">Quality match</th>
                 <th className="r">Status</th>
               </tr>
             </thead>
@@ -270,9 +281,6 @@ export function QualityGuardrailsPanel() {
                   </td>
                   <td className="r">
                     <RouteSavings route={route} />
-                  </td>
-                  <td className="r">
-                    <RouteCI route={route} />
                   </td>
                   <td className="r">
                     <RouteQuality route={route} />

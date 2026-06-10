@@ -978,6 +978,23 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 .cc-lat-stats i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 .cc-lat-p99 { color: var(--text-3); }
 
+/* Cumulative-savings legend: keyed markers for the dashed naive-retail line, the
+   solid actual-cost line, and the shaded saved band. */
+.cc-legend { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.cc-legend > span { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.cc-legend i { width: 15px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
+.cc-legend i.dash { border-top-style: dashed; }
+.cc-legend i.fill { width: 11px; height: 11px; border: 0; border-radius: 2px; opacity: 0.55; }
+
+/* Quality cell: a single match-ratio read plus a safe/drifted dot. */
+.cc-quality-match { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.cc-quality-match i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+.cc-quality-match i.ok { background: var(--pos); }
+.cc-quality-match i.bad { background: var(--neg); }
+
+/* A value carrying a hover tooltip (e.g. measured savings → 95% CI). */
+.cc-has-tip { border-bottom: 1px dotted var(--border-strong); cursor: help; }
+
 /* Empty + skeleton fill the body so there is no layout shift. */
 .cc-panel-empty {
   height: 100%; display: flex; align-items: center; justify-content: center; text-align: center;
