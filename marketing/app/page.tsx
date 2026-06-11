@@ -360,8 +360,18 @@ function DemoModal({ onClose }: { onClose: () => void }) {
 // ---------- Page sections ----------
 
 function Nav({ onStartFree }: { onStartFree: () => void }) {
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const updateScrolled = () => setIsScrolled(window.scrollY > 0);
+
+    updateScrolled();
+    window.addEventListener("scroll", updateScrolled, { passive: true });
+    return () => window.removeEventListener("scroll", updateScrolled);
+  }, []);
+
   return (
-    <header className="lp-nav">
+    <header className={`lp-nav${isScrolled ? " lp-nav-scrolled" : ""}`}>
       <div className="lp-container lp-nav-inner">
         <Link className="lp-logo" href="/" aria-label="Varsten home">
           <img src="/varsten-lockup-black.svg" alt="Varsten" />
@@ -370,7 +380,7 @@ function Nav({ onStartFree }: { onStartFree: () => void }) {
           <a className="lp-link" href={APP_URL}>
             Sign in
           </a>
-          <button className="lp-btn lp-btn-primary" onClick={onStartFree}>
+          <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartFree}>
             Start Free
           </button>
         </nav>
@@ -385,7 +395,7 @@ function Hero({ onStartFree, onWatchDemo }: { onStartFree: () => void; onWatchDe
       <div className="lp-container lp-hero-grid">
         <div className="lp-hero-copy">
           <h1 className="lp-hero-title">
-            <span>Reduce AI spend</span> without sacrificing quality.
+            Reduce AI <span>spend</span> without sacrificing quality.
           </h1>
           <p className="lp-hero-sub">
             Varsten helps your team spend less on AI by reusing safe repeat answers,

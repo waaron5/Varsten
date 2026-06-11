@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Varsten — Landing Page</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #ded9cf; }
+    .vr-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 2px; cursor: pointer; outline: none; }
+    .vr-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #0e9e6e; border: 2.5px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.22); cursor: pointer; }
+    .vr-slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #0e9e6e; border: 2.5px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.22); cursor: pointer; }
+  </style>
+</head>
+<body>
+<div style="font-family: 'DM Sans', sans-serif; color: #1a1714;">
+
+  <!-- ── Navbar ── -->
+  <nav style="position: sticky; top: 0; z-index: 100; background: rgba(245,240,230,0.96); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid rgba(26,23,20,0.08);">
+    <div style="max-width: 1320px; margin: 0 auto; padding: 0 80px; display: flex; align-items: center; justify-content: space-between; height: 66px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+        <div style="width: 28px; height: 28px; background: #0e9e6e; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <div style="width: 10px; height: 10px; border-radius: 50%; background: #fff;"></div>
+        </div>
+        <span style="font-size: 17px; font-weight: 800; color: #1a1714; letter-spacing: -0.025em;">varsten</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 34px;">
+        <a style="font-size: 14px; font-weight: 500; color: rgba(26,23,20,0.60); text-decoration: none; cursor: pointer;">Product</a>
+        <a style="font-size: 14px; font-weight: 500; color: rgba(26,23,20,0.60); text-decoration: none; cursor: pointer;">Pricing</a>
+        <a style="font-size: 14px; font-weight: 500; color: rgba(26,23,20,0.60); text-decoration: none; cursor: pointer;">Docs</a>
+        <a style="font-size: 14px; font-weight: 500; color: rgba(26,23,20,0.60); text-decoration: none; cursor: pointer;">Blog</a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px; flex-shrink: 0;">
+        <a style="font-size: 14px; font-weight: 500; color: rgba(26,23,20,0.68); text-decoration: none; cursor: pointer;">Sign in</a>
+        <button style="background: #0e9e6e; color: #fff; border: none; border-radius: 8px; padding: 10px 22px; font-size: 12px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; cursor: pointer; font-family: inherit; box-shadow: 0 3px 14px rgba(14,158,110,0.26);">START FREE</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Hero ── -->
+  <section style="position: relative; overflow: hidden; background: #f5f0e6; min-height: 680px; display: flex; align-items: center;" data-screen-label="Hero">
+    <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 680" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="ts" x="-60%" y="-60%" width="220%" height="320%">
+          <feDropShadow dx="0" dy="10" stdDeviation="22" flood-color="#1a1714" flood-opacity="0.06"></feDropShadow>
+        </filter>
+      </defs>
+      <ellipse cx="1410" cy="-50" rx="90"  ry="60"  transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="1.6" opacity="0.20"></ellipse>
+      <ellipse cx="1410" cy="-50" rx="178" ry="118" transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="1.3" opacity="0.155"></ellipse>
+      <ellipse cx="1410" cy="-50" rx="275" ry="183" transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="1.05" opacity="0.114"></ellipse>
+      <ellipse cx="1410" cy="-50" rx="382" ry="254" transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.90" opacity="0.080"></ellipse>
+      <ellipse cx="1410" cy="-50" rx="498" ry="332" transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.78" opacity="0.054"></ellipse>
+      <ellipse cx="1410" cy="-50" rx="624" ry="416" transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.66" opacity="0.034"></ellipse>
+      <ellipse cx="1410" cy="-50" rx="760" ry="506" transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.58" opacity="0.020"></ellipse>
+      <ellipse cx="1410" cy="-50" rx="906" ry="603" transform="rotate(-20 1410 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.52" opacity="0.011"></ellipse>
+      <ellipse cx="-10" cy="770" rx="155" ry="103" transform="rotate(12 -10 770)" fill="none" stroke="#0e9e6e" stroke-width="1.0" opacity="0.068"></ellipse>
+      <ellipse cx="-10" cy="770" rx="278" ry="185" transform="rotate(12 -10 770)" fill="none" stroke="#0e9e6e" stroke-width="0.80" opacity="0.042"></ellipse>
+      <ellipse cx="-10" cy="770" rx="412" ry="274" transform="rotate(12 -10 770)" fill="none" stroke="#0e9e6e" stroke-width="0.68" opacity="0.024"></ellipse>
+      <ellipse cx="-10" cy="770" rx="558" ry="372" transform="rotate(12 -10 770)" fill="none" stroke="#0e9e6e" stroke-width="0.58" opacity="0.013"></ellipse>
+      <g filter="url(#ts)">
+        <path d="M 1240,497 L 1370,562 L 1240,627 L 1110,562 Z" fill="rgba(14,158,110,0.060)" stroke="rgba(14,158,110,0.21)" stroke-width="1.3" stroke-linejoin="round"></path>
+        <path d="M 1370,562 L 1240,627 L 1240,658 L 1370,593 Z" fill="rgba(14,158,110,0.034)" stroke="rgba(14,158,110,0.12)" stroke-width="1.0"></path>
+        <path d="M 1110,562 L 1240,627 L 1240,658 L 1110,593 Z" fill="rgba(14,158,110,0.048)" stroke="rgba(14,158,110,0.12)" stroke-width="1.0"></path>
+      </g>
+      <g filter="url(#ts)">
+        <path d="M 1358,408 L 1440,449 L 1358,490 L 1276,449 Z" fill="rgba(14,158,110,0.053)" stroke="rgba(14,158,110,0.19)" stroke-width="1.1" stroke-linejoin="round"></path>
+        <path d="M 1440,449 L 1358,490 L 1358,510 L 1440,469 Z" fill="rgba(14,158,110,0.029)" stroke="rgba(14,158,110,0.11)" stroke-width="0.85"></path>
+        <path d="M 1276,449 L 1358,490 L 1358,510 L 1276,469 Z" fill="rgba(14,158,110,0.040)" stroke="rgba(14,158,110,0.11)" stroke-width="0.85"></path>
+      </g>
+      <g filter="url(#ts)" opacity="0.78">
+        <path d="M 1418,497 L 1470,523 L 1418,549 L 1366,523 Z" fill="rgba(14,158,110,0.048)" stroke="rgba(14,158,110,0.17)" stroke-width="0.9" stroke-linejoin="round"></path>
+        <path d="M 1470,523 L 1418,549 L 1418,562 L 1470,536 Z" fill="rgba(14,158,110,0.026)" stroke="rgba(14,158,110,0.10)" stroke-width="0.7"></path>
+        <path d="M 1366,523 L 1418,549 L 1418,562 L 1366,536 Z" fill="rgba(14,158,110,0.036)" stroke="rgba(14,158,110,0.10)" stroke-width="0.7"></path>
+      </g>
+      <g filter="url(#ts)" opacity="0.62">
+        <path d="M 1068,433 L 1146,474 L 1068,515 L 990,474 Z" fill="rgba(14,158,110,0.048)" stroke="rgba(14,158,110,0.16)" stroke-width="1.0" stroke-linejoin="round"></path>
+        <path d="M 1146,474 L 1068,515 L 1068,534 L 1146,493 Z" fill="rgba(14,158,110,0.026)" stroke="rgba(14,158,110,0.09)" stroke-width="0.75"></path>
+        <path d="M 990,474 L 1068,515 L 1068,534 L 990,493 Z" fill="rgba(14,158,110,0.036)" stroke="rgba(14,158,110,0.09)" stroke-width="0.75"></path>
+      </g>
+    </svg>
+
+    <div style="position: relative; z-index: 1; display: flex; align-items: center; width: 100%; max-width: 1320px; margin: 0 auto; padding: 80px; gap: 72px;">
+      <div style="flex: 0 0 460px;">
+        <div style="display: inline-flex; align-items: center; gap: 7px; padding: 5px 14px 5px 7px; background: rgba(14,158,110,0.09); border: 1px solid rgba(14,158,110,0.22); border-radius: 100px; margin-bottom: 30px;">
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: #0e9e6e; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <div style="width: 7px; height: 7px; border-radius: 50%; background: #fff;"></div>
+          </div>
+          <span style="font-size: 13px; font-weight: 500; color: #0b8059;">AI Cost Intelligence</span>
+        </div>
+        <h1 style="font-size: 64px; font-weight: 800; line-height: 1.06; letter-spacing: -0.025em; color: #1a1714; margin-bottom: 24px;">Reduce AI<br><span style="color: #0e9e6e;">spend</span> without<br>sacrificing<br>quality.</h1>
+        <p style="font-size: 16.5px; line-height: 1.72; color: rgba(26,23,20,0.55); margin-bottom: 44px; max-width: 380px; text-wrap: pretty;">Varsten helps your team spend less on AI by reusing safe repeat answers, sending each request to the right model, and checking that cost savings do not hurt quality.</p>
+        <div style="display: flex; gap: 12px;">
+          <button style="background: #0e9e6e; color: #fff; border: none; border-radius: 9px; padding: 15px 30px; font-size: 13px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; cursor: pointer; font-family: inherit; box-shadow: 0 4px 20px rgba(14,158,110,0.28);">START FREE</button>
+          <button style="background: transparent; color: #1a1714; border: 2px solid rgba(26,23,20,0.18); border-radius: 9px; padding: 14px 28px; font-size: 13px; font-weight: 600; letter-spacing: 0.07em; cursor: pointer; font-family: inherit; text-transform: uppercase;">WATCH DEMO</button>
+        </div>
+      </div>
+
+      <div style="flex: 1; min-width: 0;">
+        <div style="background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px rgba(26,23,20,0.07), 0 28px 72px rgba(26,23,20,0.10), 0 4px 14px rgba(26,23,20,0.05); transform: perspective(1200px) rotateY(-4deg) rotateX(1.5deg); transform-origin: left center;">
+          <div style="background: #f0efed; padding: 11px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(0,0,0,0.07);">
+            <div style="display: flex; gap: 6px; flex-shrink: 0;">
+              <div style="width: 11px; height: 11px; border-radius: 50%; background: #ff5f57;"></div>
+              <div style="width: 11px; height: 11px; border-radius: 50%; background: #ffbd2e;"></div>
+              <div style="width: 11px; height: 11px; border-radius: 50%; background: #28ca41;"></div>
+            </div>
+            <div style="flex: 1; background: rgba(255,255,255,0.72); border-radius: 5px; padding: 5px 12px; font-size: 11px; font-family: 'Space Mono', monospace; color: rgba(0,0,0,0.36); text-align: center; max-width: 280px; margin: 0 auto;">app.varsten.ai/command-center</div>
+          </div>
+          <div style="padding: 16px; background: #f6f5f3;">
+            <div style="display: grid; grid-template-columns: repeat(4,1fr); gap: 9px; margin-bottom: 9px;">
+              <div style="background: #fff; border-radius: 9px; padding: 13px 12px 11px; border: 1px solid rgba(0,0,0,0.06);">
+                <div style="font-size: 8.5px; font-weight: 600; color: rgba(0,0,0,0.32); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 7px;">Total Spend</div>
+                <div style="font-size: 21px; font-weight: 700; color: #1a1714; margin-bottom: 3px; line-height: 1;">$2,418</div>
+                <div style="font-size: 9.5px; font-weight: 600; color: #0e9e6e;">↓ 34% saved</div>
+              </div>
+              <div style="background: #fff; border-radius: 9px; padding: 13px 12px 11px; border: 1px solid rgba(0,0,0,0.06);">
+                <div style="font-size: 8.5px; font-weight: 600; color: rgba(0,0,0,0.32); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 7px;">Requests</div>
+                <div style="font-size: 21px; font-weight: 700; color: #1a1714; margin-bottom: 3px; line-height: 1;">48.2K</div>
+                <div style="font-size: 9.5px; color: rgba(0,0,0,0.35);">this month</div>
+              </div>
+              <div style="background: #fff; border-radius: 9px; padding: 13px 12px 11px; border: 1px solid rgba(0,0,0,0.06);">
+                <div style="font-size: 8.5px; font-weight: 600; color: rgba(0,0,0,0.32); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 7px;">Cache Rate</div>
+                <div style="font-size: 21px; font-weight: 700; color: #1a1714; margin-bottom: 3px; line-height: 1;">61%</div>
+                <div style="font-size: 9.5px; font-weight: 600; color: #0e9e6e;">↑ 8 pts</div>
+              </div>
+              <div style="background: #fff; border-radius: 9px; padding: 13px 12px 11px; border: 1px solid rgba(0,0,0,0.06);">
+                <div style="font-size: 8.5px; font-weight: 600; color: rgba(0,0,0,0.32); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 7px;">Quality</div>
+                <div style="font-size: 21px; font-weight: 700; color: #1a1714; margin-bottom: 3px; line-height: 1;">94.2</div>
+                <div style="font-size: 9.5px; color: rgba(0,0,0,0.35);">no loss</div>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1.6fr 1fr; gap: 9px;">
+              <div style="background: #fff; border-radius: 9px; padding: 16px; border: 1px solid rgba(0,0,0,0.06); height: 122px; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="font-size: 8.5px; font-weight: 600; color: rgba(0,0,0,0.27); letter-spacing: 0.10em; text-transform: uppercase;">COMMAND CENTER</div>
+                <div>
+                  <div style="height: 3px; background: #0e9e6e; border-radius: 2px; width: 58%; margin-bottom: 7px;"></div>
+                  <div style="height: 3px; background: rgba(14,158,110,0.2); border-radius: 2px; width: 34%;"></div>
+                </div>
+              </div>
+              <div style="background: #fff; border-radius: 9px; padding: 16px; border: 1px solid rgba(0,0,0,0.06); height: 122px; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="font-size: 8.5px; font-weight: 600; color: rgba(0,0,0,0.27); letter-spacing: 0.10em; text-transform: uppercase;">MODELS</div>
+                <div>
+                  <div style="height: 3px; background: #0e9e6e; border-radius: 2px; width: 68%; margin-bottom: 7px;"></div>
+                  <div style="height: 3px; background: rgba(14,158,110,0.2); border-radius: 2px; width: 42%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════
+       1. DROP-IN PROXY
+       Terra: rings rise from lower-left like
+       terrain ascending toward the terminal.
+       No tiles — keeps focus on the code.
+       ═══════════════════════════════════════ -->
+  <section style="position: relative; overflow: hidden; background: #f5f0e6; padding: 100px 80px; text-align: center;" data-screen-label="Proxy">
+    <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="-40" cy="700" rx="130"  ry="87"  transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="1.65" opacity="0.21"></ellipse>
+      <ellipse cx="-40" cy="700" rx="238"  ry="159" transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="1.30" opacity="0.162"></ellipse>
+      <ellipse cx="-40" cy="700" rx="360"  ry="240" transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="1.08" opacity="0.118"></ellipse>
+      <ellipse cx="-40" cy="700" rx="495"  ry="330" transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="0.90" opacity="0.081"></ellipse>
+      <ellipse cx="-40" cy="700" rx="644"  ry="429" transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="0.78" opacity="0.052"></ellipse>
+      <ellipse cx="-40" cy="700" rx="804"  ry="536" transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="0.66" opacity="0.032"></ellipse>
+      <ellipse cx="-40" cy="700" rx="975"  ry="650" transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="0.58" opacity="0.018"></ellipse>
+      <ellipse cx="-40" cy="700" rx="1156" ry="771" transform="rotate(18 -40 700)" fill="none" stroke="#0e9e6e" stroke-width="0.50" opacity="0.009"></ellipse>
+      <!-- Secondary contour cluster — upper right -->
+      <ellipse cx="1460" cy="-20" rx="210" ry="140" transform="rotate(-17 1460 -20)" fill="none" stroke="#0e9e6e" stroke-width="1.05" opacity="0.088"></ellipse>
+      <ellipse cx="1460" cy="-20" rx="390" ry="260" transform="rotate(-17 1460 -20)" fill="none" stroke="#0e9e6e" stroke-width="0.84" opacity="0.056"></ellipse>
+      <ellipse cx="1460" cy="-20" rx="600" ry="400" transform="rotate(-17 1460 -20)" fill="none" stroke="#0e9e6e" stroke-width="0.66" opacity="0.031"></ellipse>
+      <!-- Tile staircase — lower right, stepping toward edge -->
+      <g opacity="0.93">
+        <path d="M 1225,318 L 1315,364 L 1225,410 L 1135,364 Z" fill="rgba(14,158,110,0.058)" stroke="rgba(14,158,110,0.20)" stroke-width="1.25" stroke-linejoin="round"></path>
+        <path d="M 1315,364 L 1225,410 L 1225,433 L 1315,387 Z" fill="rgba(14,158,110,0.032)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+        <path d="M 1135,364 L 1225,410 L 1225,433 L 1135,387 Z" fill="rgba(14,158,110,0.046)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+      </g>
+      <g opacity="0.74">
+        <path d="M 1342,418 L 1417,456 L 1342,494 L 1267,456 Z" fill="rgba(14,158,110,0.050)" stroke="rgba(14,158,110,0.18)" stroke-width="1.05" stroke-linejoin="round"></path>
+        <path d="M 1417,456 L 1342,494 L 1342,513 L 1417,475 Z" fill="rgba(14,158,110,0.028)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+        <path d="M 1267,456 L 1342,494 L 1342,513 L 1267,475 Z" fill="rgba(14,158,110,0.040)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+      </g>
+      <g opacity="0.56">
+        <path d="M 1408,468 L 1463,496 L 1408,524 L 1353,496 Z" fill="rgba(14,158,110,0.044)" stroke="rgba(14,158,110,0.16)" stroke-width="0.88" stroke-linejoin="round"></path>
+        <path d="M 1463,496 L 1408,524 L 1408,538 L 1463,510 Z" fill="rgba(14,158,110,0.024)" stroke="rgba(14,158,110,0.09)" stroke-width="0.68"></path>
+        <path d="M 1353,496 L 1408,524 L 1408,538 L 1353,510 Z" fill="rgba(14,158,110,0.034)" stroke="rgba(14,158,110,0.09)" stroke-width="0.68"></path>
+      </g>
+    </svg>
+
+    <div style="position: relative; z-index: 1; max-width: 1320px; margin: 0 auto;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #0e9e6e; margin-bottom: 18px;">Drop-In Proxy</div>
+      <h2 style="font-size: 58px; font-weight: 800; letter-spacing: -0.025em; color: #1a1714; line-height: 1.07; margin-bottom: 20px;"><span style="color: #0e9e6e;">One line</span> to integrate.</h2>
+      <p style="font-size: 17px; line-height: 1.72; color: rgba(26,23,20,0.52); max-width: 520px; margin: 0 auto 52px; text-wrap: pretty;">Keep your provider SDK. Point its base URL at Varsten and swap the key. Streaming, tool calls, and your existing code stay exactly as they are.</p>
+
+      <div style="max-width: 680px; margin: 0 auto;">
+        <div style="background: #1a2232; border-radius: 13px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,0.28), 0 28px 72px rgba(0,0,0,0.20), 0 4px 16px rgba(0,0,0,0.12); text-align: left;">
+          <div style="background: #222d40; padding: 11px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <div style="display: flex; gap: 6px; flex-shrink: 0;">
+              <div style="width: 11px; height: 11px; border-radius: 50%; background: #ff5f57;"></div>
+              <div style="width: 11px; height: 11px; border-radius: 50%; background: #ffbd2e;"></div>
+              <div style="width: 11px; height: 11px; border-radius: 50%; background: #28ca41;"></div>
+            </div>
+            <span style="font-family: 'Space Mono', monospace; font-size: 11.5px; color: rgba(255,255,255,0.32); margin-left: 10px;">client.py</span>
+          </div>
+          <div style="padding: 32px 36px; font-family: 'Space Mono', monospace; font-size: 13px; line-height: 1.95; color: rgba(220,232,245,0.82);">
+            <div><span style="color: rgba(150,185,255,0.80);">from</span> openai <span style="color: rgba(150,185,255,0.80);">import</span> OpenAI</div>
+            <div style="height: 20px;"></div>
+            <div>client = OpenAI(</div>
+            <div style="padding-left: 32px;">base_url=<span style="color: #45d0a0;">"https://proxy.varsten.ai/v1"</span>,&nbsp;&nbsp;<span style="color: rgba(180,200,175,0.34);"># was https://api.openai.com/v1</span></div>
+            <div style="padding-left: 32px;">api_key=<span style="color: #45d0a0;">os.environ["VARSTEN_API_KEY"]</span>,&nbsp;&nbsp;<span style="color: rgba(180,200,175,0.34);"># your Varsten key</span></div>
+            <div>)</div>
+            <div style="height: 20px;"></div>
+            <div>stream = client.chat.completions.create(</div>
+            <div style="padding-left: 32px;">model=<span style="color: rgba(220,232,245,0.52);">"gpt-4o"</span>,</div>
+            <div style="padding-left: 32px;">messages=messages,</div>
+            <div style="padding-left: 32px;">stream=<span style="color: rgba(200,155,255,0.80);">True</span>,</div>
+            <div>)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════
+       2. FEATURES — 3 alternating rows
+       Terra: each row has ONE sparse arc from
+       its quiet corner (rotating origin) +
+       a single micro-tile behind the UI card.
+       ═══════════════════════════════════════ -->
+  <section style="background: #f5f0e6;" data-screen-label="Features">
+
+    <!-- Row 1: Response Reuse — text-left, card-right -->
+    <div style="position: relative; overflow: hidden;">
+      <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 480" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="ff1" x="-100%" y="-100%" width="300%" height="400%">
+            <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#1a1714" flood-opacity="0.05"></feDropShadow>
+          </filter>
+        </defs>
+        <ellipse cx="-30" cy="-30" rx="360" ry="240" transform="rotate(13 -30 -30)" fill="none" stroke="#0e9e6e" stroke-width="1.0" opacity="0.074"></ellipse>
+        <ellipse cx="-30" cy="-30" rx="560" ry="373" transform="rotate(13 -30 -30)" fill="none" stroke="#0e9e6e" stroke-width="0.82" opacity="0.050"></ellipse>
+        <ellipse cx="-30" cy="-30" rx="790" ry="527" transform="rotate(13 -30 -30)" fill="none" stroke="#0e9e6e" stroke-width="0.66" opacity="0.028"></ellipse>
+        <!-- Counterpoint rings — lower right -->
+        <ellipse cx="1470" cy="510" rx="310" ry="207" transform="rotate(-11 1470 510)" fill="none" stroke="#0e9e6e" stroke-width="0.76" opacity="0.036"></ellipse>
+        <ellipse cx="1470" cy="510" rx="520" ry="347" transform="rotate(-11 1470 510)" fill="none" stroke="#0e9e6e" stroke-width="0.60" opacity="0.020"></ellipse>
+        <!-- Large anchor tile — straddles right content edge -->
+        <g filter="url(#ff1)">
+          <path d="M 1320,172 L 1445,234 L 1320,296 L 1195,234 Z" fill="rgba(14,158,110,0.055)" stroke="rgba(14,158,110,0.19)" stroke-width="1.25" stroke-linejoin="round"></path>
+          <path d="M 1445,234 L 1320,296 L 1320,327 L 1445,265 Z" fill="rgba(14,158,110,0.030)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+          <path d="M 1195,234 L 1320,296 L 1320,327 L 1195,265 Z" fill="rgba(14,158,110,0.042)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+        </g>
+        <!-- Medium tile — steps down right -->
+        <g filter="url(#ff1)" opacity="0.74">
+          <path d="M 1388,360 L 1460,396 L 1388,432 L 1316,396 Z" fill="rgba(14,158,110,0.050)" stroke="rgba(14,158,110,0.17)" stroke-width="1.05" stroke-linejoin="round"></path>
+          <path d="M 1460,396 L 1388,432 L 1388,450 L 1460,414 Z" fill="rgba(14,158,110,0.027)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+          <path d="M 1316,396 L 1388,432 L 1388,450 L 1316,414 Z" fill="rgba(14,158,110,0.038)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+        </g>
+      </svg>
+      <div style="position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 90px 80px; display: flex; align-items: center; gap: 80px;">
+        <div style="flex: 1;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.17em; text-transform: uppercase; color: rgba(26,23,20,0.45); margin-bottom: 16px;">Response Reuse</div>
+          <h3 style="font-size: 38px; font-weight: 800; letter-spacing: -0.022em; color: #1a1714; line-height: 1.13; margin-bottom: 20px;">Repeat work does not need a new model call.</h3>
+          <p style="font-size: 16px; line-height: 1.72; color: rgba(26,23,20,0.52); text-wrap: pretty;">When the same request shows up again, Varsten can serve the stored response instead of paying for another completion. Near-duplicate matching can be enabled only on routes where it is safe; otherwise the request streams straight through untouched.</p>
+        </div>
+        <div style="flex: 1.1; min-height: 268px; background: rgba(26,23,20,0.04); border-radius: 18px; border: 1px solid rgba(26,23,20,0.065); display: flex; align-items: center; justify-content: center;">
+          <div style="display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid rgba(26,23,20,0.09); border-radius: 100px; padding: 11px 22px; box-shadow: 0 2px 12px rgba(0,0,0,0.055);">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background: #0e9e6e; flex-shrink: 0;"></div>
+            <span style="font-family: 'Space Mono', monospace; font-size: 13px; color: rgba(26,23,20,0.70);">repeat response · $0 · &lt;1 ms</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height: 1px; background: rgba(26,23,20,0.07); margin: 0 80px;"></div>
+
+    <!-- Row 2: Routing & Evals — card-left, text-right -->
+    <div style="position: relative; overflow: hidden;">
+      <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 480" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="ff2" x="-100%" y="-100%" width="300%" height="400%">
+            <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#1a1714" flood-opacity="0.05"></feDropShadow>
+          </filter>
+        </defs>
+        <ellipse cx="1470" cy="510" rx="360" ry="240" transform="rotate(-13 1470 510)" fill="none" stroke="#0e9e6e" stroke-width="1.0" opacity="0.074"></ellipse>
+        <ellipse cx="1470" cy="510" rx="560" ry="373" transform="rotate(-13 1470 510)" fill="none" stroke="#0e9e6e" stroke-width="0.82" opacity="0.050"></ellipse>
+        <ellipse cx="1470" cy="510" rx="790" ry="527" transform="rotate(-13 1470 510)" fill="none" stroke="#0e9e6e" stroke-width="0.66" opacity="0.028"></ellipse>
+        <!-- Counterpoint rings — upper left -->
+        <ellipse cx="-30" cy="-30" rx="310" ry="207" transform="rotate(13 -30 -30)" fill="none" stroke="#0e9e6e" stroke-width="0.76" opacity="0.036"></ellipse>
+        <ellipse cx="-30" cy="-30" rx="520" ry="347" transform="rotate(13 -30 -30)" fill="none" stroke="#0e9e6e" stroke-width="0.60" opacity="0.020"></ellipse>
+        <!-- Large anchor tile — straddles left content edge -->
+        <g filter="url(#ff2)">
+          <path d="M 120,172 L 245,234 L 120,296 L -5,234 Z" fill="rgba(14,158,110,0.055)" stroke="rgba(14,158,110,0.19)" stroke-width="1.25" stroke-linejoin="round"></path>
+          <path d="M 245,234 L 120,296 L 120,327 L 245,265 Z" fill="rgba(14,158,110,0.030)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+          <path d="M -5,234 L 120,296 L 120,327 L -5,265 Z" fill="rgba(14,158,110,0.042)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+        </g>
+        <!-- Medium tile — steps down left -->
+        <g filter="url(#ff2)" opacity="0.74">
+          <path d="M 52,360 L 124,396 L 52,432 L -20,396 Z" fill="rgba(14,158,110,0.050)" stroke="rgba(14,158,110,0.17)" stroke-width="1.05" stroke-linejoin="round"></path>
+          <path d="M 124,396 L 52,432 L 52,450 L 124,414 Z" fill="rgba(14,158,110,0.027)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+          <path d="M -20,396 L 52,432 L 52,450 L -20,414 Z" fill="rgba(14,158,110,0.038)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+        </g>
+      </svg>
+      <div style="position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 90px 80px; display: flex; align-items: center; gap: 80px; flex-direction: row-reverse;">
+        <div style="flex: 1;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.17em; text-transform: uppercase; color: rgba(26,23,20,0.45); margin-bottom: 16px;">Routing &amp; Evals</div>
+          <h3 style="font-size: 38px; font-weight: 800; letter-spacing: -0.022em; color: #1a1714; line-height: 1.13; margin-bottom: 20px;">A cheaper model ships only when the numbers say it's safe.</h3>
+          <p style="font-size: 16px; line-height: 1.72; color: rgba(26,23,20,0.52); text-wrap: pretty;">Before a route moves to a smaller model, Varsten replays your real traffic through both and grades them with a position-swapped judge. Savings are measured as an A/B difference against a concurrent holdback and reported with confidence intervals — not an estimate. If quality slips past tolerance, the route rolls back.</p>
+        </div>
+        <div style="flex: 1.1; min-height: 268px; background: rgba(26,23,20,0.04); border-radius: 18px; border: 1px solid rgba(26,23,20,0.065); display: flex; align-items: center; justify-content: center;">
+          <div style="display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid rgba(26,23,20,0.09); border-radius: 100px; padding: 11px 22px; box-shadow: 0 2px 12px rgba(0,0,0,0.055);">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background: #0e9e6e; flex-shrink: 0;"></div>
+            <span style="font-family: 'Space Mono', monospace; font-size: 13px; color: rgba(26,23,20,0.70);">swap · quality held · CI reported</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height: 1px; background: rgba(26,23,20,0.07); margin: 0 80px;"></div>
+
+    <!-- Row 3: Reliability — text-left, card-right -->
+    <div style="position: relative; overflow: hidden;">
+      <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 480" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="ff3" x="-100%" y="-100%" width="300%" height="400%">
+            <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#1a1714" flood-opacity="0.05"></feDropShadow>
+          </filter>
+        </defs>
+        <ellipse cx="1460" cy="-30" rx="360" ry="240" transform="rotate(-16 1460 -30)" fill="none" stroke="#0e9e6e" stroke-width="1.0" opacity="0.074"></ellipse>
+        <ellipse cx="1460" cy="-30" rx="560" ry="373" transform="rotate(-16 1460 -30)" fill="none" stroke="#0e9e6e" stroke-width="0.82" opacity="0.050"></ellipse>
+        <ellipse cx="1460" cy="-30" rx="790" ry="527" transform="rotate(-16 1460 -30)" fill="none" stroke="#0e9e6e" stroke-width="0.66" opacity="0.028"></ellipse>
+        <!-- Counterpoint rings — lower left -->
+        <ellipse cx="-30" cy="510" rx="310" ry="207" transform="rotate(11 -30 510)" fill="none" stroke="#0e9e6e" stroke-width="0.76" opacity="0.036"></ellipse>
+        <ellipse cx="-30" cy="510" rx="520" ry="347" transform="rotate(11 -30 510)" fill="none" stroke="#0e9e6e" stroke-width="0.60" opacity="0.020"></ellipse>
+        <!-- Large anchor tile — straddles right content edge, higher than Row 1 for variety -->
+        <g filter="url(#ff3)">
+          <path d="M 1345,135 L 1460,192 L 1345,249 L 1230,192 Z" fill="rgba(14,158,110,0.055)" stroke="rgba(14,158,110,0.19)" stroke-width="1.25" stroke-linejoin="round"></path>
+          <path d="M 1460,192 L 1345,249 L 1345,278 L 1460,221 Z" fill="rgba(14,158,110,0.030)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+          <path d="M 1230,192 L 1345,249 L 1345,278 L 1230,221 Z" fill="rgba(14,158,110,0.042)" stroke="rgba(14,158,110,0.11)" stroke-width="0.88"></path>
+        </g>
+        <!-- Medium tile — steps down right -->
+        <g filter="url(#ff3)" opacity="0.74">
+          <path d="M 1408,308 L 1474,340 L 1408,372 L 1342,340 Z" fill="rgba(14,158,110,0.050)" stroke="rgba(14,158,110,0.17)" stroke-width="1.05" stroke-linejoin="round"></path>
+          <path d="M 1474,340 L 1408,372 L 1408,388 L 1474,356 Z" fill="rgba(14,158,110,0.027)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+          <path d="M 1342,340 L 1408,372 L 1408,388 L 1342,356 Z" fill="rgba(14,158,110,0.038)" stroke="rgba(14,158,110,0.10)" stroke-width="0.75"></path>
+        </g>
+      </svg>
+      <div style="position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 90px 80px; display: flex; align-items: center; gap: 80px;">
+        <div style="flex: 1;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.17em; text-transform: uppercase; color: rgba(26,23,20,0.45); margin-bottom: 16px;">Reliability</div>
+          <h3 style="font-size: 38px; font-weight: 800; letter-spacing: -0.022em; color: #1a1714; line-height: 1.13; margin-bottom: 20px;">Inline, but it can't take you down.</h3>
+          <p style="font-size: 16px; line-height: 1.72; color: rgba(26,23,20,0.52); text-wrap: pretty;">The data plane fails open. If anything upstream is unreachable, requests pass through to your original provider unchanged — you stop saving, you never stop serving. Strict read and total timeouts mean a hung upstream can't pin a connection.</p>
+        </div>
+        <div style="flex: 1.1; min-height: 268px; background: rgba(26,23,20,0.04); border-radius: 18px; border: 1px solid rgba(26,23,20,0.065); display: flex; align-items: center; justify-content: center;">
+          <div style="display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid rgba(26,23,20,0.09); border-radius: 100px; padding: 11px 22px; box-shadow: 0 2px 12px rgba(0,0,0,0.055);">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background: #0e9e6e; flex-shrink: 0;"></div>
+            <span style="font-family: 'Space Mono', monospace; font-size: 13px; color: rgba(26,23,20,0.70);">fail-open · strict timeouts</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ═══════════════════════════════════════
+       3. PRICING
+       Terra: accent green base, white rings
+       from upper-right, white isometric tile
+       platforms emerging from lower area.
+       Cards appear to rest on terrain.
+       ═══════════════════════════════════════ -->
+  <section style="position: relative; overflow: hidden; background: #0e9e6e; padding: 100px 80px; text-align: center;" data-screen-label="Pricing">
+    <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 760" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="fp" x="-100%" y="-100%" width="300%" height="400%">
+          <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000" flood-opacity="0.13"></feDropShadow>
+        </filter>
+      </defs>
+      <ellipse cx="1450" cy="-40" rx="85"  ry="57"  transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="1.55" opacity="0.235"></ellipse>
+      <ellipse cx="1450" cy="-40" rx="165" ry="110" transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="1.22" opacity="0.182"></ellipse>
+      <ellipse cx="1450" cy="-40" rx="256" ry="171" transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="1.00" opacity="0.135"></ellipse>
+      <ellipse cx="1450" cy="-40" rx="360" ry="240" transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="0.88" opacity="0.094"></ellipse>
+      <ellipse cx="1450" cy="-40" rx="478" ry="319" transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="0.76" opacity="0.061"></ellipse>
+      <ellipse cx="1450" cy="-40" rx="610" ry="407" transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="0.65" opacity="0.037"></ellipse>
+      <ellipse cx="1450" cy="-40" rx="756" ry="504" transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="0.56" opacity="0.021"></ellipse>
+      <ellipse cx="1450" cy="-40" rx="914" ry="609" transform="rotate(-20 1450 -40)" fill="none" stroke="#fff" stroke-width="0.50" opacity="0.011"></ellipse>
+      <g filter="url(#fp)">
+        <path d="M 340,548 L 430,593 L 340,638 L 250,593 Z" fill="rgba(255,255,255,0.094)" stroke="rgba(255,255,255,0.33)" stroke-width="1.4" stroke-linejoin="round"></path>
+        <path d="M 430,593 L 340,638 L 340,656 L 430,611 Z" fill="rgba(255,255,255,0.052)" stroke="rgba(255,255,255,0.18)" stroke-width="0.95"></path>
+        <path d="M 250,593 L 340,638 L 340,656 L 250,611 Z" fill="rgba(255,255,255,0.072)" stroke="rgba(255,255,255,0.18)" stroke-width="0.95"></path>
+      </g>
+      <g filter="url(#fp)" opacity="0.80">
+        <path d="M 595,596 L 655,626 L 595,656 L 535,626 Z" fill="rgba(255,255,255,0.086)" stroke="rgba(255,255,255,0.28)" stroke-width="1.1" stroke-linejoin="round"></path>
+        <path d="M 655,626 L 595,656 L 595,668 L 655,638 Z" fill="rgba(255,255,255,0.047)" stroke="rgba(255,255,255,0.16)" stroke-width="0.80"></path>
+        <path d="M 535,626 L 595,656 L 595,668 L 535,638 Z" fill="rgba(255,255,255,0.064)" stroke="rgba(255,255,255,0.16)" stroke-width="0.80"></path>
+      </g>
+      <g filter="url(#fp)" opacity="0.80">
+        <path d="M 858,589 L 918,619 L 858,649 L 798,619 Z" fill="rgba(255,255,255,0.086)" stroke="rgba(255,255,255,0.28)" stroke-width="1.1" stroke-linejoin="round"></path>
+        <path d="M 918,619 L 858,649 L 858,661 L 918,631 Z" fill="rgba(255,255,255,0.047)" stroke="rgba(255,255,255,0.16)" stroke-width="0.80"></path>
+        <path d="M 798,619 L 858,649 L 858,661 L 798,631 Z" fill="rgba(255,255,255,0.064)" stroke="rgba(255,255,255,0.16)" stroke-width="0.80"></path>
+      </g>
+      <g filter="url(#fp)">
+        <path d="M 1108,550 L 1192,592 L 1108,634 L 1024,592 Z" fill="rgba(255,255,255,0.094)" stroke="rgba(255,255,255,0.33)" stroke-width="1.4" stroke-linejoin="round"></path>
+        <path d="M 1192,592 L 1108,634 L 1108,651 L 1192,609 Z" fill="rgba(255,255,255,0.052)" stroke="rgba(255,255,255,0.18)" stroke-width="0.95"></path>
+        <path d="M 1024,592 L 1108,634 L 1108,651 L 1024,609 Z" fill="rgba(255,255,255,0.072)" stroke="rgba(255,255,255,0.18)" stroke-width="0.95"></path>
+      </g>
+    </svg>
+
+    <div style="position: relative; z-index: 1; max-width: 1200px; margin: 0 auto;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.60); margin-bottom: 18px;">Pricing</div>
+      <h2 style="font-size: 56px; font-weight: 800; letter-spacing: -0.025em; color: #fff; line-height: 1.07; margin-bottom: 20px;">Pay only when Varsten <span style="color: #f5f0e6;">proves</span> savings.</h2>
+      <p style="font-size: 17px; line-height: 1.70; color: rgba(255,255,255,0.72); max-width: 580px; margin: 0 auto 52px; text-wrap: pretty;">Start with Free to monitor AI spend and review savings recommendations. Move to Performance when you want Varsten to optimize traffic directly: 25% of verified savings, you keep the other 75%.</p>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 880px; margin: 0 auto;">
+
+        <div style="background: #fff; border-radius: 18px; padding: 40px 36px; text-align: left;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(26,23,20,0.40); margin-bottom: 20px;">Free</div>
+          <div style="margin-bottom: 18px; display: flex; align-items: baseline; gap: 5px;">
+            <span style="font-size: 54px; font-weight: 800; color: #1a1714; line-height: 1; letter-spacing: -0.03em;">$0</span>
+            <span style="font-size: 15px; color: rgba(26,23,20,0.42);">/mo</span>
+          </div>
+          <p style="font-size: 14px; line-height: 1.6; color: rgba(26,23,20,0.50); margin-bottom: 28px;">For teams that need AI spend monitoring and savings recommendations.</p>
+          <div style="display: flex; flex-direction: column; gap: 13px; margin-bottom: 36px;">
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Ongoing AI spend monitoring</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Month-by-month spend trends</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Savings recommendations by route, model, and workload</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Pricing and catalog trust checks</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Read-only Proof dashboard</span></div>
+          </div>
+          <button style="width: 100%; padding: 14px; border: 2px solid rgba(26,23,20,0.18); border-radius: 10px; background: transparent; font-family: inherit; font-size: 14px; font-weight: 600; color: #1a1714; cursor: pointer;">Start Free</button>
+        </div>
+
+        <div style="background: #fff; border-radius: 18px; padding: 40px 36px; text-align: left; position: relative;">
+          <div style="position: absolute; top: -14px; left: 50%; transform: translateX(-50%); background: #1a1714; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; padding: 5px 14px; border-radius: 100px; white-space: nowrap;">Recommended</div>
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(26,23,20,0.40); margin-bottom: 20px;">Performance</div>
+          <div style="margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px;">
+            <span style="font-size: 54px; font-weight: 800; color: #1a1714; line-height: 1; letter-spacing: -0.03em;">25%</span>
+            <span style="font-size: 14px; color: rgba(26,23,20,0.42);">of verified savings</span>
+          </div>
+          <p style="font-size: 14px; line-height: 1.6; color: rgba(26,23,20,0.50); margin-bottom: 28px;">For teams ready to automate savings, billed monthly in arrears only from the dollars it proves.</p>
+          <div style="display: flex; flex-direction: column; gap: 13px; margin-bottom: 36px;">
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Everything in Free, plus:</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Automated routing, caching, batching, and model swaps</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Quality guardrails and active rollback</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>Verified savings ledger</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>You keep 75% of every verified dollar saved</span></div>
+            <div style="display: flex; gap: 10px; font-size: 14px; color: rgba(26,23,20,0.72);"><span style="color: #0e9e6e; flex-shrink: 0;">✓</span><span>If Varsten saves $0, you pay $0</span></div>
+          </div>
+          <button style="width: 100%; padding: 14px; border: none; border-radius: 10px; background: #1a1714; font-family: inherit; font-size: 14px; font-weight: 600; color: #fff; cursor: pointer; margin-bottom: 12px;">Start Performance</button>
+          <div style="text-align: center; font-size: 13px; font-weight: 600; color: #0b8059; cursor: pointer;">Start 30-day free trial of Performance</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════
+       4. SAVINGS PROOF
+       Terra: dark base, vivid green rings at
+       higher opacity (dark makes them pop),
+       scattered tile "data nodes" — smaller
+       tiles at varied positions suggest a
+       distributed proof network.
+       ═══════════════════════════════════════ -->
+  <section style="position: relative; overflow: hidden; background: #1a1714; padding: 100px 80px; text-align: center;" data-screen-label="Savings Proof">
+    <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 820" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="fs" x="-100%" y="-100%" width="300%" height="400%">
+          <feDropShadow dx="0" dy="6" stdDeviation="14" flood-color="#000" flood-opacity="0.35"></feDropShadow>
+        </filter>
+      </defs>
+      <ellipse cx="1450" cy="-50" rx="90"  ry="60"  transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="1.70" opacity="0.33"></ellipse>
+      <ellipse cx="1450" cy="-50" rx="174" ry="116" transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="1.35" opacity="0.252"></ellipse>
+      <ellipse cx="1450" cy="-50" rx="268" ry="179" transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="1.10" opacity="0.186"></ellipse>
+      <ellipse cx="1450" cy="-50" rx="376" ry="251" transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.93" opacity="0.131"></ellipse>
+      <ellipse cx="1450" cy="-50" rx="496" ry="331" transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.80" opacity="0.085"></ellipse>
+      <ellipse cx="1450" cy="-50" rx="630" ry="420" transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.68" opacity="0.053"></ellipse>
+      <ellipse cx="1450" cy="-50" rx="776" ry="517" transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.58" opacity="0.031"></ellipse>
+      <ellipse cx="1450" cy="-50" rx="934" ry="623" transform="rotate(-20 1450 -50)" fill="none" stroke="#0e9e6e" stroke-width="0.50" opacity="0.016"></ellipse>
+      <g filter="url(#fs)">
+        <path d="M 168,472 L 244,510 L 168,548 L 92,510 Z" fill="rgba(14,158,110,0.192)" stroke="rgba(14,158,110,0.52)" stroke-width="1.55" stroke-linejoin="round"></path>
+        <path d="M 244,510 L 168,548 L 168,563 L 244,525 Z" fill="rgba(14,158,110,0.104)" stroke="rgba(14,158,110,0.29)" stroke-width="1.05"></path>
+        <path d="M 92,510 L 168,548 L 168,563 L 92,525 Z" fill="rgba(14,158,110,0.142)" stroke="rgba(14,158,110,0.29)" stroke-width="1.05"></path>
+      </g>
+      <g filter="url(#fs)" opacity="0.78">
+        <path d="M 1288,352 L 1342,379 L 1288,406 L 1234,379 Z" fill="rgba(14,158,110,0.172)" stroke="rgba(14,158,110,0.46)" stroke-width="1.25" stroke-linejoin="round"></path>
+        <path d="M 1342,379 L 1288,406 L 1288,417 L 1342,390 Z" fill="rgba(14,158,110,0.093)" stroke="rgba(14,158,110,0.26)" stroke-width="0.88"></path>
+        <path d="M 1234,379 L 1288,406 L 1288,417 L 1234,390 Z" fill="rgba(14,158,110,0.128)" stroke="rgba(14,158,110,0.26)" stroke-width="0.88"></path>
+      </g>
+      <g filter="url(#fs)" opacity="0.58">
+        <path d="M 74,633 L 118,655 L 74,677 L 30,655 Z" fill="rgba(14,158,110,0.155)" stroke="rgba(14,158,110,0.42)" stroke-width="1.05" stroke-linejoin="round"></path>
+        <path d="M 118,655 L 74,677 L 74,686 L 118,664 Z" fill="rgba(14,158,110,0.082)" stroke="rgba(14,158,110,0.23)" stroke-width="0.72"></path>
+        <path d="M 30,655 L 74,677 L 74,686 L 30,664 Z" fill="rgba(14,158,110,0.112)" stroke="rgba(14,158,110,0.23)" stroke-width="0.72"></path>
+      </g>
+    </svg>
+
+    <div style="position: relative; z-index: 1; max-width: 1200px; margin: 0 auto;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #0e9e6e; margin-bottom: 18px;">Savings Proof</div>
+      <h2 style="font-size: 56px; font-weight: 800; letter-spacing: -0.025em; color: #fff; line-height: 1.07; margin-bottom: 20px;">See the split <span style="color: #0e9e6e;">before you pay.</span></h2>
+      <p style="font-size: 17px; line-height: 1.70; color: rgba(255,255,255,0.50); max-width: 500px; margin: 0 auto 52px; text-wrap: pretty;">The calculator shows the shared-savings economics. The proof rules explain what Varsten can bill and what stays off the invoice.</p>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 920px; margin: 0 auto 20px;">
+
+        <div style="background: #fff; border-radius: 16px; padding: 36px; text-align: left;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: #0e9e6e; margin-bottom: 10px;">Interactive Calculator</div>
+          <h4 style="font-size: 26px; font-weight: 700; color: #1a1714; margin-bottom: 8px; letter-spacing: -0.02em;">Estimate the 75/25 split.</h4>
+          <p style="font-size: 13px; color: rgba(26,23,20,0.48); line-height: 1.55; margin-bottom: 26px;">Uses a conservative 20% savings assumption. Real billing uses verified savings only, never projections.</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 13px; color: rgba(26,23,20,0.55);">Estimated monthly AI spend</span>
+            <span style="font-size: 19px; font-weight: 700; color: #1a1714;"><span id="spend-label">$25,000</span></span>
+          </div>
+          <input class="vr-slider" type="range" min="5000" max="100000" step="1000" value="25000" id="spend-slider" style="background: linear-gradient(to right, #0e9e6e 21%, rgba(26,23,20,0.14) 21%)" oninput="updateCalc()">
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: rgba(26,23,20,0.34); margin-top: 5px; margin-bottom: 24px;"><span>$5k</span><span>$100k+</span></div>
+          <div style="display: flex; flex-direction: column; gap: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(26,23,20,0.07);">
+              <span style="font-size: 13.5px; color: rgba(26,23,20,0.58);">Gross savings at 20%</span>
+              <span style="font-size: 15px; font-weight: 600; color: #1a1714;"><span id="gross-label">$5,000/mo</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(26,23,20,0.07);">
+              <span style="font-size: 13.5px; color: rgba(26,23,20,0.58);">Varsten fee at 25%</span>
+              <span style="font-size: 15px; font-weight: 600; color: #1a1714;"><span id="fee-label">$1,250/mo</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; background: rgba(14,158,110,0.07); border-radius: 8px; margin: 6px 0;">
+              <span style="font-size: 14px; font-weight: 600; color: #1a1714;">You keep 75%</span>
+              <span style="font-size: 17px; font-weight: 700; color: #0e9e6e;"><span id="keep-label">$3,750/mo</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0;">
+              <span style="font-size: 13.5px; color: rgba(26,23,20,0.58);">Annualized net savings</span>
+              <span style="font-size: 15px; font-weight: 600; color: #1a1714;"><span id="annual-label">$45,000/yr</span></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: #fff; border-radius: 16px; padding: 36px; text-align: left;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: #0e9e6e; margin-bottom: 10px;">Verified Savings</div>
+          <h4 style="font-size: 26px; font-weight: 700; color: #1a1714; margin-bottom: 8px; letter-spacing: -0.02em;">What counts as billable proof?</h4>
+          <p style="font-size: 13px; color: rgba(26,23,20,0.48); line-height: 1.55; margin-bottom: 28px;">Varsten only charges when attribution can defend the delta.</p>
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div style="display: flex; gap: 12px; font-size: 14px; color: rgba(26,23,20,0.70); line-height: 1.5;"><span style="color: #0e9e6e; flex-shrink: 0; margin-top: 1px;">✓</span><span>Cached repeat responses where the avoided model call cost is known.</span></div>
+            <div style="display: flex; gap: 12px; font-size: 14px; color: rgba(26,23,20,0.70); line-height: 1.5;"><span style="color: #0e9e6e; flex-shrink: 0; margin-top: 1px;">✓</span><span>Batch routing measured as sync price minus batch price.</span></div>
+            <div style="display: flex; gap: 12px; font-size: 14px; color: rgba(26,23,20,0.70); line-height: 1.5;"><span style="color: #0e9e6e; flex-shrink: 0; margin-top: 1px;">✓</span><span>Routing and model swaps measured against a live holdback or approved eval gate.</span></div>
+            <div style="display: flex; gap: 12px; font-size: 14px; color: rgba(26,23,20,0.70); line-height: 1.5;"><span style="color: #0e9e6e; flex-shrink: 0; margin-top: 1px;">✓</span><span>Quality guardrails and rollback history attached to each optimization.</span></div>
+            <div style="display: flex; gap: 12px; font-size: 14px; color: rgba(26,23,20,0.70); line-height: 1.5;"><span style="color: #0e9e6e; flex-shrink: 0; margin-top: 1px;">✓</span><span>Recommendations, estimates, and customer-side changes are not billed.</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.09); border-radius: 16px; padding: 28px 36px; max-width: 920px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; text-align: left; gap: 40px;">
+        <div style="flex: 1;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: #0e9e6e; margin-bottom: 8px;">Enterprise Terms</div>
+          <h4 style="font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 8px; letter-spacing: -0.018em;">Predictable contracts, capped fees.</h4>
+          <p style="font-size: 14px; color: rgba(255,255,255,0.45); line-height: 1.55;">High-volume teams can use predictable annual contracts with true-ups, annual fee caps, VPC deployment, custom evals, security review, and procurement-friendly billing terms.</p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; max-width: 200px; justify-content: flex-end;">
+          <div style="padding: 7px 14px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.17); font-size: 12.5px; color: rgba(255,255,255,0.60); white-space: nowrap;">VPC deployment</div>
+          <div style="padding: 7px 14px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.17); font-size: 12.5px; color: rgba(255,255,255,0.60); white-space: nowrap;">Custom evals</div>
+          <div style="padding: 7px 14px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.17); font-size: 12.5px; color: rgba(255,255,255,0.60); white-space: nowrap;">Annual caps</div>
+          <div style="padding: 7px 14px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.17); font-size: 12.5px; color: rgba(255,255,255,0.60); white-space: nowrap;">True-ups</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer style="position: relative; overflow: hidden; background: #1a1714; padding: 72px 80px 44px;" data-screen-label="Footer">
+    <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 1440 420" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="-20" cy="480" rx="210" ry="140" transform="rotate(13 -20 480)" fill="none" stroke="#0e9e6e" stroke-width="1.1" opacity="0.148"></ellipse>
+      <ellipse cx="-20" cy="480" rx="380" ry="253" transform="rotate(13 -20 480)" fill="none" stroke="#0e9e6e" stroke-width="0.88" opacity="0.095"></ellipse>
+      <ellipse cx="-20" cy="480" rx="570" ry="380" transform="rotate(13 -20 480)" fill="none" stroke="#0e9e6e" stroke-width="0.72" opacity="0.056"></ellipse>
+      <ellipse cx="-20" cy="480" rx="780" ry="520" transform="rotate(13 -20 480)" fill="none" stroke="#0e9e6e" stroke-width="0.60" opacity="0.028"></ellipse>
+      <ellipse cx="-20" cy="480" rx="1010" ry="673" transform="rotate(13 -20 480)" fill="none" stroke="#0e9e6e" stroke-width="0.50" opacity="0.013"></ellipse>
+      <!-- Secondary cluster — upper right, green pops on dark bg -->
+      <ellipse cx="1450" cy="-20" rx="240" ry="160" transform="rotate(-16 1450 -20)" fill="none" stroke="#0e9e6e" stroke-width="1.10" opacity="0.172"></ellipse>
+      <ellipse cx="1450" cy="-20" rx="450" ry="300" transform="rotate(-16 1450 -20)" fill="none" stroke="#0e9e6e" stroke-width="0.88" opacity="0.108"></ellipse>
+      <ellipse cx="1450" cy="-20" rx="680" ry="453" transform="rotate(-16 1450 -20)" fill="none" stroke="#0e9e6e" stroke-width="0.70" opacity="0.062"></ellipse>
+      <defs>
+        <filter id="ffoot" x="-80%" y="-80%" width="260%" height="260%">
+          <feDropShadow dx="0" dy="6" stdDeviation="14" flood-color="#000" flood-opacity="0.30"></feDropShadow>
+        </filter>
+      </defs>
+      <!-- Tile cluster — right side, green at elevated opacity for dark bg -->
+      <g filter="url(#ffoot)">
+        <path d="M 1348,154 L 1436,198 L 1348,242 L 1260,198 Z" fill="rgba(14,158,110,0.185)" stroke="rgba(14,158,110,0.48)" stroke-width="1.40" stroke-linejoin="round"></path>
+        <path d="M 1436,198 L 1348,242 L 1348,264 L 1436,220 Z" fill="rgba(14,158,110,0.100)" stroke="rgba(14,158,110,0.28)" stroke-width="0.95"></path>
+        <path d="M 1260,198 L 1348,242 L 1348,264 L 1260,220 Z" fill="rgba(14,158,110,0.138)" stroke="rgba(14,158,110,0.28)" stroke-width="0.95"></path>
+      </g>
+      <g filter="url(#ffoot)" opacity="0.76">
+        <path d="M 1416,257 L 1470,284 L 1416,311 L 1362,284 Z" fill="rgba(14,158,110,0.160)" stroke="rgba(14,158,110,0.42)" stroke-width="1.15" stroke-linejoin="round"></path>
+        <path d="M 1470,284 L 1416,311 L 1416,324 L 1470,297 Z" fill="rgba(14,158,110,0.086)" stroke="rgba(14,158,110,0.24)" stroke-width="0.80"></path>
+        <path d="M 1362,284 L 1416,311 L 1416,324 L 1362,297 Z" fill="rgba(14,158,110,0.118)" stroke="rgba(14,158,110,0.24)" stroke-width="0.80"></path>
+      </g>
+    </svg>
+
+    <div style="position: relative; z-index: 1; max-width: 1320px; margin: 0 auto;">
+      <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 60px; margin-bottom: 64px;">
+
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <div style="width: 28px; height: 28px; background: #0e9e6e; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <div style="width: 10px; height: 10px; border-radius: 50%; background: #fff;"></div>
+            </div>
+            <span style="font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -0.025em;">varsten</span>
+          </div>
+          <p style="font-size: 14px; line-height: 1.68; color: rgba(255,255,255,0.40); max-width: 260px; margin-bottom: 32px;">Reduce AI spend without sacrificing quality. The proxy that proves its savings.</p>
+          <button style="background: #0e9e6e; color: #fff; border: none; border-radius: 8px; padding: 11px 22px; font-size: 12px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; cursor: pointer; font-family: inherit;">START FREE</button>
+        </div>
+
+        <div>
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.28); margin-bottom: 20px;">Product</div>
+          <div style="display: flex; flex-direction: column; gap: 13px;">
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Drop-in Proxy</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Response Reuse</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Routing &amp; Evals</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Savings Proof</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Pricing</a>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.28); margin-bottom: 20px;">Company</div>
+          <div style="display: flex; flex-direction: column; gap: 13px;">
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">About</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Blog</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Docs</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Changelog</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Status</a>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.28); margin-bottom: 20px;">Legal</div>
+          <div style="display: flex; flex-direction: column; gap: 13px;">
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Privacy</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Terms</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">Security</a>
+            <a style="font-size: 14px; color: rgba(255,255,255,0.55); text-decoration: none; cursor: pointer;">DPA</a>
+          </div>
+        </div>
+
+      </div>
+
+      <div style="border-top: 1px solid rgba(255,255,255,0.07); padding-top: 28px; display: flex; align-items: center; justify-content: space-between;">
+        <span style="font-size: 13px; color: rgba(255,255,255,0.26);">© 2025 Varsten, Inc. All rights reserved.</span>
+        <div style="display: flex; gap: 22px;">
+          <a style="font-size: 13px; color: rgba(255,255,255,0.32); text-decoration: none; cursor: pointer;">X / Twitter</a>
+          <a style="font-size: 13px; color: rgba(255,255,255,0.32); text-decoration: none; cursor: pointer;">GitHub</a>
+          <a style="font-size: 13px; color: rgba(255,255,255,0.32); text-decoration: none; cursor: pointer;">LinkedIn</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+</div>
+</x-dc>
+<script>
+function updateCalc() {
+  var input  = document.getElementById('spend-slider');
+  var spend  = parseInt(input.value, 10);
+  var gross  = Math.round(spend * 0.20);
+  var fee    = Math.round(gross * 0.25);
+  var keep   = gross - fee;
+  var annual = keep * 12;
+  var pct    = Math.round((spend - 5000) / 95000 * 100);
+  function fmt(n) { return '$' + n.toLocaleString('en-US'); }
+  document.getElementById('spend-label').textContent  = fmt(spend);
+  document.getElementById('gross-label').textContent  = fmt(gross)  + '/mo';
+  document.getElementById('fee-label').textContent    = fmt(fee)    + '/mo';
+  document.getElementById('keep-label').textContent   = fmt(keep)   + '/mo';
+  document.getElementById('annual-label').textContent = fmt(annual) + '/yr';
+  input.style.background = 'linear-gradient(to right, #0e9e6e ' + pct + '%, rgba(26,23,20,0.14) ' + pct + '%)';
+}
+document.addEventListener('DOMContentLoaded', updateCalc);
+</script>
+</body>
+</html>

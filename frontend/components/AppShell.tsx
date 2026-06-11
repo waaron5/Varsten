@@ -189,7 +189,7 @@ function Sidebar({
       <div className="brand">
         <Link href="/command-center" className="brand-link" aria-label="Go to Command Center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
+          <img src="/logo-varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
         </Link>
         <button
           type="button"

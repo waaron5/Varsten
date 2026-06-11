@@ -140,22 +140,23 @@ a {
   font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
 .lp-btn-primary {
-  background: var(--brand);
+  background-color: var(--brand);
   color: #fff;
+  box-shadow: 0 10px 22px rgba(17, 124, 75, 0.22);
 }
 .lp-btn-primary:hover {
-  background: var(--brand-press);
+  background-color: var(--brand-press);
 }
 .lp-btn-ghost {
-  background: var(--surface);
+  background-color: var(--surface);
   border-color: var(--border-strong);
   color: var(--text);
 }
 .lp-btn-ghost:hover {
-  background: var(--surface-2);
+  background-color: var(--surface-2);
 }
 .lp-btn-lg {
   padding: 13px 26px;
@@ -181,13 +182,20 @@ a {
 /* ---------- navigation ---------- */
 
 .lp-nav {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 50;
   height: 64px;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  transition: background 0.18s ease, border-color 0.18s ease, backdrop-filter 0.18s ease;
+}
+.lp-nav-scrolled {
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: saturate(180%) blur(10px);
-  border-bottom: 1px solid var(--border);
+  border-bottom-color: var(--border);
 }
 .lp-nav-inner {
   height: 100%;
@@ -216,10 +224,8 @@ a {
 .lp-hero {
   position: relative;
   overflow: hidden;
-  padding: clamp(56px, 9vw, 116px) 0 clamp(48px, 7vw, 84px);
-  background:
-    linear-gradient(90deg, rgba(232, 249, 240, 0.84) 0%, rgba(228, 248, 238, 0.8) 48%, rgba(224, 247, 236, 0.76) 100%),
-    url("/hero-backgrounds/hero_background_4.png");
+  padding: calc(clamp(56px, 9vw, 116px) + 64px) 0 clamp(48px, 7vw, 84px);
+  background: url("/hero-backgrounds/varsten-hero-bg.svg");
   background-size: cover;
   background-position: center;
 }
@@ -258,6 +264,12 @@ a {
   gap: 14px;
   justify-content: flex-start;
   flex-wrap: wrap;
+}
+.lp-hero-cta .lp-btn-ghost {
+  background-color: transparent;
+}
+.lp-hero-cta .lp-btn-ghost:hover {
+  background-color: rgba(255, 255, 255, 0.42);
 }
 
 /* ---------- proof asset (dashboard screenshot placeholder) ---------- */
@@ -872,6 +884,9 @@ a {
   font-weight: 580;
   color: var(--text-2);
   margin-bottom: 7px;
+}
+.lp-input + .lp-input-label {
+  margin-top: 18px;
 }
 
 .lp-input {
