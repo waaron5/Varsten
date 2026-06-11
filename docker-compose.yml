@@ -28,6 +28,7 @@ services:
       # validate dashboard (session) auth.
       AUTH0_DOMAIN: ${AUTH0_DOMAIN:-dev-tnqse1hznivo6img.us.auth0.com}
       AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-https://api.varsten.local}
+      OPERATOR_ADMIN_EMAILS: ${OPERATOR_ADMIN_EMAILS:-[]}
     ports:
       - "8000:8000"
     depends_on:
