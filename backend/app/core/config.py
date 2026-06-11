@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # triggers a recompute. Keeps the month-scan off the hot read path; lower for
     # fresher recommendations, higher for less recompute under load.
     recommendations_max_age_seconds: int = 600
+    # Founder/operator accounts allowed to use provisioning and validation tools.
+    # Set as JSON in env, e.g. OPERATOR_ADMIN_EMAILS='["aaron@varsten.ai"]'.
+    operator_admin_emails: list[str] = []
 
     # --- Phase 1 inline proxy (OpenAI only) ---
     # Upstream provider for proxied traffic. Resolved through the provider adapter

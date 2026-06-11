@@ -6,6 +6,7 @@ from app.api.v1 import (
     batches,
     evals,
     metrics,
+    operator,
     organizations,
     product_sections,
     projects,
@@ -21,6 +22,7 @@ api_router.include_router(projects.router)
 api_router.include_router(api_keys.router)
 api_router.include_router(usage_events.router)
 api_router.include_router(metrics.router)
+api_router.include_router(operator.router)
 api_router.include_router(recommendations.router)
 api_router.include_router(evals.router)
 api_router.include_router(product_sections.router)

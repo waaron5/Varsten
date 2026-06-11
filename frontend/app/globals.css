@@ -760,6 +760,37 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .quality-track i { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
 .config-form { display: grid; gap: 10px; padding: 18px 20px; }
 .config-form .btn { justify-content: center; }
+.alert {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+.alert.danger {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.24);
+  color: #991b1b;
+}
+.metric-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+.metric {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+.metric span {
+  color: var(--text-2);
+  display: block;
+  font-size: 12px;
+}
+.metric b {
+  display: block;
+  margin-top: 4px;
+}
 .check-row {
   display: flex; align-items: flex-start; gap: 9px; color: var(--text-2);
   font-size: 13px; padding: 4px 0 2px; cursor: pointer;

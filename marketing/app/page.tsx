@@ -99,17 +99,15 @@ function ModalHeader({
 
 // ---------- Email capture modal ----------
 
-function EmailSuccess({ email }: { email: string }) {
+function EmailSuccess() {
   return (
     <div className="lp-modal-body">
       <div className="lp-modal-success">
         <div className="lp-modal-success-icon">
           <Check />
         </div>
-        <p className="lp-modal-title">We'll be in touch soon.</p>
-        <p>
-          Keep an eye on <strong>{email}</strong> — someone from Varsten will reach out to get you set up.
-        </p>
+        <p className="lp-modal-title">Request received.</p>
+        <p>We do a secure, 15-minute white-glove setup to provision your tenant and keys. Check your inbox.</p>
       </div>
     </div>
   );
@@ -118,17 +116,25 @@ function EmailSuccess({ email }: { email: string }) {
 function EmailForm({
   email,
   error,
+  fullName,
+  companyName,
   inputRef,
   onCancel,
   onEmailChange,
+  onFullNameChange,
+  onCompanyNameChange,
   onSubmit,
   submitting,
 }: {
   email: string;
   error: string | null;
+  fullName: string;
+  companyName: string;
   inputRef: RefObject<HTMLInputElement | null>;
   onCancel: () => void;
   onEmailChange: (email: string) => void;
+  onFullNameChange: (name: string) => void;
+  onCompanyNameChange: (company: string) => void;
   onSubmit: (e: FormEvent) => void;
   submitting: boolean;
 }) {
@@ -149,13 +155,43 @@ function EmailForm({
           required
           autoComplete="email"
         />
+        <label className="lp-input-label" htmlFor="name-input">
+          Full name
+        </label>
+        <input
+          id="name-input"
+          className="lp-input"
+          type="text"
+          placeholder="Jane Smith"
+          value={fullName}
+          onChange={(e) => onFullNameChange(e.target.value)}
+          required
+          autoComplete="name"
+        />
+        <label className="lp-input-label" htmlFor="company-input">
+          Company name
+        </label>
+        <input
+          id="company-input"
+          className="lp-input"
+          type="text"
+          placeholder="Acme"
+          value={companyName}
+          onChange={(e) => onCompanyNameChange(e.target.value)}
+          required
+          autoComplete="organization"
+        />
         {error ? <p className="lp-form-error" role="alert">{error}</p> : null}
       </div>
       <div className="lp-modal-foot">
         <button type="button" className="lp-btn lp-btn-ghost" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className="lp-btn lp-btn-primary" disabled={!email.trim() || submitting}>
+        <button
+          type="submit"
+          className="lp-btn lp-btn-primary"
+          disabled={!email.trim() || !fullName.trim() || !companyName.trim() || submitting}
+        >
           {submitting ? "Sending..." : "Confirm"}
         </button>
       </div>
@@ -182,26 +218,34 @@ function EmailModalHeader({ submitted, onClose }: { submitted: boolean; onClose:
 function EmailModalContent({
   email,
   error,
+  fullName,
+  companyName,
   inputRef,
   submitted,
   submitting,
   onClose,
   onEmailChange,
+  onFullNameChange,
+  onCompanyNameChange,
   onSubmit,
 }: {
   email: string;
   error: string | null;
+  fullName: string;
+  companyName: string;
   inputRef: RefObject<HTMLInputElement | null>;
   submitted: boolean;
   submitting: boolean;
   onClose: () => void;
   onEmailChange: (email: string) => void;
+  onFullNameChange: (name: string) => void;
+  onCompanyNameChange: (company: string) => void;
   onSubmit: (e: FormEvent) => void;
 }) {
   if (submitted) {
     return (
       <>
-        <EmailSuccess email={email} />
+        <EmailSuccess />
         <div className="lp-modal-foot">
           <button type="button" className="lp-btn lp-btn-ghost" onClick={onClose}>
             Close
@@ -215,9 +259,13 @@ function EmailModalContent({
     <EmailForm
       email={email}
       error={error}
+      fullName={fullName}
+      companyName={companyName}
       inputRef={inputRef}
       onCancel={onClose}
       onEmailChange={onEmailChange}
+      onFullNameChange={onFullNameChange}
+      onCompanyNameChange={onCompanyNameChange}
       onSubmit={onSubmit}
       submitting={submitting}
     />
@@ -226,6 +274,8 @@ function EmailModalContent({
 
 function EmailModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -246,7 +296,12 @@ function EmailModal({ onClose }: { onClose: () => void }) {
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), source: "landing-cta" }),
+        body: JSON.stringify({
+          email: email.trim(),
+          fullName: fullName.trim(),
+          companyName: companyName.trim(),
+          source: "landing-cta",
+        }),
       });
       if (!res.ok) {
         throw new Error(`request failed (${res.status})`);
@@ -265,11 +320,15 @@ function EmailModal({ onClose }: { onClose: () => void }) {
       <EmailModalContent
         email={email}
         error={error}
+        fullName={fullName}
+        companyName={companyName}
         inputRef={inputRef}
         submitted={submitted}
         submitting={submitting}
         onClose={onClose}
         onEmailChange={setEmail}
+        onFullNameChange={setFullName}
+        onCompanyNameChange={setCompanyName}
         onSubmit={handleSubmit}
       />
     </ModalShell>

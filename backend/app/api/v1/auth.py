@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -52,13 +52,23 @@ def sync_user(
     user = db.scalar(select(User).where(User.auth_provider_subject == sub))
     try:
         if user is None:
-            user = User(email=email, name=name, auth_provider_subject=sub)
-            db.add(user)
-            db.flush()
-            org = Organization(name=_default_org_name(email))
-            db.add(org)
-            db.flush()
-            db.add(OrgMembership(user_id=user.id, organization_id=org.id, role="owner"))
+            user = db.scalar(
+                select(User).where(
+                    func.lower(User.email) == email.lower(),
+                    User.auth_provider_subject.is_(None),
+                )
+            )
+            if user is None:
+                user = User(email=email, name=name, auth_provider_subject=sub)
+                db.add(user)
+                db.flush()
+                org = Organization(name=_default_org_name(email))
+                db.add(org)
+                db.flush()
+                db.add(OrgMembership(user_id=user.id, organization_id=org.id, role="owner"))
+            else:
+                user.auth_provider_subject = sub
+                user.name = name or user.name
         else:
             user.email = email
             user.name = name

@@ -31,6 +31,7 @@ const NAV_GROUPS: {
       { href: "/analysis/spend", match: "/analysis", label: "Analysis", icon: "M3 3v18h18 M7 14l3-4 3 3 4-6" },
       { href: "/reports", match: "/reports", label: "Reports", icon: "M7 3h7l5 5v13H7V3z M14 3v6h5 M10 13h6 M10 17h6" },
       { href: "/admin/connections", match: "/admin", label: "Settings", icon: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15.08 4a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.2.63.78 1 1.51 1H21a2 2 0 1 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z" },
+      { href: "/admin/operator", match: "/admin/operator", label: "Operator", icon: "M4 21v-2a4 4 0 0 1 4-4h3 M8 7a4 4 0 1 0 0 8 M16 11l2 2 4-4 M15 21h6" },
     ],
   },
 ];
@@ -56,6 +57,7 @@ const ROUTE_LABELS: Record<string, { title: string; crumb: string }> = {
   "/reports": { title: "Executive Report", crumb: "Reports" },
   "/admin": { title: "Settings", crumb: "Settings / Connections" },
   "/admin/connections": { title: "Settings", crumb: "Settings / Connections" },
+  "/admin/operator": { title: "Operator", crumb: "Operator / Onboarding" },
   "/admin/team": { title: "Settings", crumb: "Settings / Team" },
   "/admin/billing-security": { title: "Settings", crumb: "Settings / Billing & Security" },
   "/breakdowns": { title: "Breakdowns", crumb: "Explore / Breakdowns" },

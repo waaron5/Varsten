@@ -25,6 +25,9 @@ import type {
   LeverName,
   MetricsOverview,
   MonthlyReport,
+  OperatorProvisionRequest,
+  OperatorProvisionResponse,
+  OperatorValidationSummary,
   ProofAttribution,
   ProofDataQuality,
   ProofSavings,
@@ -387,4 +390,16 @@ export const api = {
 
   revokeApiKey: (token: string, apiKeyId: string) =>
     request<ApiKeySummary>(`/api-keys/${apiKeyId}`, token, { method: "DELETE" }),
+
+  operatorProvision: (token: string, body: OperatorProvisionRequest) =>
+    request<OperatorProvisionResponse>("/operator/provision", token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  operatorValidationSummary: (token: string, projectId: string, hours = 24) =>
+    request<OperatorValidationSummary>(
+      `/operator/projects/${projectId}/validation-summary${qs({ hours })}`,
+      token,
+    ),
 };

@@ -196,6 +196,38 @@ export interface ApiKeyCreated extends ApiKeySummary {
   plaintext_key: string;
 }
 
+export interface OperatorProvisionRequest {
+  customer_email: string;
+  full_name: string;
+  company_name: string;
+  organization_name: string;
+  project_name: string;
+  api_key_name: string;
+}
+
+export interface OperatorProvisionResponse {
+  user_id: string;
+  organization_id: string;
+  project_id: string;
+  api_key_id: string;
+  api_key_prefix: string;
+  plaintext_api_key: string;
+}
+
+export interface OperatorValidationSummary {
+  project_id: string;
+  organization_id: string;
+  project_name: string;
+  window_hours: number;
+  window_start: string;
+  window_end: string;
+  request_count: number;
+  p95_latency_ms: number | null;
+  saved_usd: string | number | null;
+  fail_open_status: string;
+  follow_up_draft: string;
+}
+
 export interface UsageEventFilters {
   provider?: string;
   model?: string;
