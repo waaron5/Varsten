@@ -11,7 +11,7 @@ from app.api.deps import require_user
 from app.core.config import settings
 from app.core.security import generate_api_key
 from app.db.session import get_db
-from app.models import ApiKey, OrgMembership, Organization, Project, UsageEvent, User
+from app.models import ApiKey, Organization, OrgMembership, Project, UsageEvent, User
 from app.schemas import OperatorProvisionRequest, OperatorProvisionResponse, OperatorValidationSummary
 
 router = APIRouter(prefix="/operator", tags=["operator"])
