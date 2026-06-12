@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 const APP_URL = "https://app.varsten.ai";
@@ -12,6 +13,39 @@ const money = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 0,
 });
+
+const metricCards = [
+  { label: "Total spend", value: "$2,418", note: "34% saved", positive: true },
+  { label: "Requests", value: "48.2K", note: "this month" },
+  { label: "Cache rate", value: "61%", note: "8 pts", positive: true },
+  { label: "Quality", value: "94.2", note: "no loss" },
+];
+
+const planFeatures = {
+  free: [
+    "Ongoing AI spend monitoring",
+    "Month-by-month spend trends",
+    "Savings recommendations by route, model, and workload",
+    "Pricing and catalog trust checks",
+    "Read-only Proof dashboard",
+  ],
+  performance: [
+    "Everything in Free, plus:",
+    "Automated routing, caching, batching, and model swaps",
+    "Quality guardrails and active rollback",
+    "Verified savings ledger",
+    "You keep 75% of every verified dollar saved",
+    "If Varsten saves $0, you pay $0",
+  ],
+};
+
+const savingsRules = [
+  "Cached repeat responses where the avoided model call cost is known.",
+  "Batch routing measured as sync price minus batch price.",
+  "Routing and model swaps measured against a live holdback or approved eval gate.",
+  "Quality guardrails and rollback history attached to each optimization.",
+  "Recommendations, estimates, and customer-side changes are not billed.",
+];
 
 function Check() {
   return (
@@ -97,8 +131,6 @@ function ModalHeader({
   );
 }
 
-// ---------- Email capture modal ----------
-
 function EmailSuccess() {
   return (
     <div className="lp-modal-body">
@@ -181,7 +213,11 @@ function EmailForm({
           required
           autoComplete="organization"
         />
-        {error ? <p className="lp-form-error" role="alert">{error}</p> : null}
+        {error ? (
+          <p className="lp-form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
       <div className="lp-modal-foot">
         <button type="button" className="lp-btn lp-btn-ghost" onClick={onCancel}>
@@ -335,8 +371,6 @@ function EmailModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ---------- Demo modal ----------
-
 function DemoModal({ onClose }: { onClose: () => void }) {
   useEscapeClose(onClose);
 
@@ -357,83 +391,215 @@ function DemoModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ---------- Page sections ----------
+function Terrain({ variant }: { variant: "hero" | "proxy" | "feature" | "pricing" | "proof" | "footer" }) {
+  return (
+    <svg className={`lp-terrain lp-terrain-${variant}`} viewBox="0 0 1440 760" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <g className="lp-rings lp-rings-a">
+        {[90, 178, 275, 382, 498, 624, 760, 906].map((rx, index) => (
+          <ellipse
+            key={rx}
+            cx="1410"
+            cy="-50"
+            rx={rx}
+            ry={Math.round(rx * 0.665)}
+            transform="rotate(-20 1410 -50)"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.6 - index * 0.14}
+            opacity={0.21 - index * 0.027}
+          />
+        ))}
+      </g>
+      <g className="lp-rings lp-rings-b">
+        {[155, 278, 412, 558, 730].map((rx, index) => (
+          <ellipse
+            key={rx}
+            cx="-20"
+            cy="760"
+            rx={rx}
+            ry={Math.round(rx * 0.665)}
+            transform="rotate(13 -20 760)"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.1 - index * 0.12}
+            opacity={0.1 - index * 0.018}
+          />
+        ))}
+      </g>
+      <g className="lp-tiles">
+        <path d="M 1240,497 L 1370,562 L 1240,627 L 1110,562 Z" />
+        <path d="M 1370,562 L 1240,627 L 1240,658 L 1370,593 Z" />
+        <path d="M 1110,562 L 1240,627 L 1240,658 L 1110,593 Z" />
+      </g>
+      <g className="lp-tiles lp-tiles-small">
+        <path d="M 1358,408 L 1440,449 L 1358,490 L 1276,449 Z" />
+        <path d="M 1440,449 L 1358,490 L 1358,510 L 1440,469 Z" />
+        <path d="M 1276,449 L 1358,490 L 1358,510 L 1276,469 Z" />
+      </g>
+    </svg>
+  );
+}
 
-function Nav({ onStartFree }: { onStartFree: () => void }) {
-  const [isScrolled, setIsScrolled] = useState(false);
+function StickyBanner({ onStartTrial }: { onStartTrial: () => void }) {
+  const [visible, setVisible] = useState(false);
+  const lastScrollY = useRef(0);
 
   useEffect(() => {
-    const updateScrolled = () => setIsScrolled(window.scrollY > 0);
-
-    updateScrolled();
-    window.addEventListener("scroll", updateScrolled, { passive: true });
-    return () => window.removeEventListener("scroll", updateScrolled);
+    const THRESHOLD = 400;
+    const onScroll = () => {
+      const current = window.scrollY;
+      const delta = current - lastScrollY.current;
+      if (current <= THRESHOLD) {
+        setVisible(false);
+      } else if (delta < -8) {
+        setVisible(true);
+      } else if (delta > 8) {
+        setVisible(false);
+      }
+      lastScrollY.current = current;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   return (
-    <header className={`lp-nav${isScrolled ? " lp-nav-scrolled" : ""}`}>
+    <div className={`lp-sticky-banner${visible ? " lp-sticky-banner-visible" : ""}`} aria-hidden={!visible}>
+      <div className="lp-sticky-banner-inner">
+        <div className="lp-sticky-banner-left">
+          <svg className="lp-sticky-mark" width="24" height="18" viewBox="0 0 36 26" aria-hidden="true">
+            <path d="M 0,0 L 10,0 L 18,13 L 26,0 L 36,0 L 36,26 L 0,26 Z" fill="currentColor" />
+          </svg>
+          <span>Cut your AI costs <strong>by up to 43%.</strong></span>
+        </div>
+        <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartTrial}>
+          Start 14-Day Trial
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Nav({ onStartFree }: { onStartFree: () => void }) {
+  return (
+    <header className="lp-nav">
       <div className="lp-container lp-nav-inner">
         <Link className="lp-logo" href="/" aria-label="Varsten home">
-          <img src="/varsten-lockup-black.svg" alt="Varsten" />
+          <Image
+            src="/logo-varsten-lockup-white.svg"
+            alt="Varsten"
+            width={190}
+            height={28}
+            priority
+            style={{ width: "100%", height: "auto" }}
+          />
         </Link>
-        <nav className="lp-nav-right">
+        <nav className="lp-nav-center" aria-label="Primary">
+          <a href="#how-it-works">Product</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#savings-proof">Docs</a>
+          <a href="#features">Blog</a>
+        </nav>
+        <div className="lp-nav-right">
           <a className="lp-link" href={APP_URL}>
             Sign in
           </a>
-          <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartFree}>
+          <button className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" onClick={onStartFree}>
             Start Free
           </button>
-        </nav>
+        </div>
       </div>
     </header>
+  );
+}
+
+function ProductShotPlaceholder() {
+  return (
+    <div className="lp-product-shot" aria-label="Varsten command center preview">
+      <div className="lp-browser-bar">
+        <div className="lp-browser-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="lp-url-pill">app.varsten.ai/command-center</div>
+      </div>
+      <div className="lp-dashboard-body">
+        <aside className="lp-dashboard-sidebar" aria-hidden="true">
+          <div className="lp-sidebar-logo">
+            <span />
+            <b>varsten</b>
+          </div>
+          <i />
+          <i />
+          <i />
+          <i />
+        </aside>
+        <div className="lp-dashboard-main">
+          <div className="lp-dashboard-topline" aria-hidden="true">
+            <span />
+            <span />
+          </div>
+        <div className="lp-metric-grid">
+          {metricCards.map((metric) => (
+            <div className="lp-metric-card" key={metric.label}>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              <small className={metric.positive ? "positive" : undefined}>{metric.note}</small>
+            </div>
+          ))}
+        </div>
+        <div className="lp-dashboard-panels">
+          <div className="lp-dashboard-panel wide">
+            <span>Command center</span>
+            <div className="lp-chart-line" aria-hidden="true" />
+            <i />
+            <b />
+          </div>
+          <div className="lp-dashboard-panel">
+            <span>Models</span>
+            <div className="lp-model-stack" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </div>
+            <i />
+            <b />
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function Hero({ onStartFree, onWatchDemo }: { onStartFree: () => void; onWatchDemo: () => void }) {
   return (
     <section className="lp-hero">
+      <Terrain variant="hero" />
       <div className="lp-container lp-hero-grid">
         <div className="lp-hero-copy">
           <h1 className="lp-hero-title">
-            Reduce AI <span>spend</span> without sacrificing quality.
+            <span className="lp-hero-title-line">
+              Reduce AI <span className="lp-hero-title-accent">spend</span>
+            </span>
+            <span className="lp-hero-title-line">without sacrificing quality.</span>
           </h1>
           <p className="lp-hero-sub">
-            Varsten helps your team spend less on AI by reusing safe repeat answers,
-            sending each request to the right model, and checking that cost savings do not hurt quality.
+            Varsten helps your team spend less on AI by reusing safe repeat answers, sending each request to the right
+            model, and checking that cost savings do not hurt quality.
           </p>
           <div className="lp-hero-cta">
             <button className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" onClick={onStartFree}>
               Start Free
             </button>
             <button className="lp-btn lp-btn-ghost lp-btn-lg lp-btn-cta" onClick={onWatchDemo}>
-              Watch demo
+              Watch Demo
             </button>
           </div>
         </div>
 
-        <div className="lp-proof">
-          <div className="lp-proof-frame">
-            <div className="lp-proof-chrome">
-              <span className="lp-proof-dot" />
-              <span className="lp-proof-dot" />
-              <span className="lp-proof-dot" />
-              <span className="lp-proof-url">app.varsten.ai/command-center</span>
-            </div>
-            <div className="lp-proof-canvas">
-              <div className="lp-ph-row">
-                <div className="lp-ph-tile" />
-                <div className="lp-ph-tile" />
-                <div className="lp-ph-tile" />
-                <div className="lp-ph-tile" />
-              </div>
-              <div className="lp-ph-main">
-                <div className="lp-ph-panel">
-                  <span className="lp-ph-caption">Command Center</span>
-                </div>
-                <div className="lp-ph-panel" />
-              </div>
-            </div>
-          </div>
+        <div className="lp-hero-visual">
+          <ProductShotPlaceholder />
         </div>
       </div>
     </section>
@@ -442,7 +608,8 @@ function Hero({ onStartFree, onWatchDemo }: { onStartFree: () => void; onWatchDe
 
 function Mechanism() {
   return (
-    <section className="lp-section alt" id="how-it-works">
+    <section className="lp-section lp-section-proxy" id="how-it-works">
+      <Terrain variant="proxy" />
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">Drop-in proxy</p>
@@ -457,9 +624,9 @@ function Mechanism() {
 
         <div className="lp-code">
           <div className="lp-code-head">
-            <span className="lp-proof-dot" />
-            <span className="lp-proof-dot" />
-            <span className="lp-proof-dot" />
+            <span className="red" />
+            <span className="yellow" />
+            <span className="green" />
             <span className="lp-code-file">client.py</span>
           </div>
           <pre>
@@ -499,6 +666,7 @@ function Feature({
   chip,
   id,
   reverse,
+  visual,
 }: {
   eyebrow: string;
   title: string;
@@ -506,19 +674,41 @@ function Feature({
   chip: string;
   id?: string;
   reverse?: boolean;
+  visual: "reuse" | "evals" | "reliability";
 }) {
   return (
     <article className={`lp-feature${reverse ? " rev" : ""}`} id={id}>
-      <div className="lp-feature-text">
-        <p className="lp-eyebrow">{eyebrow}</p>
-        <h3>{title}</h3>
-        <p>{body}</p>
-      </div>
-      <div className="lp-feature-visual" aria-hidden="true">
-        <span className="lp-feature-chip">
-          <span className="dot" />
-          <b>{chip}</b>
-        </span>
+      <Terrain variant="feature" />
+      <div className="lp-container lp-feature-inner">
+        <div className="lp-feature-text">
+          <p className="lp-eyebrow muted">{eyebrow}</p>
+          <h3>{title}</h3>
+          <p>{body}</p>
+        </div>
+        <div className={`lp-feature-visual lp-feature-visual-${visual}`} aria-hidden="true">
+          <div className="lp-feature-window">
+            <div className="lp-feature-window-head">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="lp-feature-window-grid">
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+            <div className="lp-feature-window-chart">
+              <i />
+              <i />
+              <i />
+            </div>
+          </div>
+          <span className="lp-feature-chip">
+            <span className="dot" />
+            <b>{chip}</b>
+          </span>
+        </div>
       </div>
     </article>
   );
@@ -526,29 +716,32 @@ function Feature({
 
 function Features() {
   return (
-    <section className="lp-section" id="how">
-      <div className="lp-container lp-features">
-        <Feature
-          eyebrow="Response reuse"
-          title="Repeat work does not need a new model call."
-          body="When the same request shows up again, Varsten can serve the stored response instead of paying for another completion. Near-duplicate matching can be enabled only on routes where it is safe; otherwise the request streams straight through untouched."
-          chip="repeat response · $0 · <1 ms"
-        />
-        <Feature
-          reverse
-          eyebrow="Routing & evals"
-          title="A cheaper model ships only when the numbers say it's safe."
-          body="Before a route moves to a smaller model, Varsten replays your real traffic through both and grades them with a position-swapped judge. Savings are measured as an A/B difference against a concurrent holdback and reported with confidence intervals — not an estimate. If quality slips past tolerance, the route rolls back."
-          chip="swap · quality held · CI reported"
-        />
-        <Feature
-          id="reliability"
-          eyebrow="Reliability"
-          title="Inline, but it can't take you down."
-          body="The data plane fails open. If anything upstream is unreachable, requests pass through to your original provider unchanged — you stop saving, you never stop serving. Strict read and total timeouts mean a hung upstream can't pin a connection."
-          chip="fail-open · strict timeouts"
-        />
-      </div>
+    <section className="lp-features-section" id="features">
+      <Feature
+        id="response-reuse"
+        eyebrow="Response reuse"
+        title="Repeat work does not need a new model call."
+        body="When the same request shows up again, Varsten can serve the stored response instead of paying for another completion. Near-duplicate matching can be enabled only on routes where it is safe; otherwise the request streams straight through untouched."
+        chip="repeat response · $0 · <1 ms"
+        visual="reuse"
+      />
+      <Feature
+        reverse
+        id="routing-evals"
+        eyebrow="Routing & evals"
+        title="A cheaper model ships only when the numbers say it's safe."
+        body="Before a route moves to a smaller model, Varsten replays your real traffic through both and grades them with a position-swapped judge. Savings are measured as an A/B difference against a concurrent holdback and reported with confidence intervals - not an estimate. If quality slips past tolerance, the route rolls back."
+        chip="swap · quality held · CI reported"
+        visual="evals"
+      />
+      <Feature
+        id="reliability"
+        eyebrow="Reliability"
+        title="Inline, but it can't take you down."
+        body="The data plane fails open. If anything upstream is unreachable, requests pass through to your original provider unchanged - you stop saving, you never stop serving. Strict read and total timeouts mean a hung upstream can't pin a connection."
+        chip="fail-open · strict timeouts"
+        visual="reliability"
+      />
     </section>
   );
 }
@@ -561,6 +754,7 @@ type PlanProps = {
   features: string[];
   cta: string;
   featured?: boolean;
+  tag?: string;
   onCtaClick: () => void;
   subCta?: string;
   onSubCtaClick?: () => void;
@@ -579,16 +773,19 @@ function PlanFeatureList({ features }: { features: string[] }) {
   );
 }
 
-function PlanActions({
-  cta,
-  featured,
-  onCtaClick,
-  onSubCtaClick,
-  subCta,
-}: Pick<PlanProps, "cta" | "featured" | "onCtaClick" | "onSubCtaClick" | "subCta">) {
+function Plan(props: PlanProps) {
+  const { name, price, priceNote, body, features, featured, tag, cta, onCtaClick, subCta, onSubCtaClick } = props;
+
   return (
-    <>
-      <button className={`lp-btn ${featured ? "lp-btn-primary" : "lp-btn-ghost"}`} onClick={onCtaClick}>
+    <div className={`lp-plan${featured ? " lp-plan-featured" : ""}`}>
+      {tag ? <span className="lp-plan-tag">{tag}</span> : null}
+      <div className="lp-plan-name">{name}</div>
+      <div className="lp-plan-price">
+        {price} <span>{priceNote}</span>
+      </div>
+      <p className="lp-plan-body">{body}</p>
+      <PlanFeatureList features={features} />
+      <button className={`lp-btn ${featured ? "lp-btn-dark" : "lp-btn-ghost"}`} onClick={onCtaClick}>
         {cta}
       </button>
       {subCta && onSubCtaClick ? (
@@ -596,24 +793,51 @@ function PlanActions({
           {subCta}
         </button>
       ) : null}
-    </>
+    </div>
   );
 }
 
-function Plan(props: PlanProps) {
-  const { name, price, priceNote, body, features, featured } = props;
-
+function Pricing({ onStartFree, onStartPerformance }: { onStartFree: () => void; onStartPerformance: () => void }) {
   return (
-    <div className={`lp-plan${featured ? " lp-plan-featured" : ""}`}>
-      {featured ? <span className="lp-plan-tag">Recommended</span> : null}
-      <div className="lp-plan-name">{name}</div>
-      <div className="lp-plan-price">
-        {price} <span>{priceNote}</span>
+    <section className="lp-section lp-pricing" id="pricing">
+      <Terrain variant="pricing" />
+      <div className="lp-container">
+        <div className="lp-section-head center inverted">
+          <p className="lp-eyebrow">Pricing</p>
+          <h2 className="lp-section-title">
+            Pay only when Varsten <span>proves</span> savings.
+          </h2>
+          <p className="lp-section-sub">
+            Start with Free to monitor AI spend and review savings recommendations. Move to Performance when you want
+            Varsten to optimize traffic directly: 25% of verified savings, you keep the other 75%.
+          </p>
+        </div>
+
+        <div className="lp-plans">
+          <Plan
+            name="Free"
+            price="$0"
+            priceNote="/mo"
+            body="Monitor AI spend, review savings recommendations, and use the Proof dashboard without putting Varsten in the request path."
+            cta="Get Free"
+            onCtaClick={onStartFree}
+            features={planFeatures.free}
+          />
+          <Plan
+            featured
+            tag="14-day free trial"
+            name="Performance"
+            price="25%"
+            priceNote="of verified savings"
+            body="Automate routing, caching, batching, and model swaps with quality guardrails. After the trial, Varsten charges only from verified savings."
+            cta="Start 14-day trial"
+            onCtaClick={onStartPerformance}
+            subCta="No platform fee during trial. Cancel before day 14."
+            features={planFeatures.performance}
+          />
+        </div>
       </div>
-      <p className="lp-plan-body">{body}</p>
-      <PlanFeatureList features={features} />
-      <PlanActions {...props} />
-    </div>
+    </section>
   );
 }
 
@@ -623,15 +847,14 @@ function PricingCalculator() {
   const varstenFee = grossSavings * VARSTEN_SHARE;
   const customerSavings = grossSavings - varstenFee;
   const annualSavings = customerSavings * 12;
+  const rangePercent = Math.round(((monthlySpend - 5000) / 95000) * 100);
 
   return (
     <section className="lp-calculator" aria-labelledby="pricing-calculator-title">
       <div className="lp-card-head">
         <p className="lp-eyebrow">Interactive calculator</p>
         <h3 id="pricing-calculator-title">Estimate the 75/25 split.</h3>
-        <p>
-          Uses a conservative 20% savings assumption. Real billing uses verified savings only, never projections.
-        </p>
+        <p>Uses a conservative 20% savings assumption. Real billing uses verified savings only, never projections.</p>
       </div>
 
       <label className="lp-range-label" htmlFor="monthly-ai-spend">
@@ -644,9 +867,12 @@ function PricingCalculator() {
         type="range"
         min="5000"
         max="100000"
-        step="5000"
+        step="1000"
         value={monthlySpend}
         onChange={(event) => setMonthlySpend(Number(event.target.value))}
+        style={{
+          background: `linear-gradient(to right, var(--brand) ${rangePercent}%, rgba(26, 23, 20, 0.14) ${rangePercent}%)`,
+        }}
       />
       <div className="lp-range-meta">
         <span>$5k</span>
@@ -684,13 +910,7 @@ function VerifiedSavings() {
         <p>Varsten only charges when attribution can defend the delta.</p>
       </div>
       <ul className="lp-checks">
-        {[
-          "Cached repeat responses where the avoided model call cost is known.",
-          "Batch routing measured as sync price minus batch price.",
-          "Routing and model swaps measured against a live holdback or approved eval gate.",
-          "Quality guardrails and rollback history attached to each optimization.",
-          "Recommendations, estimates, and customer-side changes are not billed.",
-        ].map((item) => (
+        {savingsRules.map((item) => (
           <li className="lp-check-item" key={item}>
             <Check />
             {item}
@@ -701,71 +921,15 @@ function VerifiedSavings() {
   );
 }
 
-function Pricing({ onStartFree, onStartPerformance }: { onStartFree: () => void; onStartPerformance: () => void }) {
-  return (
-    <section className="lp-section alt" id="pricing">
-      <div className="lp-container">
-        <div className="lp-section-head center">
-          <p className="lp-eyebrow">Pricing</p>
-          <h2 className="lp-section-title">
-            Pay only when Varsten <span className="lp-title-accent">proves savings.</span>
-          </h2>
-          <p className="lp-section-sub">
-            Start with Free to monitor AI spend month by month and review savings recommendations. Move to
-            Performance when you want Varsten to optimize traffic directly: 25% of verified savings, with you keeping
-            the other 75%.
-          </p>
-        </div>
-
-        <div className="lp-plans">
-          <Plan
-            name="Free"
-            price="$0"
-            priceNote="/mo"
-            body="For teams that need AI spend monitoring and savings recommendations."
-            cta="Start Free"
-            onCtaClick={onStartFree}
-            features={[
-              "Ongoing AI spend monitoring",
-              "Month-by-month spend trends",
-              "Savings recommendations by route, model, and workload",
-              "Pricing and catalog trust checks",
-              "Read-only Proof dashboard",
-            ]}
-          />
-          <Plan
-            featured
-            name="Performance"
-            price="25%"
-            priceNote="of verified savings"
-            body="For teams ready to automate savings, billed monthly in arrears only from the dollars it proves."
-            cta="Start Performance"
-            onCtaClick={onStartPerformance}
-            subCta="Start 30-day free trial of Performance"
-            onSubCtaClick={onStartPerformance}
-            features={[
-              "Everything in Free, plus:",
-              "Automated routing, caching, batching, and model swaps",
-              "Quality guardrails and active rollback",
-              "Verified savings ledger",
-              "You keep 75% of every verified dollar saved",
-              "If Varsten saves $0, you pay $0",
-            ]}
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function SavingsProofSection() {
   return (
-    <section className="lp-section lp-pricing-proof-section" id="savings-proof">
+    <section className="lp-section lp-savings-proof" id="savings-proof">
+      <Terrain variant="proof" />
       <div className="lp-container">
-        <div className="lp-section-head center">
+        <div className="lp-section-head center dark">
           <p className="lp-eyebrow">Savings proof</p>
           <h2 className="lp-section-title">
-            See the split <span className="lp-title-accent">before you pay.</span>
+            See the split <span>before you pay.</span>
           </h2>
           <p className="lp-section-sub">
             The calculator shows the shared-savings economics. The proof rules explain what Varsten can bill and what
@@ -798,27 +962,52 @@ function SavingsProofSection() {
   );
 }
 
-function Footer({ onStartTrial, onWatchDemo }: { onStartTrial: () => void; onWatchDemo: () => void }) {
+function Footer({ onStartTrial }: { onStartTrial: () => void }) {
   return (
     <footer className="lp-footer">
-      <div className="lp-container lp-footer-inner">
-        <span>© 2026 Varsten · AI savings engine</span>
-        {/* Footer links only advertise what exists: real in-page sections and the
-            app. Docs / Security / Status pages get links here once they are live. */}
-        <nav className="lp-footer-links">
-          <a href="#how-it-works">How it works</a>
-          <a href="#reliability">Reliability</a>
-          <a href="#pricing">Pricing</a>
-          <a href="#savings-proof">Savings proof</a>
-          <a href={APP_URL}>Sign in</a>
-        </nav>
-        <div className="lp-footer-actions">
-          <button className="lp-btn lp-btn-ghost" onClick={onWatchDemo}>
-            Watch demo
-          </button>
-          <button className="lp-btn lp-btn-primary" onClick={onStartTrial}>
-            Start 30-day trial
-          </button>
+      <div className="lp-container lp-footer-wrap">
+        <div className="lp-footer-grid">
+          <div className="lp-footer-brand">
+            <div className="lp-footer-logo" aria-label="Varsten">
+              <span className="lp-footer-mark" />
+              <strong>varsten</strong>
+            </div>
+            <p>Reduce AI spend without sacrificing quality. The proxy that proves its savings.</p>
+            <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartTrial}>
+              Start Free
+            </button>
+          </div>
+          <div>
+            <h4>Product</h4>
+            <a href="#how-it-works">Drop-in Proxy</a>
+            <a href="#response-reuse">Response Reuse</a>
+            <a href="#routing-evals">Routing & Evals</a>
+            <a href="#savings-proof">Savings Proof</a>
+            <a href="#pricing">Pricing</a>
+          </div>
+          <div>
+            <h4>Company</h4>
+            <a href="#features">About</a>
+            <a href="#features">Blog</a>
+            <a href="#how-it-works">Docs</a>
+            <a href="#savings-proof">Changelog</a>
+            <a href={APP_URL}>Status</a>
+          </div>
+          <div>
+            <h4>Legal</h4>
+            <a href="#savings-proof">Privacy</a>
+            <a href="#savings-proof">Terms</a>
+            <a href="#reliability">Security</a>
+            <a href="#savings-proof">DPA</a>
+          </div>
+        </div>
+        <div className="lp-footer-bottom">
+          <span>&copy; 2026 Varsten, Inc. All rights reserved.</span>
+          <div>
+            <a href={APP_URL}>X / Twitter</a>
+            <a href={APP_URL}>GitHub</a>
+            <a href={APP_URL}>LinkedIn</a>
+          </div>
         </div>
       </div>
     </footer>
@@ -835,14 +1024,15 @@ export default function LandingPage() {
   const closeDemo = () => setDemoOpen(false);
 
   return (
-    <main>
+    <main className="lp-page">
+      <StickyBanner onStartTrial={openEmail} />
       <Nav onStartFree={openEmail} />
       <Hero onStartFree={openEmail} onWatchDemo={openDemo} />
       <Mechanism />
       <Features />
       <Pricing onStartFree={openEmail} onStartPerformance={openEmail} />
       <SavingsProofSection />
-      <Footer onStartTrial={openEmail} onWatchDemo={openDemo} />
+      <Footer onStartTrial={openEmail} />
 
       {emailOpen && <EmailModal onClose={closeEmail} />}
       {demoOpen && <DemoModal onClose={closeDemo} />}
