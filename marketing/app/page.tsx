@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { APP_URL, CONTACT_HREF, DPA_REQUEST_HREF } from "./site-links";
 
-const APP_URL = "https://app.varsten.ai";
 const SAVINGS_RATE = 0.2;
 const VARSTEN_SHARE = 0.25;
 
@@ -496,8 +496,8 @@ function Nav({ onStartFree }: { onStartFree: () => void }) {
         <nav className="lp-nav-center" aria-label="Primary">
           <a href="#how-it-works">Product</a>
           <a href="#pricing">Pricing</a>
-          <a href="#savings-proof">Docs</a>
-          <a href="#features">Blog</a>
+          <Link href="/docs">Docs</Link>
+          <Link href="/security">Security</Link>
         </nav>
         <div className="lp-nav-right">
           <a className="lp-link" href={APP_URL}>
@@ -969,8 +969,7 @@ function Footer({ onStartTrial }: { onStartTrial: () => void }) {
         <div className="lp-footer-grid">
           <div className="lp-footer-brand">
             <div className="lp-footer-logo" aria-label="Varsten">
-              <span className="lp-footer-mark" />
-              <strong>varsten</strong>
+              <Image src="/logo-varsten-lockup-white.svg" alt="Varsten" width={192} height={28} />
             </div>
             <p>Reduce AI spend without sacrificing quality. The proxy that proves its savings.</p>
             <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartTrial}>
@@ -987,27 +986,19 @@ function Footer({ onStartTrial }: { onStartTrial: () => void }) {
           </div>
           <div>
             <h4>Company</h4>
-            <a href="#features">About</a>
-            <a href="#features">Blog</a>
-            <a href="#how-it-works">Docs</a>
-            <a href="#savings-proof">Changelog</a>
-            <a href={APP_URL}>Status</a>
+            <a href={CONTACT_HREF}>Contact</a>
+            <Link href="/docs">Docs</Link>
           </div>
           <div>
             <h4>Legal</h4>
-            <a href="#savings-proof">Privacy</a>
-            <a href="#savings-proof">Terms</a>
-            <a href="#reliability">Security</a>
-            <a href="#savings-proof">DPA</a>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/security">Security</Link>
+            <a href={DPA_REQUEST_HREF}>Request DPA</a>
           </div>
         </div>
         <div className="lp-footer-bottom">
           <span>&copy; 2026 Varsten, Inc. All rights reserved.</span>
-          <div>
-            <a href={APP_URL}>X / Twitter</a>
-            <a href={APP_URL}>GitHub</a>
-            <a href={APP_URL}>LinkedIn</a>
-          </div>
         </div>
       </div>
     </footer>
@@ -1022,6 +1013,22 @@ export default function LandingPage() {
   const closeEmail = () => setEmailOpen(false);
   const openDemo = () => setDemoOpen(true);
   const closeDemo = () => setDemoOpen(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("lead") !== "start-free") {
+      return;
+    }
+
+    params.delete("lead");
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", nextUrl);
+    const timer = window.setTimeout(() => setEmailOpen(true), 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
     <main className="lp-page">
