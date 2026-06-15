@@ -10,6 +10,8 @@
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -175,51 +177,34 @@ export function CumulativeSavingsChart({ data }: { data: SavingsTrendPoint[] }) 
   );
 }
 
-export function HitRateChart({ data }: { data: CacheTrafficPoint[] }) {
-  const series = data.map((p) => ({
-    date: p.date,
-    hit_rate: p.hit_rate === null ? null : num(p.hit_rate) * 100,
-    requests: p.requests,
-  }));
+export function CacheHitMissChart({ data }: { data: CacheTrafficPoint[] }) {
+  const series = data.map((p) => {
+    const hitRate = p.hit_rate === null ? null : num(p.hit_rate);
+    const hit = hitRate === null ? 0 : Math.round(p.requests * hitRate);
+    return {
+      date: p.date,
+      hit,
+      miss: Math.max(0, p.requests - hit),
+      requests: p.requests,
+    };
+  });
+
   return (
     <ChartFrame>
-      <AreaChart data={series} margin={MARGIN}>
-        <defs>
-          <linearGradient id="ccHitFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--c2)" stopOpacity={0.22} />
-            <stop offset="100%" stopColor="var(--c2)" stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
+      <BarChart data={series} margin={{ top: 6, right: 8, bottom: 0, left: 6 }}>
+        <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 4" />
         <DateAxis />
-        <YAxis
-          domain={[0, 100]}
-          tickFormatter={(v) => `${v}%`}
-          tick={AXIS}
-          tickLine={false}
-          axisLine={false}
-          width={38}
-        />
+        <YAxis tickFormatter={(v) => compact(v)} tick={AXIS} tickLine={false} axisLine={false} width={42} />
         <ChartTooltip
           rowsForPoint={(point) => [
-            {
-              name: "Hit rate",
-              value: `${tooltipNum(point?.hit_rate).toFixed(1)}%`,
-              color: "var(--c2)",
-            },
-            { name: "Requests", value: compact(tooltipNum(point?.requests)), color: "var(--c4)" },
+            { name: "Cache hits", value: compact(tooltipNum(point?.hit)), color: "var(--c2)" },
+            { name: "Misses", value: compact(tooltipNum(point?.miss)), color: "var(--border-strong)" },
+            { name: "Requests", value: compact(tooltipNum(point?.requests)), color: "var(--text-2)" },
           ]}
         />
-        <Area
-          type="monotone"
-          dataKey="hit_rate"
-          stroke="var(--c2)"
-          strokeWidth={2}
-          fill="url(#ccHitFill)"
-          connectNulls
-          dot={false}
-          activeDot={{ r: 3, fill: "var(--c2)" }}
-        />
-      </AreaChart>
+        <Bar dataKey="hit" stackId="cache" fill="var(--c2)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+        <Bar dataKey="miss" stackId="cache" fill="var(--surface-hover)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      </BarChart>
     </ChartFrame>
   );
 }
@@ -261,30 +246,5 @@ export function LatencyChart({ data }: { data: LatencyPoint[] }) {
         <Line type="monotone" dataKey="p95_ms" stroke="var(--c3)" strokeWidth={2} dot={false} connectNulls />
       </LineChart>
     </ChartFrame>
-  );
-}
-
-// A KPI sparkline: pure stroke, zero chrome. Axes, grid and tooltip are all
-// disabled (per the design constraint) so it reads as a clean 30-day trend line
-// inside a BAN tile. Colour comes from a CSS token the caller passes.
-export function Sparkline({ data, color }: { data: (number | null)[]; color: string }) {
-  const series = data.map((v, i) => ({ i, v }));
-  return (
-    <ResponsiveContainer width="100%" height="100%" debounce={DEBOUNCE} initialDimension={INITIAL_DIMENSION}>
-      <LineChart data={series} margin={{ top: 2, right: 0, bottom: 2, left: 0 }}>
-        <XAxis dataKey="i" hide />
-        <YAxis hide domain={["dataMin", "dataMax"]} />
-        <Tooltip active={false} />
-        <Line
-          type="monotone"
-          dataKey="v"
-          stroke={color}
-          strokeWidth={1.5}
-          dot={false}
-          connectNulls
-          isAnimationActive={false}
-        />
-      </LineChart>
-    </ResponsiveContainer>
   );
 }

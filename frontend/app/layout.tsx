@@ -6,6 +6,7 @@ import { Auth0Provider } from "@auth0/nextjs-auth0";
 import { ApiKeyProvider } from "@/components/providers";
 import { SessionProvider } from "@/components/session";
 import { AppShell, SIDEBAR_COOKIE } from "@/components/AppShell";
+import { auth0 } from "@/lib/auth0";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -22,10 +23,11 @@ export default async function RootLayout({
   // correct collapsed class on first paint. The client seeds its useState from the
   // same value, so server and client agree and there is no hydration mismatch.
   const sidebarCollapsed = (await cookies()).get(SIDEBAR_COOKIE)?.value === "collapsed";
+  const session = await auth0.getSession();
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
-        <Auth0Provider>
+        <Auth0Provider user={session?.user}>
           <SessionProvider>
             <ApiKeyProvider>
               <AppShell initialCollapsed={sidebarCollapsed}>{children}</AppShell>

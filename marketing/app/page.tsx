@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+  type MutableRefObject,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { APP_URL, CONTACT_HREF, DPA_REQUEST_HREF } from "./site-links";
@@ -440,27 +449,141 @@ function Terrain({ variant }: { variant: "hero" | "proxy" | "feature" | "pricing
   );
 }
 
-function StickyBanner({ onStartTrial }: { onStartTrial: () => void }) {
+function hashTarget(hash: string): HTMLElement | null {
+  if (!hash || hash === "#") return null;
+  try {
+    return document.getElementById(decodeURIComponent(hash.slice(1)));
+  } catch {
+    return null;
+  }
+}
+
+function anchorScrollOffset(): number {
+  const raw = window.getComputedStyle(document.documentElement).getPropertyValue("--anchor-scroll-offset");
+  const offset = Number.parseFloat(raw);
+  return Number.isFinite(offset) ? offset : 0;
+}
+
+function useSmoothHashLinks(): MutableRefObject<boolean> {
+  const anchorScrollingRef = useRef(false);
+  const finishTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    function finishAnchorScroll() {
+      anchorScrollingRef.current = false;
+      if (finishTimerRef.current !== null) {
+        window.clearTimeout(finishTimerRef.current);
+        finishTimerRef.current = null;
+      }
+      window.removeEventListener("scrollend", finishAnchorScroll);
+    }
+
+    function scheduleFinish() {
+      if (finishTimerRef.current !== null) {
+        window.clearTimeout(finishTimerRef.current);
+      }
+      window.removeEventListener("scrollend", finishAnchorScroll);
+      window.addEventListener("scrollend", finishAnchorScroll, { once: true });
+      finishTimerRef.current = window.setTimeout(finishAnchorScroll, 1200);
+    }
+
+    function onClick(event: globalThis.MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (!(event.target instanceof Element)) return;
+
+      const anchor = event.target.closest<HTMLAnchorElement>('a[href^="#"]');
+      if (!anchor || anchor.origin !== window.location.origin || anchor.pathname !== window.location.pathname) return;
+
+      const target = hashTarget(anchor.hash);
+      if (!target) return;
+
+      event.preventDefault();
+      anchorScrollingRef.current = true;
+      window.dispatchEvent(new Event("lp:anchor-scroll-start"));
+      window.history.pushState(null, "", `${window.location.pathname}${window.location.search}${anchor.hash}`);
+
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - anchorScrollOffset());
+      window.scrollTo({ top, behavior: prefersReducedMotion ? "auto" : "smooth" });
+
+      if (prefersReducedMotion) {
+        finishAnchorScroll();
+      } else {
+        scheduleFinish();
+      }
+    }
+
+    document.addEventListener("click", onClick);
+    return () => {
+      document.removeEventListener("click", onClick);
+      finishAnchorScroll();
+    };
+  }, []);
+
+  return anchorScrollingRef;
+}
+
+function StickyBanner({
+  anchorScrollingRef,
+  onStartTrial,
+}: {
+  anchorScrollingRef: MutableRefObject<boolean>;
+  onStartTrial: () => void;
+}) {
   const [visible, setVisible] = useState(false);
   const lastScrollY = useRef(0);
+  const visibleRef = useRef(false);
+  const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const THRESHOLD = 400;
-    const onScroll = () => {
+    const DELTA = 8;
+
+    function setBannerVisible(nextVisible: boolean) {
+      if (visibleRef.current === nextVisible) return;
+      visibleRef.current = nextVisible;
+      setVisible(nextVisible);
+    }
+
+    function updateVisibility() {
+      frameRef.current = null;
       const current = window.scrollY;
       const delta = current - lastScrollY.current;
-      if (current <= THRESHOLD) {
-        setVisible(false);
-      } else if (delta < -8) {
-        setVisible(true);
-      } else if (delta > 8) {
-        setVisible(false);
+
+      if (anchorScrollingRef.current || current <= THRESHOLD) {
+        setBannerVisible(false);
+      } else if (delta < -DELTA) {
+        setBannerVisible(true);
+      } else if (delta > DELTA) {
+        setBannerVisible(false);
       }
+
       lastScrollY.current = current;
+    }
+
+    const onScroll = () => {
+      if (frameRef.current !== null) return;
+      frameRef.current = window.requestAnimationFrame(updateVisibility);
     };
+
+    const onAnchorScrollStart = () => {
+      lastScrollY.current = window.scrollY;
+      setBannerVisible(false);
+    };
+
+    lastScrollY.current = window.scrollY;
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    window.addEventListener("lp:anchor-scroll-start", onAnchorScrollStart);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("lp:anchor-scroll-start", onAnchorScrollStart);
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+    };
+  }, [anchorScrollingRef]);
 
   return (
     <div className={`lp-sticky-banner${visible ? " lp-sticky-banner-visible" : ""}`} aria-hidden={!visible}>
@@ -1008,6 +1131,7 @@ function Footer({ onStartTrial }: { onStartTrial: () => void }) {
 export default function LandingPage() {
   const [emailOpen, setEmailOpen] = useState(false);
   const [demoOpen, setDemoOpen] = useState(false);
+  const anchorScrollingRef = useSmoothHashLinks();
 
   const openEmail = () => setEmailOpen(true);
   const closeEmail = () => setEmailOpen(false);
@@ -1032,7 +1156,7 @@ export default function LandingPage() {
 
   return (
     <main className="lp-page">
-      <StickyBanner onStartTrial={openEmail} />
+      <StickyBanner anchorScrollingRef={anchorScrollingRef} onStartTrial={openEmail} />
       <Nav onStartFree={openEmail} />
       <Hero onStartFree={openEmail} onWatchDemo={openDemo} />
       <Mechanism />

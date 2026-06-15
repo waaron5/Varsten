@@ -46,6 +46,7 @@ import type {
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const REQUEST_TIMEOUT_MS = 15000;
 
 class ApiError extends Error {
   status: number;
@@ -74,7 +75,7 @@ async function request<T>(
   token: string,
   init?: RequestInit,
 ): Promise<T> {
-  return jsonOrThrow<T>(await fetch(`${BASE}/v1${path}`, {
+  return jsonOrThrow<T>(await fetchWithTimeout(`${BASE}/v1${path}`, {
     ...init,
     headers: {
       "content-type": "application/json",
@@ -86,10 +87,33 @@ async function request<T>(
 }
 
 async function publicRequest<T>(path: string): Promise<T> {
-  return jsonOrThrow<T>(await fetch(`${BASE}/v1${path}`, {
+  return jsonOrThrow<T>(await fetchWithTimeout(`${BASE}/v1${path}`, {
     headers: { "content-type": "application/json" },
     cache: "no-store",
   }));
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (timedOut || (error instanceof Error && error.name === "AbortError")) {
+      throw new ApiError(408, "API request timed out. Check that the Varsten backend is running and reachable.");
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
 }
 
 function qs(params: Record<string, string | number | undefined>): string {

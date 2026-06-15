@@ -8,12 +8,15 @@ import { useSession } from "./session";
 // A brand-new user has a bootstrapped org but no project, so we offer inline
 // project creation to keep the first-run flow moving.
 export function RequireSession({ children }: { children: React.ReactNode }) {
-  const { status, profile, projects, error } = useSession();
+  const { status, profile, projects, error, loadingLabel } = useSession();
 
   if (status === "loading") {
     return (
       <div className="view" style={{ display: "grid", placeItems: "center", minHeight: 240 }}>
-        <div className="spinner" />
+        <div className="empty">
+          <div className="spinner" />
+          <div className="es">{loadingLabel ?? "Loading account"}</div>
+        </div>
       </div>
     );
   }
@@ -36,6 +39,10 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
         <div className="empty">
           <div className="et">Could not load your account</div>
           <div className="es">{error}</div>
+          <div className="empty-actions">
+            <a href="/auth/logout" className="btn">Reset session</a>
+            <a href="/auth/login" className="btn primary">Log in</a>
+          </div>
         </div>
       </div>
     );

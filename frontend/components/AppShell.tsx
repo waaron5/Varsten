@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Dispatch, SetStateAction } from "react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useUser } from "@auth0/nextjs-auth0";
 import { useSession } from "./session";
 import type { Project, UserProfile } from "@/lib/types";
@@ -278,6 +278,7 @@ export function AppShell({
   // Seeded from the server-read cookie, so the first client render matches the SSR
   // markup (no hydration mismatch, no expand-then-collapse flash).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialCollapsed);
+  const hasMounted = useRef(false);
   const currentRoute = routeLabel(pathname);
   const activeProject = activeProjectFor(projects, activeProjectId);
   const { displayName, orgName } = accountNames({
@@ -286,6 +287,25 @@ export function AppShell({
     userEmail: user?.email,
     userName: user?.name,
   });
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((collapsed) => !collapsed);
+    setAccountOpen((open) => (open ? false : open));
+  }, []);
+
+  useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      // Keep the synchronous cookie write out of the click frame and sidebar
+      // width transition; the server reads this on the following request.
+      document.cookie = `${SIDEBAR_COOKIE}=${sidebarCollapsed ? "collapsed" : "expanded"}; path=/; max-age=31536000; samesite=lax`;
+    }, 240);
+
+    return () => window.clearTimeout(timer);
+  }, [sidebarCollapsed]);
 
   return (
     <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
@@ -294,16 +314,7 @@ export function AppShell({
         displayName={displayName}
         isCollapsed={sidebarCollapsed}
         isLoading={isLoading}
-        onToggleCollapse={() => {
-          setSidebarCollapsed((collapsed) => {
-            const next = !collapsed;
-            // Persist for the next load; the server reads this on the following
-            // request so the sidebar renders in the remembered state.
-            document.cookie = `${SIDEBAR_COOKIE}=${next ? "collapsed" : "expanded"}; path=/; max-age=31536000; samesite=lax`;
-            return next;
-          });
-          setAccountOpen(false);
-        }}
+        onToggleCollapse={toggleSidebar}
         orgName={orgName}
         pathname={pathname}
         setAccountOpen={setAccountOpen}

@@ -1,28 +1,59 @@
 "use client";
 
-// Command Center root. Full-bleed, no-scroll, fluid dashboard: it opts out of the
-// scrolling .view and renders the fixed 12-col / 3-row .cc-canvas, which fills the
-// shell's .content and reflows automatically when the sidebar collapses (the shell
-// grid's 1fr column does the resizing). Panels fill their cells and clip.
+// Command Center root. Executive financial context leads, infrastructure health
+// follows, and every card reads live project data through CommandCenterProvider.
 
 import { RequireSession } from "@/components/RequireSession";
 import { CommandCenterProvider } from "./CommandCenterProvider";
 import {
-  KpiStrip,
-  MarginEnginePanel,
-  ProxyHitRatePanel,
-  ProxyLatencyPanel,
-  QualityGuardrailsPanel,
+  BudgetForecastPanel,
+  ExecutiveRow,
+  GuardrailRoutesPanel,
+  ProxyEfficiencyPanel,
+  SafetySummaryPanel,
+  SavingsMixPanel,
+  SavingsWedgePanel,
+  TopOpportunitiesPanel,
+  TopSpendDriversPanel,
 } from "./panels";
 
 function CommandCenterGrid() {
   return (
-    <div className="cc-canvas">
-      <KpiStrip />
-      <MarginEnginePanel />
-      <ProxyHitRatePanel />
-      <QualityGuardrailsPanel />
-      <ProxyLatencyPanel />
+    <div className="command-center-view">
+      <section className="cc-zone">
+        <div className="cc-zone-head">
+          <div>
+            <span>Financials</span>
+            <h2>Spend, savings, and the next dollars to recover.</h2>
+          </div>
+        </div>
+        <ExecutiveRow />
+        <div className="cc-financial-grid">
+          <SavingsWedgePanel />
+          <div className="cc-financial-side">
+            <BudgetForecastPanel />
+            <SavingsMixPanel />
+          </div>
+        </div>
+        <div className="cc-lower-grid">
+          <TopSpendDriversPanel />
+          <TopOpportunitiesPanel />
+        </div>
+      </section>
+
+      <section className="cc-zone">
+        <div className="cc-zone-head">
+          <div>
+            <span>Infrastructure Health</span>
+            <h2>Proxy efficiency, latency, and quality guardrails.</h2>
+          </div>
+        </div>
+        <div className="cc-infra-grid">
+          <ProxyEfficiencyPanel />
+          <SafetySummaryPanel />
+          <GuardrailRoutesPanel />
+        </div>
+      </section>
     </div>
   );
 }

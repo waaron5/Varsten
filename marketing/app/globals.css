@@ -23,6 +23,7 @@
   --shadow-green: 0 16px 38px rgba(14, 158, 110, 0.24);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --button-ease: cubic-bezier(0.2, 0, 0, 1);
+  --anchor-scroll-offset: 78px;
 }
 
 * {
@@ -57,7 +58,7 @@ a {
 }
 
 main {
-  overflow: hidden;
+  overflow-x: hidden;
   width: 100%;
   max-width: 100vw;
 }
@@ -87,6 +88,7 @@ button {
 .lp-section {
   position: relative;
   overflow: hidden;
+  scroll-margin-top: var(--anchor-scroll-offset);
   padding: 112px 0;
 }
 
@@ -897,6 +899,7 @@ button {
 .lp-feature {
   position: relative;
   overflow: hidden;
+  scroll-margin-top: var(--anchor-scroll-offset);
   background:
     radial-gradient(circle at 82% 16%, rgba(14, 158, 110, 0.08), transparent 28%),
     linear-gradient(180deg, #fff, var(--cream));
@@ -2027,6 +2030,10 @@ button {
 }
 
 @media (max-width: 900px) {
+  :root {
+    --anchor-scroll-offset: 72px;
+  }
+
   .lp-nav {
     top: 0;
     height: 86px;
@@ -2472,5 +2479,11 @@ button {
 
   .lp-footer-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
 }

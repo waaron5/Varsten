@@ -36,15 +36,17 @@ export function KpiTile({
   sub,
   tone,
   spark,
+  priority,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: "pos" | "neg";
   spark?: ReactNode;
+  priority?: "hero";
 }) {
   return (
-    <div className="cc-kpi">
+    <div className={`cc-kpi${priority === "hero" ? " cc-kpi-hero" : ""}`}>
       <div className="cc-kpi-label">{label}</div>
       <div className={`cc-kpi-value${tone ? ` ${tone}` : ""}`}>{value}</div>
       {sub ? <div className="cc-kpi-sub">{sub}</div> : null}
