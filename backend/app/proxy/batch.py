@@ -64,6 +64,39 @@ def _output_key(project_id: uuid.UUID, job_id: uuid.UUID) -> str:
     return f"{project_id}/batches/{job_id}/output.jsonl"
 
 
+def purge_expired_objects(db: Session, now: datetime | None = None) -> int:
+    """Delete staged batch content (input/output .jsonl) past its TTL from storage.
+
+    The batch file is a documented content store, like the cache, so it must be
+    retention-bounded. The BatchJob row is metadata and is kept (savings history,
+    audit); only the content objects are deleted, and objects_purged_at marks the
+    row so a re-sweep does not retry. Per-object delete failures are logged, never
+    raised, so one bad key cannot stall the sweep. Returns the number of jobs
+    purged. Sync (the scheduler runs it off the event loop)."""
+    at = now or datetime.now(UTC)
+    storage = get_storage()
+    jobs = db.scalars(
+        select(BatchJob).where(
+            BatchJob.expires_at.is_not(None),
+            BatchJob.expires_at <= at,
+            BatchJob.objects_purged_at.is_(None),
+        )
+    ).all()
+    purged = 0
+    for job in jobs:
+        for key in (job.input_storage_key, job.output_storage_key):
+            if not key or key == "pending":
+                continue
+            try:
+                storage.delete(key)
+            except Exception:
+                logger.warning("batch object delete failed", extra={"job_id": str(job.id), "key": key})
+        job.objects_purged_at = at
+        purged += 1
+    db.commit()
+    return purged
+
+
 def stage_input_job(
     db: Session,
     project: Project,

@@ -93,6 +93,19 @@ class Scheduler:
         finally:
             db.close()
 
+        # Delete staged batch content (input/output .jsonl) past its TTL. Sync DB +
+        # storage work, so run it off the event loop like the cache purge.
+        def purge() -> int:
+            pdb = SessionLocal()
+            try:
+                return batch_service.purge_expired_objects(pdb)
+            finally:
+                pdb.close()
+
+        purged = await asyncio.to_thread(purge)
+        if purged:
+            logger.info("batch object purge removed expired content", extra={"jobs": purged})
+
     async def _run_cache_purge(self) -> None:
         # Deleting past-due cache content (the retention sweep) is synchronous DB
         # work; run it off the event loop like the drift sweep.

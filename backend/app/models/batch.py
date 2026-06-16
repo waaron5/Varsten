@@ -92,3 +92,7 @@ class BatchJob(Base, TimestampMixin):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the staged content objects (input/output .jsonl) were deleted from
+    # storage. The row itself is metadata and is retained; only the content is
+    # purged at TTL. NULL means the objects are still present (or never existed).
+    objects_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

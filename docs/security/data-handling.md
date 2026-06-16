@@ -18,7 +18,7 @@ from that.
 | Usage ledger (`usage_events`) | No — token counts, model, latency, derived cost, allocation tags | Postgres | Retained as the system of record. No prompt/response text. |
 | Semantic cache (`proxy_cache_entries`) | **Yes** — the stored response, served on a hit | Postgres | TTL'd. Each entry carries an `expires_at` set on write (default 7 days, configurable via `PROXY_CACHE_TTL_SECONDS`). Expired entries are skipped by lookups and deleted by a purge sweep. |
 | Replay samples (eval harness) | Yes — sampled real traffic, opt-in | Postgres | TTL'd (`EVAL_SAMPLE_TTL_DAYS`, default 14). Off by default; double-gated by a global setting and a per-project opt-in. Golden samples you supply never expire. |
-| Batch objects | Yes — the `.jsonl` you submit | Object storage (S3 in prod) | TTL'd (`BATCH_OBJECT_TTL_HOURS`, default 72). Never held in the API's memory; streamed via pre-signed URLs. |
+| Batch objects | Yes — the `.jsonl` you submit | Object storage (S3 in prod) | TTL'd (`BATCH_OBJECT_TTL_HOURS`, default 72): a scheduled sweep deletes the input/output objects from storage past their deadline (`objects_purged_at` marks the row). Never held in the API's memory; streamed via pre-signed URLs. |
 | Provider API keys | N/A (a secret) | AWS Secrets Manager, one secret per project/provider, KMS-encrypted | Lives until you disconnect; deletion removes the secret. |
 | Audit log (`audit_events`) | No — actor, action, target, before/after tier; never secret values | Postgres | Append-only record of plan changes and provider-key custody actions. |
 | Errors (Sentry) | No | Sentry | Request headers, cookies, and bodies are never attached (`send_default_pii=False`). |
