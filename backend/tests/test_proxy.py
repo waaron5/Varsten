@@ -12,6 +12,8 @@ import asyncio
 import json
 import time
 import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
 from time import perf_counter
 from typing import Any
 
@@ -20,9 +22,9 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.models import Project, ProxyCacheEntry, UsageEvent
+from app.models import BudgetRule, Project, ProxyCacheEntry, UsageEvent
+from app.proxy import budget_enforcement, circuit, http_client
 from app.proxy import cache as proxy_cache
-from app.proxy import circuit, http_client
 from app.proxy import router as proxy_router
 
 
@@ -566,3 +568,113 @@ async def test_cache_hit_ttfb_lower_than_miss(async_client, async_provision, moc
     # The hit avoids the upstream call AND defers all metering to a background task,
     # so it returns faster than the miss.
     assert hit_ms < miss_ms
+
+
+# --- hard-cap budget enforcement ------------------------------------------------
+
+
+def _over_budget(async_db_session, ws, *, owner_type, owner_key, budget, spend, hard_cap):
+    pid = uuid.UUID(ws["project_id"])
+    oid = uuid.UUID(ws["org_id"])
+    async_db_session.add(
+        BudgetRule(
+            organization_id=oid,
+            project_id=pid,
+            owner_type=owner_type,
+            owner_key=owner_key,
+            monthly_budget_usd=Decimal(str(budget)),
+            hard_cap_enabled=hard_cap,
+            enabled=True,
+        )
+    )
+    async_db_session.add(
+        UsageEvent(
+            project_id=pid,
+            organization_id=oid,
+            provider="openai",
+            model=CHAT,
+            operation="chat_completion",
+            request_type="chat_completion",
+            feature=owner_key if owner_type == "feature" else None,
+            team=owner_key if owner_type == "team" else None,
+            customer_id=owner_key if owner_type == "customer" else None,
+            environment="production",
+            input_tokens=1,
+            output_tokens=1,
+            total_tokens=2,
+            cost_usd=Decimal(str(spend)),
+            cost_source="catalog",
+            pricing_status="priced",
+            currency="USD",
+            status="success",
+            success=True,
+            event_metadata={},
+            received_at=datetime.now(UTC),
+        )
+    )
+
+
+@pytest.mark.anyio
+async def test_hard_cap_blocks_over_budget_owner(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
+    ws = await async_provision(sub="auth0|cap", email="cap@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    budget_enforcement.clear_budget_cache()
+    _over_budget(
+        async_db_session, ws, owner_type="feature", owner_key="support", budget="1.00", spend="5.00", hard_cap=True
+    )
+    await async_db_session.flush()
+
+    res = await async_client.post(
+        "/v1/chat/completions",
+        headers={**_b(ws["api_key"]), "X-Varsten-Feature": "support"},
+        json=_msg(),
+    )
+    assert res.status_code == 402
+    assert res.headers.get("x-varsten-budget") == "exceeded"
+    assert res.json()["error"]["type"] == "varsten_budget_exceeded"
+    # Blocked before forwarding: upstream never called, nothing cached.
+    assert mock_openai["completions"] == 0
+
+
+@pytest.mark.anyio
+async def test_hard_cap_does_not_block_other_owners(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
+    ws = await async_provision(sub="auth0|cap2", email="cap2@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    budget_enforcement.clear_budget_cache()
+    _over_budget(
+        async_db_session, ws, owner_type="feature", owner_key="support", budget="1.00", spend="5.00", hard_cap=True
+    )
+    await async_db_session.flush()
+
+    # A request tagged with a different feature is unaffected and forwards normally.
+    res = await async_client.post(
+        "/v1/chat/completions",
+        headers={**_b(ws["api_key"]), "X-Varsten-Feature": "billing"},
+        json=_msg("billing question"),
+    )
+    assert res.status_code == 200
+    assert mock_openai["completions"] == 1
+
+
+@pytest.mark.anyio
+async def test_soft_budget_does_not_block(async_client, async_db_session, async_provision, mock_openai, monkeypatch):
+    ws = await async_provision(sub="auth0|soft", email="soft@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    budget_enforcement.clear_budget_cache()
+    # Over budget, but hard_cap_enabled=False -> tracked/alerted, never blocked.
+    _over_budget(
+        async_db_session, ws, owner_type="feature", owner_key="support", budget="1.00", spend="5.00", hard_cap=False
+    )
+    await async_db_session.flush()
+
+    res = await async_client.post(
+        "/v1/chat/completions",
+        headers={**_b(ws["api_key"]), "X-Varsten-Feature": "support"},
+        json=_msg(),
+    )
+    assert res.status_code == 200
+    assert mock_openai["completions"] == 1

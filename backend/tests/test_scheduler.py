@@ -178,11 +178,11 @@ def test_scheduler_start_stop_lifecycle():
     async def run():
         sched = Scheduler()
         sched.start()
-        # drift sweep + batch poll + cache purge.
-        assert len(sched._tasks) == 3
+        # drift sweep + batch poll + cache purge + alert sweep.
+        assert len(sched._tasks) == 4
         # Starting again is idempotent.
         sched.start()
-        assert len(sched._tasks) == 3
+        assert len(sched._tasks) == 4
         await sched.stop()
         assert sched._tasks == []
 

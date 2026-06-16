@@ -27,7 +27,7 @@ from app.core.logging import get_logger, request_id_ctx
 from app.db.session import get_async_db
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import cache, http_client, quality, routing, trim
+from app.proxy import budget_enforcement, cache, http_client, quality, routing, trim
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.client_dialects import (
     ClientDialect,
@@ -113,6 +113,34 @@ def _bypass_reason(project: Project) -> str:
     if project.proxy_bypass_enabled:
         return "project_bypass"
     return "unknown"
+
+
+async def _budget_block(db: AsyncSession, project: Project, ctx, request_id: str) -> JSONResponse | None:
+    """Block this forward when the request's workload owner is over a hard cap.
+
+    Only called on the paid forward path (cache hits are already served), and only
+    for optimization-enabled traffic. Fail-open lives in exhausted_hard_caps."""
+    exhausted = await budget_enforcement.exhausted_hard_caps(db, project.id)
+    cap = budget_enforcement.matched_cap(exhausted, ctx)
+    if cap is None:
+        return None
+    owner_type, owner_key = cap
+    logger.warning(
+        "hard budget cap exceeded; blocking request",
+        extra={"project_id": str(project.id), "owner_type": owner_type, "owner_key": owner_key},
+    )
+    return JSONResponse(
+        {
+            "error": {
+                "message": f"hard budget cap exceeded for {owner_type} '{owner_key}'",
+                "type": "varsten_budget_exceeded",
+                "owner_type": owner_type,
+                "owner_key": owner_key,
+            }
+        },
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        headers={"X-Varsten-Budget": "exceeded", "X-Varsten-Request-Id": request_id},
+    )
 
 
 @router.post("/chat/completions")
@@ -241,6 +269,14 @@ async def _openai_dialect_completions(
     )
     if cache_probe.response is not None:
         return cache_probe.response
+
+    # Hard-cap budget enforcement on the paid forward path. Cache hits above were
+    # served at $0 and are exempt; only optimization-enabled (Performance,
+    # non-bypassed) traffic is gated, and the check is fail-open.
+    if optimize_enabled:
+        blocked = await _budget_block(db, project, draft.ctx, request_id)
+        if blocked is not None:
+            return blocked
 
     opt = await _resolve_openai_optimizations(
         db,
@@ -616,6 +652,13 @@ async def _native_provider_passthrough(
         bypassed=bypass,
         bypass_reason=_bypass_reason(project) if bypass else None,
     )
+    # Hard-cap budget enforcement (native passthrough has no cache, so every
+    # forward costs money). Only optimization-enabled traffic; fail-open.
+    if not bypass and not observe_only:
+        blocked = await _budget_block(db, project, draft.ctx, request_id)
+        if blocked is not None:
+            return blocked
+
     breaker = get_breaker(project.id)
     if not breaker.allow():
         return JSONResponse(

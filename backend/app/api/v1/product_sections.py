@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
 from app.auth.entitlements import is_performance, require_performance
+from app.budgets import evaluate_budgets
 from app.core import ratelimit
 from app.core.audit import client_ip, record_audit
 from app.core.config import settings
@@ -26,6 +27,7 @@ from app.models import (
     ACTION_PROVIDER_KEY_CONNECTED,
     ACTION_PROVIDER_KEY_DISCONNECTED,
     ROUTING_LEVERS,
+    AlertDelivery,
     AlertRule,
     ApiKey,
     AuditEvent,
@@ -45,6 +47,7 @@ from app.models import (
     UsageEvent,
     User,
 )
+from app.proxy.budget_enforcement import clear_budget_cache
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.execution import activate_execution, deactivate_execution
 from app.proxy.experiment import compute_experiment
@@ -1142,7 +1145,33 @@ def create_budget_rule(
     db.add(rule)
     db.commit()
     db.refresh(rule)
+    # A new/changed hard cap should take effect promptly on the hot path.
+    clear_budget_cache(project.id)
     return _budget_rule_payload(rule)
+
+
+@router.get("/guardrails/budgets/status", response_model=None)
+def guardrails_budget_status(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Each enabled budget with its month-to-date spend, percent used, and whether
+    a hard cap is currently blocking traffic. Makes the budget feature trustworthy:
+    a customer sees the same spend Proof shows, and whether the cap is biting."""
+    return [
+        {
+            "rule_id": s.rule_id,
+            "owner_type": s.owner_type,
+            "owner_key": s.owner_key,
+            "monthly_budget_usd": s.budget_usd,
+            "spend_usd": s.spend_usd,
+            "percent_used": s.percent_used,
+            "over_budget": s.over_budget,
+            "hard_cap_enabled": s.hard_cap_enabled,
+            "hard_cap_blocking": s.hard_cap_exhausted,
+        }
+        for s in evaluate_budgets(db, project)
+    ]
 
 
 @router.get("/guardrails/alerts", response_model=None)
@@ -1173,6 +1202,40 @@ def create_alert_rule(
     db.commit()
     db.refresh(rule)
     return _alert_rule_payload(rule)
+
+
+@router.get("/guardrails/alerts/history", response_model=None)
+def guardrails_alert_history(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+    limit: int = 100,
+) -> list[dict]:
+    """Recent alert deliveries: what fired, the observed value, where it was sent,
+    and whether the send succeeded. The record behind 'did my alert go out?'."""
+    capped = max(1, min(limit, 500))
+    return [
+        {
+            "id": str(d.id),
+            "alert_type": d.alert_type,
+            "channel": d.channel,
+            "destination": d.destination,
+            "subject": d.subject,
+            "observed_usd": d.observed_usd,
+            "threshold_usd": d.threshold_usd,
+            "threshold_percent": d.threshold_percent,
+            "owner_type": d.owner_type,
+            "owner_key": d.owner_key,
+            "status": d.status,
+            "error": d.error,
+            "created_at": d.created_at,
+        }
+        for d in db.scalars(
+            select(AlertDelivery)
+            .where(AlertDelivery.project_id == project.id)
+            .order_by(AlertDelivery.created_at.desc())
+            .limit(capped)
+        )
+    ]
 
 
 @router.get("/analysis/spend")

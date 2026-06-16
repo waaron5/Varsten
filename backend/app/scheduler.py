@@ -17,6 +17,7 @@ it on a single leader or move to external cron so sweeps do not overlap.
 
 import asyncio
 
+from app import alerts as alerts_mod
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
@@ -41,6 +42,9 @@ class Scheduler:
             asyncio.create_task(self._loop("batch-poll", settings.batch_poll_interval_seconds, self._run_batch)),
             asyncio.create_task(
                 self._loop("cache-purge", settings.cache_purge_interval_seconds, self._run_cache_purge)
+            ),
+            asyncio.create_task(
+                self._loop("alert-sweep", settings.alert_sweep_interval_seconds, self._run_alert_sweep)
             ),
         ]
         logger.info("scheduler started", extra={"jobs": len(self._tasks)})
@@ -102,6 +106,20 @@ class Scheduler:
         deleted = await asyncio.to_thread(work)
         if deleted:
             logger.info("cache purge removed expired entries", extra={"deleted": deleted})
+
+    async def _run_alert_sweep(self) -> None:
+        # Budget/alert evaluation + delivery is synchronous DB + I/O work; run it off
+        # the event loop. Delivery is best-effort and never raises into the sweep.
+        def work() -> int:
+            db = SessionLocal()
+            try:
+                return alerts_mod.sweep_all_projects(db)
+            finally:
+                db.close()
+
+        delivered = await asyncio.to_thread(work)
+        if delivered:
+            logger.info("alert sweep delivered notifications", extra={"delivered": delivered})
 
 
 scheduler = Scheduler()

@@ -189,6 +189,28 @@ class Settings(BaseSettings):
     # Default completion window passed to OpenAI's Batch API.
     batch_completion_window: str = "24h"
 
+    # --- Budget enforcement + alerts ---
+    # Hard-cap enforcement in the proxy hot path. When a request's workload owner
+    # (team/feature/customer) has a hard-cap budget that is exhausted this month,
+    # the proxy blocks the (paid) forward. Cache hits ($0) are never blocked; the
+    # check is fail-open (any error allows the request) and respects the kill switch.
+    budget_enforcement_enabled: bool = True
+    # Budget state is read from a short-TTL process-local cache so the hot path does
+    # not sum the ledger on every request. Single-process (mirrors the other caches).
+    budget_enforcement_cache_ttl_seconds: int = 30
+    # How often the budget/alert sweep evaluates thresholds and delivers alerts.
+    alert_sweep_interval_seconds: int = 300
+    # Notification delivery. Empty config = a no-op sender that records the delivery
+    # in history but sends nothing (safe default for dev/CI). Production sets these.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_address: str = "alerts@varsten.ai"
+    # Per-alert Slack webhook URLs are stored on the alert rule's destination; this
+    # is only the global on/off for outbound HTTP from the alert sender.
+    slack_alerts_enabled: bool = True
+
     # --- Background scheduler ---
     # Master switch for the in-process periodic scheduler (drift sweep + batch
     # poller). Off by default so tests and one-off processes do not spawn loops;
