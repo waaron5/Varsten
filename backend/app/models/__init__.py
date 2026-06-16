@@ -1,4 +1,10 @@
 from app.models.api_key import ApiKey
+from app.models.audit import (
+    ACTION_PLAN_CHANGED,
+    ACTION_PROVIDER_KEY_CONNECTED,
+    ACTION_PROVIDER_KEY_DISCONNECTED,
+    AuditEvent,
+)
 from app.models.base import Base
 from app.models.batch import BatchJob
 from app.models.engine import (
@@ -31,6 +37,9 @@ from app.models.tenant import (
 from app.models.usage_event import UsageEvent
 
 __all__ = [
+    "ACTION_PLAN_CHANGED",
+    "ACTION_PROVIDER_KEY_CONNECTED",
+    "ACTION_PROVIDER_KEY_DISCONNECTED",
     "FEEDBACK_OUTCOMES",
     "PLAN_FREE",
     "PLAN_PERFORMANCE",
@@ -38,6 +47,7 @@ __all__ = [
     "ROUTING_LEVERS",
     "AlertRule",
     "ApiKey",
+    "AuditEvent",
     "Base",
     "BatchJob",
     "BudgetRule",

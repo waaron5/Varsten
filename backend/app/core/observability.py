@@ -64,6 +64,46 @@ class RequestContextMiddleware:
             request_id_ctx.reset(token)
 
 
+_SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
+    # Force HTTPS for two years incl. subdomains (ignored over plain http, so it is
+    # harmless in local dev and correct behind the TLS-terminating container host).
+    (b"strict-transport-security", b"max-age=63072000; includeSubDomains"),
+    # No MIME sniffing.
+    (b"x-content-type-options", b"nosniff"),
+    # The API is never meant to be framed; block clickjacking two ways.
+    (b"x-frame-options", b"DENY"),
+    (b"content-security-policy", b"frame-ancestors 'none'"),
+    # Do not leak the URL (which can carry identifiers) to other origins.
+    (b"referrer-policy", b"no-referrer"),
+)
+
+
+class SecurityHeadersMiddleware:
+    """Attach standard security response headers to every HTTP response. Pure ASGI
+    so it also covers streaming proxy responses, which a BaseHTTPMiddleware would
+    not wrap cleanly. CSP is limited to frame-ancestors so it hardens the API
+    without breaking the self-documenting /docs page."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = message.setdefault("headers", [])
+                existing = {key.lower() for key, _ in headers}
+                for key, value in _SECURITY_HEADERS:
+                    if key not in existing:
+                        headers.append((key, value))
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
 def init_sentry() -> bool:
     """Initialize Sentry if a DSN is configured. Error-level logs (including the
     proxy's fail-open logger.exception calls) become Sentry events automatically

@@ -3,17 +3,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_user
 from app.auth.entitlements import invalidate_plan_tier
+from app.core.audit import client_ip, record_audit
 from app.core.config import settings
 from app.core.security import generate_api_key
 from app.db.session import get_db
-from app.models import PLAN_TIERS, ApiKey, Organization, OrgMembership, Project, UsageEvent, User
+from app.models import ACTION_PLAN_CHANGED, PLAN_TIERS, ApiKey, Organization, OrgMembership, Project, UsageEvent, User
 from app.schemas import OperatorProvisionRequest, OperatorProvisionResponse, OperatorValidationSummary
 
 router = APIRouter(prefix="/operator", tags=["operator"])
@@ -174,7 +175,8 @@ class PlanUpdate(BaseModel):
 def set_organization_plan(
     organization_id: uuid.UUID,
     payload: PlanUpdate,
-    _operator: User = Depends(_operator_user),
+    request: Request,
+    operator: User = Depends(_operator_user),
     db: Session = Depends(get_db),
 ) -> dict:
     """Operator-only plan switch for testing Free vs Performance. Gated by
@@ -188,7 +190,21 @@ def set_organization_plan(
     org = db.get(Organization, organization_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
+    previous = org.plan_tier
     org.plan_tier = tier
+    # A plan change moves money (gain-share) and unlocks behaviour-changing levers,
+    # so it is audited: who changed which org from which tier to which, and from where.
+    record_audit(
+        db,
+        action=ACTION_PLAN_CHANGED,
+        actor=operator,
+        organization_id=org.id,
+        target_type="organization",
+        target_id=str(org.id),
+        source_ip=client_ip(request),
+        before={"plan_tier": previous},
+        after={"plan_tier": tier},
+    )
     db.commit()
     # Take effect immediately on the proxy's cached tier lookup.
     invalidate_plan_tier(organization_id)

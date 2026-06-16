@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
 from app.proxy import batch as batch_service
+from app.proxy import cache as cache_mod
 from app.proxy import drift as drift_mod
 
 logger = get_logger("varsten.scheduler")
@@ -38,6 +39,9 @@ class Scheduler:
         self._tasks = [
             asyncio.create_task(self._loop("drift-sweep", settings.drift_sweep_interval_seconds, self._run_drift)),
             asyncio.create_task(self._loop("batch-poll", settings.batch_poll_interval_seconds, self._run_batch)),
+            asyncio.create_task(
+                self._loop("cache-purge", settings.cache_purge_interval_seconds, self._run_cache_purge)
+            ),
         ]
         logger.info("scheduler started", extra={"jobs": len(self._tasks)})
 
@@ -84,6 +88,20 @@ class Scheduler:
             await batch_service.poll_all_projects(db)
         finally:
             db.close()
+
+    async def _run_cache_purge(self) -> None:
+        # Deleting past-due cache content (the retention sweep) is synchronous DB
+        # work; run it off the event loop like the drift sweep.
+        def work() -> int:
+            db = SessionLocal()
+            try:
+                return cache_mod.purge_expired(db)
+            finally:
+                db.close()
+
+        deleted = await asyncio.to_thread(work)
+        if deleted:
+            logger.info("cache purge removed expired entries", extra={"deleted": deleted})
 
 
 scheduler = Scheduler()

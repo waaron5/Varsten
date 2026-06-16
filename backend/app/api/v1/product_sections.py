@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_user, resolve_project
 from app.auth.entitlements import is_performance, require_performance
 from app.core import ratelimit
+from app.core.audit import client_ip, record_audit
 from app.core.config import settings
 from app.db.session import get_db
 from app.eval.gate import (
@@ -22,9 +23,12 @@ from app.eval.gate import (
     latest_run,
 )
 from app.models import (
+    ACTION_PROVIDER_KEY_CONNECTED,
+    ACTION_PROVIDER_KEY_DISCONNECTED,
     ROUTING_LEVERS,
     AlertRule,
     ApiKey,
+    AuditEvent,
     BatchJob,
     BudgetRule,
     CustomerEconomics,
@@ -1319,6 +1323,7 @@ def admin_connections(
 def upsert_admin_connection(
     provider: str,
     payload: ProviderConnectionUpsert,
+    request: Request,
     project: Project = Depends(resolve_project),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
@@ -1375,6 +1380,19 @@ def upsert_admin_connection(
     connection.last_sync_at = now
     connection.last_verified_at = now
     connection.last_error = None
+    # Audit the custody change. Records that a key was set and where it is stored,
+    # never the key value itself.
+    record_audit(
+        db,
+        action=ACTION_PROVIDER_KEY_CONNECTED,
+        actor=user,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        target_type="provider_connection",
+        target_id=provider_name,
+        source_ip=client_ip(request),
+        details={"secret_ref": secret_ref},
+    )
     db.commit()
     db.refresh(connection)
     return _provider_connection_payload(connection)
@@ -1383,6 +1401,7 @@ def upsert_admin_connection(
 @router.delete("/admin/connections/{provider}", response_model=None)
 def disconnect_admin_connection(
     provider: str,
+    request: Request,
     project: Project = Depends(resolve_project),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
@@ -1414,9 +1433,56 @@ def disconnect_admin_connection(
     connection.last_sync_at = datetime.now(UTC)
     connection.last_verified_at = None
     connection.last_error = None
+    record_audit(
+        db,
+        action=ACTION_PROVIDER_KEY_DISCONNECTED,
+        actor=user,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        target_type="provider_connection",
+        target_id=provider_name,
+        source_ip=client_ip(request),
+    )
     db.commit()
     db.refresh(connection)
     return _provider_connection_payload(connection)
+
+
+@router.get("/admin/audit-log", response_model=None)
+def admin_audit_log(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+    limit: int = 100,
+) -> dict:
+    """Recent audit events for this workspace's organization: plan changes and
+    provider-key custody actions, newest first. Read-only and org-scoped through
+    resolve_project's membership check, so no tenant sees another's history."""
+    capped = max(1, min(limit, 500))
+    rows = list(
+        db.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.organization_id == project.organization_id)
+            .order_by(AuditEvent.created_at.desc())
+            .limit(capped)
+        )
+    )
+    return {
+        "events": [
+            {
+                "id": str(row.id),
+                "action": row.action,
+                "actor_email": row.actor_email,
+                "target_type": row.target_type,
+                "target_id": row.target_id,
+                "source_ip": row.source_ip,
+                "before": row.before,
+                "after": row.after,
+                "details": row.details,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+    }
 
 
 @router.get("/admin/team")

@@ -8,12 +8,20 @@ rest of this module (lookup, store, hit accounting) stays the same.
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import ProxyCacheEntry
+
+
+def _live(now: datetime):
+    """A cache row is servable when it has no expiry (legacy) or has not lapsed."""
+    return or_(ProxyCacheEntry.expires_at.is_(None), ProxyCacheEntry.expires_at > now)
+
 
 # Request fields that determine the completion. Anything affecting the output must
 # be here so two different requests never collide on one cache entry.
@@ -44,6 +52,7 @@ async def get_cached(db: AsyncSession, project_id: uuid.UUID, cache_key: str) ->
         select(ProxyCacheEntry).where(
             ProxyCacheEntry.project_id == project_id,
             ProxyCacheEntry.cache_key == cache_key,
+            _live(datetime.now(UTC)),
         )
     )
 
@@ -68,6 +77,7 @@ async def semantic_search(
                 ProxyCacheEntry.project_id == project_id,
                 ProxyCacheEntry.model == model,
                 ProxyCacheEntry.embedding.is_not(None),
+                _live(datetime.now(UTC)),
             )
             .order_by(distance)
             .limit(1)
@@ -100,6 +110,7 @@ async def store(
     existing = await get_cached(db, project_id, cache_key)
     if existing is not None:
         return existing
+    now = datetime.now(UTC)
     entry = ProxyCacheEntry(
         project_id=project_id,
         cache_key=cache_key,
@@ -108,7 +119,23 @@ async def store(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         embedding=embedding,
+        # Stored content carries a retention deadline from the moment it is written.
+        expires_at=now + timedelta(seconds=settings.proxy_cache_ttl_seconds),
     )
     db.add(entry)
     await db.commit()
     return entry
+
+
+def purge_expired(db: Session, now: datetime | None = None) -> int:
+    """Delete cache entries past their retention deadline. Sync (the scheduler runs
+    it off the event loop, like the drift sweep). Returns the number deleted."""
+    at = now or datetime.now(UTC)
+    result = db.execute(
+        delete(ProxyCacheEntry).where(
+            ProxyCacheEntry.expires_at.is_not(None),
+            ProxyCacheEntry.expires_at <= at,
+        )
+    )
+    db.commit()
+    return result.rowcount or 0

@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     # Day One lever: byte-identical repeats serve from the store at $0 with zero
     # added latency (no embedding call). Turn this off to disable caching entirely.
     proxy_cache_enabled: bool = True
+    # Retention for stored cache content (the documented exception to the
+    # metadata-only ledger). An entry is served and kept for this long after it is
+    # written, then skipped by lookups and deleted by the purge sweep. Default 7
+    # days: long enough for repeat-heavy traffic to hit, short enough that stored
+    # responses do not accumulate indefinitely. Lower it for stricter retention.
+    proxy_cache_ttl_seconds: int = 604800
+    # How often the purge sweep deletes past-due cache entries. In-process, single
+    # instance (mirrors the other scheduler jobs).
+    cache_purge_interval_seconds: int = 3600
     # The semantic layer ON TOP of the exact-hash cache: embed the prompt and match
     # the nearest stored answer within a distance threshold. Requires
     # proxy_cache_enabled. Off by default for Client #1 because (a) it adds an

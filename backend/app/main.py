@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1 import api_router
 from app.core.config import assert_production_ready, settings
 from app.core.logging import configure_logging, get_logger
-from app.core.observability import RequestContextMiddleware, init_sentry
+from app.core.observability import RequestContextMiddleware, SecurityHeadersMiddleware, init_sentry
 from app.db.session import get_async_db
 from app.proxy import http_client
 from app.proxy.router import beta_router as proxy_beta_router
@@ -47,6 +47,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 # Added last so it is the outermost middleware: it sets the request id before any
 # other layer runs and access-logs the final status after everything else.
 app.add_middleware(RequestContextMiddleware)

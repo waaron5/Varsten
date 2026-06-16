@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -30,7 +31,11 @@ class ProxyCacheEntry(Base):
     """
 
     __tablename__ = "proxy_cache_entries"
-    __table_args__ = (UniqueConstraint("project_id", "cache_key", name="uq_proxy_cache_project_key"),)
+    __table_args__ = (
+        UniqueConstraint("project_id", "cache_key", name="uq_proxy_cache_project_key"),
+        # Purge sweeps the whole table for past-due rows; index the expiry column.
+        Index("ix_proxy_cache_expires_at", "expires_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
@@ -51,3 +56,8 @@ class ProxyCacheEntry(Base):
     hit_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Retention control for stored content (the cache is the documented exception to
+    # the metadata-only ledger). Past this instant the entry is neither served nor
+    # kept: lookups skip it and the purge sweep deletes it. Nullable for legacy rows
+    # written before the column existed; the store path always sets it now.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
