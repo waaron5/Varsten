@@ -1,0 +1,26 @@
+{
+  "name": "gemini_openai_chat_completion_request",
+  "provider": "gemini",
+  "client_dialect": "openai",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1beta/openai/chat/completions",
+  "headers": {
+    "authorization": "Bearer vk_test",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "gemini-3.5-flash",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a concise assistant."
+      },
+      {
+        "role": "user",
+        "content": "Write one sentence about Varsten."
+      }
+    ],
+    "reasoning_effort": "low"
+  }
+}

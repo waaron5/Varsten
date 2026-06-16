@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { AttributionTable } from "@/components/AttributionTable";
 import { RequireSession } from "@/components/RequireSession";
+import { useEntitlements } from "@/components/entitlements";
 import { useProjectResource } from "@/components/useProjectResource";
+import { LockedNotice } from "@/components/upgradeLock";
 import {
   numberValue,
   PageState,
@@ -151,6 +153,7 @@ function ReportsContent({
 }
 
 function ReportsBody() {
+  const { observeOnly } = useEntitlements();
   const {
     activeProjectId,
     data: reports,
@@ -177,9 +180,22 @@ function ReportsBody() {
   const shareUrl = useMemo(() => (latest ? shareHref(latest) : ""), [latest]);
   return (
     <div className="view">
+      {observeOnly && (
+        <LockedNotice title="Executive reports are a Performance feature.">
+          Free includes the read-only Proof dashboards. Upgrade to generate and share board-ready reports.
+        </LockedNotice>
+      )}
       <div className="page-head page-head-actions">
         <div className="spacer" />
-        <button className="btn primary" disabled={busy} onClick={generate} type="button">{busy ? "Generating..." : "Generate current month"}</button>
+        <button
+          className="btn primary"
+          disabled={busy || observeOnly}
+          title={observeOnly ? "Upgrade to Performance to generate reports" : undefined}
+          onClick={generate}
+          type="button"
+        >
+          {busy ? "Generating..." : "Generate current month"}
+        </button>
       </div>
 
       {loading || error ? (

@@ -1,0 +1,50 @@
+{
+  "name": "gemini_function_call_request",
+  "provider": "gemini",
+  "client_dialect": "gemini_native",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1beta/models/gemini-3.5-flash:generateContent",
+  "headers": {
+    "x-goog-api-key": "vk_test",
+    "content-type": "application/json"
+  },
+  "body": {
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What is the weather in Boston?"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "name": "get_weather",
+            "description": "Return current weather for a city.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    }
+  }
+}

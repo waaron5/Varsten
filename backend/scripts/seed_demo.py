@@ -173,11 +173,15 @@ def _get_or_create_org(db: Session) -> Organization:
         org = Organization(
             name=DEMO_ORG_NAME,
             monthly_spend_budget_usd=Decimal("95000.00"),
+            # The demo narrative shows applied savings, which are a Performance-tier
+            # capability, so the demo tenant is provisioned on Performance.
+            plan_tier="performance",
         )
         db.add(org)
         db.flush()
     else:
         org.monthly_spend_budget_usd = Decimal("95000.00")
+        org.plan_tier = "performance"
     return org
 
 

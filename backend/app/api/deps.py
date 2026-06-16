@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,32 @@ def _bearer_token(credentials: HTTPAuthorizationCredentials | None) -> str:
             headers=_UNAUTHENTICATED,
         )
     return credentials.credentials
+
+
+def _proxy_api_key_token(
+    credentials: HTTPAuthorizationCredentials | None,
+    request: Request,
+) -> str:
+    """Resolve the Varsten API key from common SDK auth locations.
+
+    OpenAI-compatible SDKs send Authorization: Bearer. Anthropic's SDK sends
+    x-api-key. Gemini's native SDK sends x-goog-api-key. All must contain the
+    Varsten vk_ key when targeting the proxy.
+    """
+    if credentials is not None and credentials.credentials:
+        return credentials.credentials
+    for header_name in ("x-api-key", "x-goog-api-key"):
+        value = request.headers.get(header_name)
+        if value:
+            return value
+    query_key = request.query_params.get("key")
+    if query_key:
+        return query_key
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="missing credentials",
+        headers=_UNAUTHENTICATED,
+    )
 
 
 # --- API key auth (ingestion + backward-compatible reads) ---------------------
@@ -131,12 +157,13 @@ async def _api_key_context_async(token: str, db: AsyncSession) -> ApiKeyContext:
 
 
 async def require_api_key_context_async(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_async_db),
 ) -> ApiKeyContext:
     """Async resolver of the project + API key for a Bearer API key, for endpoints
     on the async DB stack (the inline proxy)."""
-    token = _bearer_token(credentials)
+    token = _proxy_api_key_token(credentials, request)
     if not token.startswith(API_KEY_PREFIX):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

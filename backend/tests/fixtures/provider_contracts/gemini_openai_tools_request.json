@@ -1,0 +1,42 @@
+{
+  "name": "gemini_openai_tools_request",
+  "provider": "gemini",
+  "client_dialect": "openai",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1beta/openai/chat/completions",
+  "headers": {
+    "authorization": "Bearer vk_test",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "gemini-3.5-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather in Boston?"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Return current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto"
+  }
+}

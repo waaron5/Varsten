@@ -14,7 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -248,7 +248,40 @@ class ProviderConnection(Base, TimestampMixin):
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     connection_method: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'not_connected'"))
+    secret_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OptimizationDecision(Base, TimestampMixin):
+    __tablename__ = "optimization_decisions"
+    __table_args__ = (
+        Index("ix_optimization_decisions_project_created_at", "project_id", "created_at"),
+        Index("ix_optimization_decisions_project_request", "project_id", "request_id"),
+        Index("ix_optimization_decisions_project_reason_code", "project_id", "reason_code"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    client_dialect: Mapped[str] = mapped_column(String(32), nullable=False)
+    requested_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    requested_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    candidate_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    candidate_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason_detail: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
 
 class MonthlyReport(Base, TimestampMixin):

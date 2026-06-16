@@ -11,6 +11,7 @@ from app.db.session import async_engine, engine, get_async_db, get_db
 from app.main import app
 from app.models import ApiKey, Organization, Project
 from app.pricing.service import clear_price_cache
+from app.proxy.keys import clear_provider_key_cache
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +21,31 @@ def _isolate_price_cache():
     clear_price_cache()
     yield
     clear_price_cache()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_provider_key_cache():
+    """Provider keys are resolved through a process-global TTL cache; clear it
+    around each test so monkeypatched settings cannot leak across test cases."""
+    clear_provider_key_cache()
+    yield
+    clear_provider_key_cache()
+
+
+@pytest.fixture(autouse=True)
+def _disable_network_side_effects(monkeypatch):
+    """Provider-key validation makes a real network probe; disable it by default so
+    tests never hit a provider. Tests that exercise validation enable + mock it.
+    Also reset the in-memory rate limiter so windows never bleed across tests."""
+    from app.auth.entitlements import invalidate_plan_tier
+    from app.core import ratelimit
+
+    monkeypatch.setattr(settings, "provider_key_validation_enabled", False)
+    ratelimit.reset_all()
+    invalidate_plan_tier()
+    yield
+    ratelimit.reset_all()
+    invalidate_plan_tier()
 
 
 @pytest.fixture(autouse=True)
@@ -147,8 +173,16 @@ def async_provision(async_db_session):
     see (sync and async psycopg connections do not share a transaction), so async
     endpoint tests must provision on the same async session they assert on."""
 
-    async def _provision(sub: str | None = None, email: str | None = None, project_name: str = "prod") -> dict:
-        org = Organization(name="async-test-org")
+    async def _provision(
+        sub: str | None = None,
+        email: str | None = None,
+        project_name: str = "prod",
+        plan_tier: str = "performance",
+    ) -> dict:
+        # Async proxy tests exercise optimization (cache/route/trim), which is
+        # Performance-only now that Free is observe-only, so default to Performance.
+        # Observe-only tests pass plan_tier="free" explicitly.
+        org = Organization(name="async-test-org", plan_tier=plan_tier)
         async_db_session.add(org)
         await async_db_session.flush()
         project = Project(organization_id=org.id, name=project_name)

@@ -1,0 +1,35 @@
+{
+  "name": "gemini_generate_content_request",
+  "provider": "gemini",
+  "client_dialect": "gemini_native",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1beta/models/gemini-3.5-flash:generateContent",
+  "headers": {
+    "x-goog-api-key": "vk_test",
+    "content-type": "application/json"
+  },
+  "body": {
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are a concise assistant."
+        }
+      ]
+    },
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Write one sentence about Varsten."
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "temperature": 0.2,
+      "maxOutputTokens": 64
+    }
+  }
+}

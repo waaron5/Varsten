@@ -1,0 +1,32 @@
+{
+  "name": "gemini_generate_content_response",
+  "provider": "gemini",
+  "client_dialect": "gemini_native",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Varsten reduces and proves AI spend without disrupting production traffic."
+            }
+          ]
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 17,
+      "candidatesTokenCount": 13,
+      "totalTokenCount": 30
+    },
+    "modelVersion": "gemini-3.5-flash"
+  }
+}

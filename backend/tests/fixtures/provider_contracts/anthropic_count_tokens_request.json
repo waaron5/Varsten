@@ -1,0 +1,23 @@
+{
+  "name": "anthropic_count_tokens_request",
+  "provider": "anthropic",
+  "client_dialect": "anthropic",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1/messages/count_tokens",
+  "headers": {
+    "x-api-key": "vk_test",
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "claude-3-5-sonnet-20241022",
+    "system": "You are a concise assistant.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count this request."
+      }
+    ]
+  }
+}

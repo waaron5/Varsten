@@ -4,8 +4,11 @@ from app.api.v1 import (
     api_keys,
     auth,
     batches,
+    entitlements,
     evals,
+    feedback,
     metrics,
+    onboarding,
     operator,
     organizations,
     product_sections,
@@ -25,6 +28,9 @@ api_router.include_router(metrics.router)
 api_router.include_router(operator.router)
 api_router.include_router(recommendations.router)
 api_router.include_router(evals.router)
+api_router.include_router(feedback.router)
+api_router.include_router(onboarding.router)
+api_router.include_router(entitlements.router)
 api_router.include_router(product_sections.router)
 # Phase 1 inline proxy: POST /v1/chat/completions (OpenAI mirror).
 api_router.include_router(proxy_router)

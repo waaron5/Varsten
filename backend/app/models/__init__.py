@@ -7,21 +7,34 @@ from app.models.engine import (
     CustomerEconomics,
     LeverConfig,
     MonthlyReport,
+    OptimizationDecision,
     ProviderConnection,
     QualityGuardrail,
     RecommendationAction,
     SavingsAttribution,
 )
 from app.models.eval import EvalRun, EvalSampleResult, ReplaySample
+from app.models.evidence import FEEDBACK_OUTCOMES, RequestDecisionEvent, RequestFeedback
 from app.models.pricing import ModelCatalog, ModelPrice, OrgModelPriceOverride
 from app.models.project import Project
 from app.models.proxy_cache import ProxyCacheEntry
 from app.models.proxy_policy import ROUTING_LEVERS, ProxyPolicy
 from app.models.recommendation import Recommendation
-from app.models.tenant import Organization, OrgMembership, User
+from app.models.tenant import (
+    PLAN_FREE,
+    PLAN_PERFORMANCE,
+    PLAN_TIERS,
+    Organization,
+    OrgMembership,
+    User,
+)
 from app.models.usage_event import UsageEvent
 
 __all__ = [
+    "FEEDBACK_OUTCOMES",
+    "PLAN_FREE",
+    "PLAN_PERFORMANCE",
+    "PLAN_TIERS",
     "ROUTING_LEVERS",
     "AlertRule",
     "ApiKey",
@@ -35,6 +48,7 @@ __all__ = [
     "ModelCatalog",
     "ModelPrice",
     "MonthlyReport",
+    "OptimizationDecision",
     "OrgMembership",
     "OrgModelPriceOverride",
     "Organization",
@@ -46,6 +60,8 @@ __all__ = [
     "Recommendation",
     "RecommendationAction",
     "ReplaySample",
+    "RequestDecisionEvent",
+    "RequestFeedback",
     "SavingsAttribution",
     "UsageEvent",
     "User",

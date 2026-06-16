@@ -1,0 +1,13 @@
+{
+  "name": "anthropic_count_tokens_response",
+  "provider": "anthropic",
+  "client_dialect": "anthropic",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "input_tokens": 14
+  }
+}

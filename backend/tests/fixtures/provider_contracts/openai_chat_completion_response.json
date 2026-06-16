@@ -1,0 +1,31 @@
+{
+  "name": "openai_chat_completion_response",
+  "provider": "openai",
+  "client_dialect": "openai",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "id": "chatcmpl-fixture-openai",
+    "object": "chat.completion",
+    "created": 1730000000,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Varsten reduces and proves AI spend without disrupting production traffic."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 19,
+      "completion_tokens": 13,
+      "total_tokens": 32
+    }
+  }
+}

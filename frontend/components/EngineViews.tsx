@@ -3,7 +3,9 @@
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
 import { RequireSession } from "@/components/RequireSession";
+import { useEntitlements } from "@/components/entitlements";
 import { useSession } from "@/components/session";
+import { EffectiveStatusBadge, LockedNotice } from "@/components/upgradeLock";
 import { useProjectResource } from "@/components/useProjectResource";
 import {
   CollectionState,
@@ -276,6 +278,7 @@ function RecommendationActions({
   gated,
   gatedBlocked,
   id,
+  locked,
   onEvaluate,
   onStatus,
   run,
@@ -285,6 +288,7 @@ function RecommendationActions({
   gated: boolean;
   gatedBlocked: boolean;
   id: string;
+  locked?: boolean;
   onEvaluate?: (id: string) => void;
   onStatus?: (id: string, status: RecommendationStatus) => void;
   run: EvalRunSummary | null | undefined;
@@ -292,17 +296,22 @@ function RecommendationActions({
 }) {
   if (!onStatus) return null;
   const showEvaluate = gated && onEvaluate;
+  const applyTitle = locked
+    ? "Enable Performance to apply this recommendation and track savings"
+    : gatedBlocked
+      ? "Run a shadow eval that clears before applying"
+      : undefined;
   return (
     <div className="rec-actions">
       {showEvaluate ? <RecommendationEvaluateButton id={id} busy={busy} run={run} running={running} onEvaluate={onEvaluate} /> : null}
       <RecommendationStatusButton
         className="btn primary"
-        disabled={running || gatedBlocked}
+        disabled={running || gatedBlocked || locked}
         busy={busy}
         id={id}
         onStatus={onStatus}
         status="applied"
-        title={gatedBlocked ? "Run a shadow eval that clears before applying" : undefined}
+        title={applyTitle}
       >
         Apply
       </RecommendationStatusButton>
@@ -317,12 +326,14 @@ function RecommendationCard({
   recommendation,
   busy,
   evaluating,
+  locked,
   onStatus,
   onEvaluate,
 }: {
   recommendation: Recommendation;
   busy?: boolean;
   evaluating?: boolean;
+  locked?: boolean;
   onStatus?: (id: string, status: RecommendationStatus) => void;
   onEvaluate?: (id: string) => void;
 }) {
@@ -350,6 +361,7 @@ function RecommendationCard({
           gated={gated}
           gatedBlocked={gatedBlocked}
           id={recommendation.id}
+          locked={locked}
           onEvaluate={onEvaluate}
           onStatus={onStatus}
           run={run}
@@ -429,6 +441,27 @@ export function EngineRecommendationsView() {
   );
 }
 
+function EngineUpgradeBanner({ items }: { items: Recommendation[] | null }) {
+  const rows = items ?? [];
+  const total = rows.reduce((sum, r) => sum + (r.estimated_monthly_savings_usd ? Number(r.estimated_monthly_savings_usd) : 0), 0);
+  const count = rows.length;
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="card-head">
+        <h3>Observe-only — savings are estimated, not yet captured</h3>
+        <div className="right"><span className="pill neutral">Free</span></div>
+      </div>
+      <div className="es" style={{ padding: "0 12px 12px" }}>
+        {count > 0
+          ? `You have ${count} savings ${count === 1 ? "opportunity" : "opportunities"}${total > 0 ? ` worth an estimated ${usd(total, 0)}/mo` : ""}. `
+          : "Varsten is measuring your traffic. "}
+        Enable Performance to apply these recommendations with eval gates and rollback, and to track
+        verified savings. No production behavior is changed until you do.
+      </div>
+    </div>
+  );
+}
+
 function EngineRecommendationsBody() {
   const { busyId, updateRecommendation } = useEngineMutation();
   const {
@@ -440,6 +473,10 @@ function EngineRecommendationsBody() {
     setData: setItems,
     setError,
   } = useProjectResource<Recommendation[]>(api.engineRecommendations, []);
+  // Shared entitlements: optimistic until known (don't lock on a slow fetch). The
+  // backend is the real gate (a free apply returns 403, surfaced as an error).
+  const { canApplyRecommendations, loading: entLoading } = useEntitlements();
+  const locked = !entLoading && !canApplyRecommendations;
 
   const refresh = useCallback(async () => {
     const fresh = await api.engineRecommendations(await getToken(), activeProjectId ?? undefined);
@@ -474,6 +511,7 @@ function EngineRecommendationsBody() {
         description="Ranked savings decisions mapped to Varsten's optimization levers."
       />
       <EngineTabs active="/engine/recommendations" />
+      {locked && <EngineUpgradeBanner items={items} />}
       <EngineDataCard
         title="Open recommendations"
         countLabel="open"
@@ -491,6 +529,7 @@ function EngineRecommendationsBody() {
                 recommendation={rec}
                 busy={busyId === rec.id}
                 evaluating={evaluatingId === rec.id}
+                locked={locked}
                 onStatus={act}
                 onEvaluate={runEvaluate}
               />
@@ -553,16 +592,29 @@ function LeverActivityGears({ active }: { active: boolean }) {
   );
 }
 
-function LeverToggle({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; onToggle: (item: LeverConfig) => void }) {
-  const action = item.enabled ? "Pause" : "Resume";
-  const className = item.enabled ? "lever-toggle on" : "lever-toggle";
+function LeverToggle({
+  busy,
+  item,
+  locked,
+  onToggle,
+}: {
+  busy: boolean;
+  item: LeverConfig;
+  locked: boolean;
+  onToggle: (item: LeverConfig) => void;
+}) {
+  // Effective state: a locked (observe-only) lever is never shown "on".
+  const effectiveOn = !locked && item.enabled;
+  const action = effectiveOn ? "Pause" : "Resume";
+  const className = effectiveOn ? "lever-toggle on" : "lever-toggle";
   return (
     <button
-      aria-label={`${action} ${leverLabel(item.lever)}`}
-      aria-pressed={item.enabled}
+      aria-label={locked ? `${leverLabel(item.lever)} available on Performance` : `${action} ${leverLabel(item.lever)}`}
+      aria-pressed={effectiveOn}
       className={className}
-      disabled={busy}
-      onClick={() => onToggle(item)}
+      disabled={busy || locked}
+      title={locked ? "Upgrade to Performance to enable this lever" : undefined}
+      onClick={() => (locked ? undefined : onToggle(item))}
       type="button"
     />
   );
@@ -582,9 +634,21 @@ function LeverStats({ item, meta }: { item: LeverConfig; meta: (typeof LEVER_MET
   );
 }
 
-function LeverRow({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; onToggle: (item: LeverConfig) => void }) {
+function LeverRow({
+  busy,
+  item,
+  observeOnly,
+  onToggle,
+}: {
+  busy: boolean;
+  item: LeverConfig;
+  observeOnly: boolean;
+  onToggle: (item: LeverConfig) => void;
+}) {
   const meta = LEVER_META[item.lever];
   const description = meta?.description || "Controls one of Varsten's optimization mechanisms.";
+  // Effective, not raw: an observe-only lever is never active regardless of config.
+  const effectiveActive = !observeOnly && item.enabled;
   return (
     <div className="lever-row">
       <div className="lever-row-top">
@@ -592,9 +656,13 @@ function LeverRow({ busy, item, onToggle }: { busy: boolean; item: LeverConfig; 
         <div className="lever-copy">
           <div className="lever-name">{leverLabel(item.lever)}</div>
         </div>
-        <LeverActivityGears active={item.enabled} />
-        <LeverBadge enabled={item.enabled} />
-        <LeverToggle busy={busy} item={item} onToggle={onToggle} />
+        <LeverActivityGears active={effectiveActive} />
+        {observeOnly ? (
+          <EffectiveStatusBadge observeOnly active={item.enabled} lockedLabel="Locked on Free" />
+        ) : (
+          <LeverBadge enabled={item.enabled} />
+        )}
+        <LeverToggle busy={busy} item={item} locked={observeOnly} onToggle={onToggle} />
       </div>
       <div className="lever-desc">{description}</div>
       <LeverStats item={item} meta={meta} />
@@ -960,6 +1028,7 @@ function BatchJobsCard() {
 
 function EngineLeversBody() {
   const { busyId, updateLever } = useEngineMutation();
+  const { observeOnly } = useEntitlements();
   const {
     data: items,
     loading,
@@ -987,6 +1056,11 @@ function EngineLeversBody() {
         description="The five mechanisms Varsten uses to reduce AI spend without hiding risk."
       />
       <EngineTabs active="/engine/levers" />
+      {observeOnly && (
+        <LockedNotice title="Levers change production behavior — available on Performance.">
+          On Free, Varsten observes your traffic only. Upgrade to turn levers on and capture savings.
+        </LockedNotice>
+      )}
       {loading || error ? (
         <div className="card"><PageState loading={loading} error={error} /></div>
       ) : !items || items.length === 0 ? (
@@ -994,7 +1068,7 @@ function EngineLeversBody() {
       ) : (
         <div className="card lever-list-card">
           {rows.map((item) => (
-            <LeverRow key={item.id} item={item} busy={busyId === item.lever} onToggle={toggle} />
+            <LeverRow key={item.id} item={item} busy={busyId === item.lever} observeOnly={observeOnly} onToggle={toggle} />
           ))}
         </div>
       )}
@@ -1016,26 +1090,31 @@ export function EngineAutomationView() {
 function AutomationModeControl({
   busy,
   item,
+  locked,
   onMode,
 }: {
   busy: boolean;
   item: AutomationLever;
+  locked: boolean;
   onMode: (item: AutomationLever, mode: AutomationMode) => void;
 }) {
+  const title = locked ? "Upgrade to Performance to control automation" : undefined;
   return (
     <div className="seg" aria-label={`${leverLabel(item.lever)} automation mode`}>
       <button
-        className={item.automation_mode === "auto" ? "active" : ""}
-        disabled={busy}
-        onClick={() => onMode(item, "auto")}
+        className={!locked && item.automation_mode === "auto" ? "active" : ""}
+        disabled={busy || locked}
+        title={title}
+        onClick={() => (locked ? undefined : onMode(item, "auto"))}
         type="button"
       >
         Auto
       </button>
       <button
-        className={item.automation_mode === "approve" ? "active" : ""}
-        disabled={busy}
-        onClick={() => onMode(item, "approve")}
+        className={!locked && item.automation_mode === "approve" ? "active" : ""}
+        disabled={busy || locked}
+        title={title}
+        onClick={() => (locked ? undefined : onMode(item, "approve"))}
         type="button"
       >
         Approve
@@ -1047,33 +1126,44 @@ function AutomationModeControl({
 function AutomationRow({
   busy,
   item,
+  observeOnly,
   onMode,
 }: {
   busy: boolean;
   item: AutomationLever;
+  observeOnly: boolean;
   onMode: (item: AutomationLever, mode: AutomationMode) => void;
 }) {
+  const effectiveEnabled = !observeOnly && item.enabled;
   return (
     <tr>
       <td>
         <div className="name">
-          <span className="dot-ic" style={{ background: item.enabled ? "var(--brand)" : "var(--text-faint)" }} />
+          <span className="dot-ic" style={{ background: effectiveEnabled ? "var(--brand)" : "var(--text-faint)" }} />
           {leverLabel(item.lever)}
         </div>
       </td>
-      <td><span className={`pill ${item.enabled ? "green" : "neutral"}`}>{item.enabled ? "Enabled" : "Paused"}</span></td>
+      <td>
+        {observeOnly ? (
+          <EffectiveStatusBadge observeOnly active={item.enabled} lockedLabel="Locked on Free" />
+        ) : (
+          <span className={`pill ${item.enabled ? "green" : "neutral"}`}>{item.enabled ? "Enabled" : "Paused"}</span>
+        )}
+      </td>
       <td className="muted">{item.risk_profile}</td>
-      <td className="r"><AutomationModeControl busy={busy} item={item} onMode={onMode} /></td>
+      <td className="r"><AutomationModeControl busy={busy} item={item} locked={observeOnly} onMode={onMode} /></td>
     </tr>
   );
 }
 
 function AutomationTable({
   busyId,
+  observeOnly,
   onMode,
   rows,
 }: {
   busyId: string | null;
+  observeOnly: boolean;
   onMode: (item: AutomationLever, mode: AutomationMode) => void;
   rows: readonly AutomationLever[];
 }) {
@@ -1089,7 +1179,7 @@ function AutomationTable({
       </thead>
       <tbody>
         {rows.map((item) => (
-          <AutomationRow key={item.lever} item={item} busy={busyId === item.lever} onMode={onMode} />
+          <AutomationRow key={item.lever} item={item} busy={busyId === item.lever} observeOnly={observeOnly} onMode={onMode} />
         ))}
       </tbody>
     </table>
@@ -1098,6 +1188,7 @@ function AutomationTable({
 
 function EngineAutomationBody() {
   const { busyId, updateLever } = useEngineMutation();
+  const { observeOnly } = useEntitlements();
   const {
     data: items,
     loading,
@@ -1126,6 +1217,11 @@ function EngineAutomationBody() {
         description="Control which levers can act automatically and which require approval."
       />
       <EngineTabs active="/engine/automation" />
+      {observeOnly && (
+        <LockedNotice title="Automation runs levers without a human — available on Performance.">
+          Free is observe-only. Upgrade to let Varsten auto-apply or require approval per lever.
+        </LockedNotice>
+      )}
       <EngineDataCard
         title="Automation policy"
         countLabel="levers"
@@ -1135,7 +1231,7 @@ function EngineAutomationBody() {
         empty="No automation policy"
         emptyDetail="Engine levers will appear here after project setup."
       >
-        {(rows) => <AutomationTable rows={rows} busyId={busyId} onMode={setMode} />}
+        {(rows) => <AutomationTable rows={rows} busyId={busyId} observeOnly={observeOnly} onMode={setMode} />}
       </EngineDataCard>
     </div>
   );

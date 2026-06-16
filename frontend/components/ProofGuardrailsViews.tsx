@@ -4,7 +4,9 @@ import type { FormEvent, ReactNode } from "react";
 import { Fragment, useMemo, useState } from "react";
 import { AttributionTable } from "@/components/AttributionTable";
 import { RequireSession } from "@/components/RequireSession";
+import { useEntitlements } from "@/components/entitlements";
 import { useProjectResource } from "@/components/useProjectResource";
+import { LockedNotice } from "@/components/upgradeLock";
 import {
   BinaryPill,
   CollectionState,
@@ -199,6 +201,7 @@ export function ProofAttributionView() {
 }
 
 function ProofAttributionBody() {
+  const { observeOnly } = useEntitlements();
   const { data, loading, error } = useProjectResource<ProofAttribution>(api.proofAttribution);
 
   return (
@@ -209,6 +212,12 @@ function ProofAttributionBody() {
         description="Savings tied back to a lever and measurement method so finance can inspect the claim."
       />
       <Tabs tabs={PROOF_TABS} active="/proof/attribution" />
+      {observeOnly && (
+        <LockedNotice title="Measured savings attribution is a Performance feature.">
+          On Free, Varsten shows estimated opportunities. Upgrade to apply optimizations and attribute
+          the savings they actually capture.
+        </LockedNotice>
+      )}
       <div className="card">
         <div className="card-head"><h3>Savings by lever</h3></div>
         {loading || error || !data ? (
@@ -511,6 +520,7 @@ function qualityGuardrailPayload({
 }
 
 function GuardrailsQualityBody() {
+  const { observeOnly } = useEntitlements();
   const {
     activeProjectId,
     data: items,
@@ -543,7 +553,16 @@ function GuardrailsQualityBody() {
     setBusy(true);
     setError(null);
     try {
-      const payload = qualityGuardrailPayload({ autoRollback, evalGate, latency, minScore, route, tier });
+      // Auto-rollback is Performance-only (it disables a live route). Free can still
+      // record a quality floor; force the flag off so the create succeeds.
+      const payload = qualityGuardrailPayload({
+        autoRollback: autoRollback && !observeOnly,
+        evalGate,
+        latency,
+        minScore,
+        route,
+        tier,
+      });
       const created = await api.createQualityGuardrail(await getToken(), activeProjectId ?? undefined, payload);
       setItems((current) => [...(current ?? []), created].sort((a, b) => a.route.localeCompare(b.route)));
       resetForm();
@@ -583,9 +602,14 @@ function GuardrailsQualityBody() {
             <input className="input" placeholder="Eval gate" value={evalGate} onChange={(e) => setEvalGate(e.target.value)} />
             <input className="input" placeholder="Minimum eval score" value={minScore} onChange={(e) => setMinScore(e.target.value)} />
             <input className="input" placeholder="Max latency ms" value={latency} onChange={(e) => setLatency(e.target.value)} />
-            <label className="check-row">
-              <input type="checkbox" checked={autoRollback} onChange={(e) => setAutoRollback(e.target.checked)} />
-              Auto rollback when a guardrail fails
+            <label className="check-row" title={observeOnly ? "Auto-rollback is available on Performance" : undefined}>
+              <input
+                type="checkbox"
+                checked={!observeOnly && autoRollback}
+                disabled={observeOnly}
+                onChange={(e) => setAutoRollback(e.target.checked)}
+              />
+              Auto rollback when a guardrail fails{observeOnly ? " (Performance)" : ""}
             </label>
             <button className="btn primary" disabled={busy || !route.trim()} type="submit">{busy ? "Adding..." : "Add guardrail"}</button>
           </form>
@@ -601,6 +625,7 @@ export function GuardrailsBudgetsView() {
 }
 
 function GuardrailsBudgetsBody() {
+  const { observeOnly } = useEntitlements();
   const {
     activeProjectId,
     data: items,
@@ -631,7 +656,8 @@ function GuardrailsBudgetsBody() {
         owner_type: ownerType,
         owner_key: ownerKey.trim(),
         monthly_budget_usd: budget,
-        hard_cap_enabled: hardCap,
+        // A hard cap blocks live traffic -> Performance only. Free budgets alert/track.
+        hard_cap_enabled: hardCap && !observeOnly,
         enabled: true,
       });
       setItems((current) => [...(current ?? []), created]);
@@ -677,9 +703,14 @@ function GuardrailsBudgetsBody() {
             </select>
             <input className="input" placeholder="Owner key" value={ownerKey} onChange={(e) => setOwnerKey(e.target.value)} />
             <input className="input" placeholder="Monthly budget USD" value={budget} onChange={(e) => setBudget(e.target.value)} />
-            <label className="check-row">
-              <input type="checkbox" checked={hardCap} onChange={(e) => setHardCap(e.target.checked)} />
-              Raise a critical alert (instead of review) when exceeded
+            <label className="check-row" title={observeOnly ? "Hard caps are available on Performance" : undefined}>
+              <input
+                type="checkbox"
+                checked={!observeOnly && hardCap}
+                disabled={observeOnly}
+                onChange={(e) => setHardCap(e.target.checked)}
+              />
+              Hard cap: block traffic when exceeded{observeOnly ? " (Performance)" : ""}
             </label>
             <button className="btn primary" disabled={busy || !ownerKey.trim() || !budget} type="submit">{busy ? "Adding..." : "Add budget"}</button>
           </form>

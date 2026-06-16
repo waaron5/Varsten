@@ -6,6 +6,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useUser } from "@auth0/nextjs-auth0";
 import { useSession } from "./session";
+import { useEntitlements } from "./entitlements";
 import type { Project, UserProfile } from "@/lib/types";
 
 // Name of the cookie that persists the sidebar collapsed state. Read on the server
@@ -208,6 +209,7 @@ function Sidebar({
         {NAV_GROUPS.map((group) => <NavGroup key={group.label} group={group} pathname={pathname} />)}
       </nav>
       <div className="side-account">
+        <PlanCard collapsed={isCollapsed} />
         <AccountPanel
           accountOpen={accountOpen}
           displayName={displayName}
@@ -222,12 +224,51 @@ function Sidebar({
   );
 }
 
+function PlanBadge() {
+  const { planTier, isPerformance } = useEntitlements();
+  if (planTier === null) return null; // unknown yet — don't flash a wrong plan
+  if (isPerformance) {
+    return <span className="plan-badge perf" title="Performance plan">Performance</span>;
+  }
+  return (
+    <>
+      <span className="plan-badge free" title="Observe-only: Varsten is measuring traffic, not changing behavior">
+        Free · Observe-only
+      </span>
+      <Link href="/upgrade" className="plan-upgrade-btn">Upgrade</Link>
+    </>
+  );
+}
+
+function PlanCard({ collapsed }: { collapsed: boolean }) {
+  const { planTier, isPerformance } = useEntitlements();
+  if (planTier === null || collapsed) return null;
+  if (isPerformance) {
+    return (
+      <div className="plan-card perf">
+        <div className="plan-card-title">Performance</div>
+        <div className="plan-card-sub">Optimization enabled</div>
+      </div>
+    );
+  }
+  return (
+    <div className="plan-card free">
+      <div className="plan-card-title">Free plan</div>
+      <div className="plan-card-sub">Observing traffic only</div>
+      <Link href="/upgrade" className="plan-card-cta">Upgrade to Performance</Link>
+    </div>
+  );
+}
+
 function Topbar({ route }: { route: { title: string; crumb: string } }) {
   return (
     <header className="topbar">
       <div className="topbar-title">
         <h1>{route.title}</h1>
         <div className="crumb">{route.crumb}</div>
+      </div>
+      <div className="topbar-actions">
+        <PlanBadge />
       </div>
     </header>
   );

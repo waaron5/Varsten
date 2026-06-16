@@ -1,10 +1,11 @@
 """The provider adapter seam.
 
-An LLMAdapter translates between Varsten's canonical (OpenAI-shaped) form and ONE
+An LLMAdapter translates between Varsten's canonical completion form and ONE
 upstream provider's wire format. The proxy router talks only to this interface, so
 adding Anthropic, Gemini, or Bedrock is a new adapter plus a registry entry, with
-zero changes to the router. Adapters own only the upstream side; rendering back to
-the OpenAI client dialect is the shared concern in canonical.py.
+minimal router surface area. Adapters own only the upstream side; rendering back
+to the OpenAI-compatible chat-completions response is the shared concern in
+canonical.py.
 """
 
 from abc import ABC, abstractmethod
@@ -39,6 +40,14 @@ class LLMAdapter(ABC):
     @abstractmethod
     def endpoint(self) -> str:
         """The upstream chat-completions URL."""
+
+    def request_url(self, *, model: str, stream: bool) -> str:
+        """The concrete URL for one request.
+
+        Most providers use a fixed endpoint. Providers with model/action in the
+        path, such as Gemini native, override this without changing router code.
+        """
+        return self.endpoint()
 
     @abstractmethod
     def headers(self, api_key: str) -> dict[str, str]:

@@ -1,0 +1,176 @@
+{
+  "anthropic_count_tokens_request.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "request",
+    "operation": "count_tokens"
+  },
+  "anthropic_count_tokens_response.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "response",
+    "operation": "count_tokens"
+  },
+  "anthropic_error_response.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "response",
+    "operation": "messages_error",
+    "error": true
+  },
+  "anthropic_message_batch_create_request.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "request",
+    "operation": "message_batch_create"
+  },
+  "anthropic_message_batch_result.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "response",
+    "operation": "message_batch_result"
+  },
+  "anthropic_messages_request.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "request",
+    "operation": "messages"
+  },
+  "anthropic_messages_response.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "response",
+    "operation": "messages"
+  },
+  "anthropic_messages_stream.sse": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "stream",
+    "operation": "messages",
+    "usage_required_before_terminal": true
+  },
+  "anthropic_messages_tool_request.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "request",
+    "operation": "messages_tool"
+  },
+  "anthropic_messages_tool_response.json": {
+    "provider": "anthropic",
+    "client_dialect": "anthropic",
+    "kind": "response",
+    "operation": "messages_tool"
+  },
+  "gemini_batch_create_request.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "request",
+    "operation": "batch_create"
+  },
+  "gemini_batch_result.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "response",
+    "operation": "batch_result"
+  },
+  "gemini_count_tokens_request.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "request",
+    "operation": "count_tokens"
+  },
+  "gemini_count_tokens_response.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "response",
+    "operation": "count_tokens"
+  },
+  "gemini_error_response.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "response",
+    "operation": "generate_content_error",
+    "error": true
+  },
+  "gemini_function_call_request.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "request",
+    "operation": "function_call"
+  },
+  "gemini_function_call_response.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "response",
+    "operation": "function_call"
+  },
+  "gemini_generate_content_request.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "request",
+    "operation": "generate_content"
+  },
+  "gemini_generate_content_response.json": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "response",
+    "operation": "generate_content"
+  },
+  "gemini_openai_chat_completion_request.json": {
+    "provider": "gemini",
+    "client_dialect": "openai",
+    "kind": "request",
+    "operation": "openai_chat_completions"
+  },
+  "gemini_openai_chat_completion_response.json": {
+    "provider": "gemini",
+    "client_dialect": "openai",
+    "kind": "response",
+    "operation": "openai_chat_completions"
+  },
+  "gemini_openai_chat_completion_stream.sse": {
+    "provider": "gemini",
+    "client_dialect": "openai",
+    "kind": "stream",
+    "operation": "openai_chat_completions",
+    "usage_required_before_terminal": true
+  },
+  "gemini_openai_tools_request.json": {
+    "provider": "gemini",
+    "client_dialect": "openai",
+    "kind": "request",
+    "operation": "openai_tools"
+  },
+  "gemini_stream_generate_content.sse": {
+    "provider": "gemini",
+    "client_dialect": "gemini_native",
+    "kind": "stream",
+    "operation": "generate_content",
+    "usage_required_before_terminal": true
+  },
+  "openai_chat_completion_request.json": {
+    "provider": "openai",
+    "client_dialect": "openai",
+    "kind": "request",
+    "operation": "chat_completions"
+  },
+  "openai_chat_completion_response.json": {
+    "provider": "openai",
+    "client_dialect": "openai",
+    "kind": "response",
+    "operation": "chat_completions"
+  },
+  "openai_chat_completion_stream.sse": {
+    "provider": "openai",
+    "client_dialect": "openai",
+    "kind": "stream",
+    "operation": "chat_completions",
+    "usage_required_before_terminal": true
+  },
+  "openai_chat_completion_tools_request.json": {
+    "provider": "openai",
+    "client_dialect": "openai",
+    "kind": "request",
+    "operation": "tools"
+  }
+}

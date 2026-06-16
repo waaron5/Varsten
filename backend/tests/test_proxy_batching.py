@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.models import BatchJob, ModelPrice, Project, UsageEvent
+from app.models import BatchJob, ModelPrice, Organization, Project, UsageEvent
 from app.proxy import openai_batch
 from app.storage import LocalStorage
 
@@ -33,6 +33,11 @@ def local_storage(tmp_path, monkeypatch):
 def _ws(provision, db_session, monkeypatch, sub):
     ws = provision(sub=sub, email=f"{sub}@example.com")
     project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    # Batching is a Performance-tier (behaviour-changing) lever; exercise it on a
+    # Performance org.
+    org = db_session.get(Organization, project.organization_id)
+    org.plan_tier = "performance"
+    db_session.flush()
     monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
     return ws, project
 

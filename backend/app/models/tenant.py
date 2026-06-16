@@ -1,8 +1,9 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Numeric, String, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,6 +11,13 @@ from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.project import Project
+
+# Entitlement tiers. Free is observe-only: Varsten meters and recommends but may
+# never activate a behaviour-changing lever. Performance unlocks the savings
+# levers. Enterprise is deferred (no extra capabilities modeled yet).
+PLAN_FREE = "free"
+PLAN_PERFORMANCE = "performance"
+PLAN_TIERS = (PLAN_FREE, PLAN_PERFORMANCE)
 
 
 class Organization(Base, TimestampMixin):
@@ -21,6 +29,13 @@ class Organization(Base, TimestampMixin):
     # Marks a seeded demo tenant. The demo seeder asserts this before any wipe, so
     # it can never touch a real customer org (is_demo=False is the default).
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Entitlement tier. Free (default) is observe-only; behaviour-changing levers
+    # are gated to performance. The single source of truth for feature gating.
+    plan_tier: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text(f"'{PLAN_FREE}'"))
+    # When the self-serve onboarding funnel was completed, so it is not re-shown.
+    # Null means onboarding is unfinished. All other setup state (has key, has
+    # provider, first request) is derived from existing tables, not stored here.
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     memberships: Mapped[list["OrgMembership"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"

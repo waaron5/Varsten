@@ -5,6 +5,7 @@
 
 import { RequireSession } from "@/components/RequireSession";
 import { CommandCenterProvider } from "./CommandCenterProvider";
+import { SetupBanner } from "./SetupBanner";
 import {
   BudgetForecastPanel,
   ExecutiveRow,
@@ -20,6 +21,7 @@ import {
 function CommandCenterGrid() {
   return (
     <div className="command-center-view">
+      <SetupBanner />
       <section className="cc-zone">
         <div className="cc-zone-head">
           <div>

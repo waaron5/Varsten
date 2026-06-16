@@ -1,0 +1,37 @@
+{
+  "name": "gemini_function_call_response",
+  "provider": "gemini",
+  "client_dialect": "gemini_native",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "functionCall": {
+                "name": "get_weather",
+                "args": {
+                  "city": "Boston"
+                }
+              }
+            }
+          ]
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 84,
+      "candidatesTokenCount": 11,
+      "totalTokenCount": 95
+    },
+    "modelVersion": "gemini-3.5-flash"
+  }
+}

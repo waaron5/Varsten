@@ -570,7 +570,10 @@ export interface ProviderConnection {
   provider: string;
   connection_method: string;
   status: string;
+  key_vaulted: boolean;
   last_sync_at: string | null;
+  last_verified_at: string | null;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -647,4 +650,69 @@ export interface MonthlyReport {
   top_recommendations: MonthlyReportRecommendation[];
   created_at: string;
   updated_at: string;
+}
+
+// --- self-serve onboarding ---------------------------------------------------
+
+export interface OnboardingMetadataQuality {
+  level: "great" | "good" | "none";
+  message: string;
+}
+
+export interface OnboardingFirstRequest {
+  seen: boolean;
+  request_count: number;
+  request_id?: string | null;
+  provider?: string;
+  model?: string;
+  cost_usd?: string | null;
+  cost_source?: string;
+  pricing_status?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  latency_ms?: number | null;
+  environment?: string;
+  feature?: string | null;
+  workflow?: string | null;
+  task_type?: string | null;
+  occurred_at?: string;
+  metadata_quality: OnboardingMetadataQuality;
+}
+
+export interface OnboardingProviderConnection {
+  provider: string;
+  status: string;
+  last_verified_at: string | null;
+  last_error: string | null;
+}
+
+export interface OnboardingStatus {
+  project_id: string;
+  project_name: string;
+  plan_tier: string;
+  observe_only: boolean;
+  onboarding_completed_at: string | null;
+  has_project: boolean;
+  has_api_key: boolean;
+  has_provider_connection: boolean;
+  provider_connections: OnboardingProviderConnection[];
+  first_request: OnboardingFirstRequest;
+}
+
+export interface Entitlements {
+  plan_tier: string;
+  observe_only: boolean;
+  features: {
+    apply_recommendations: boolean;
+    enable_levers: boolean;
+    enable_routing: boolean;
+    enable_caching: boolean;
+    enable_trimming: boolean;
+    use_batching: boolean;
+    guardrail_automation: boolean;
+    submit_batches: boolean;
+    advanced_proof: boolean;
+    advanced_reports: boolean;
+    extended_retention: boolean;
+  };
 }

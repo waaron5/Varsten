@@ -15,19 +15,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import ApiKeyContext, require_api_key_context
+from app.auth.entitlements import require_performance
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import BatchJob, Project
 from app.models.batch import STATUS_CREATED, STATUS_FINALIZED
 from app.proxy import batch as batch_service
-from app.proxy.keys import openai_key_for_project
+from app.proxy.keys import provider_key_for_project
 from app.storage import get_storage
 
 router = APIRouter(tags=["batches"])
 
 
 def _client_key(project: Project) -> str:
-    key = openai_key_for_project(project.id)
+    key = provider_key_for_project(project.id, "openai")
     if not key:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -122,6 +123,8 @@ async def create_batch(
     """Create the batch over an uploaded input file: stream it to OpenAI and start
     the job. Fails if the input has not been uploaded yet."""
     project = api_context.project
+    # Submitting a batch is a behaviour-changing savings lever -> Performance only.
+    require_performance(db, project, action="Submitting a batch job")
     job = _get_job(db, project, payload.input_file_id)
     if job.status != STATUS_CREATED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="batch already submitted")

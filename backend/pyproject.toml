@@ -38,6 +38,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "sdk_smoke: opt-in live SDK smoke tests against a running Varsten proxy",
+]
 
 [tool.coverage.run]
 branch = true

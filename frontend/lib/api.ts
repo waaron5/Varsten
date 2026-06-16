@@ -18,6 +18,7 @@ import type {
   Breakdown,
   BreakdownDimension,
   CommandCenter,
+  Entitlements,
   EvalConfig,
   EvalRunSummary,
   GoldenSampleInput,
@@ -25,11 +26,13 @@ import type {
   LeverName,
   MetricsOverview,
   MonthlyReport,
+  OnboardingStatus,
   OperatorProvisionRequest,
   OperatorProvisionResponse,
   OperatorValidationSummary,
   ProofAttribution,
   ProofDataQuality,
+  ProviderConnection,
   ProofSavings,
   Project,
   ProxyTraffic,
@@ -154,6 +157,20 @@ export const api = {
   // --- reads (Auth0 session + projectId, or an API key) ---
   overview: (token: string, projectId?: string) =>
     request<MetricsOverview>(readPath("/metrics/overview", projectId), token),
+
+  // --- self-serve onboarding ---
+  entitlements: (token: string, projectId: string | undefined) =>
+    request<Entitlements>(readPath("/entitlements", projectId), token),
+
+  onboardingStatus: (token: string, projectId: string | undefined) =>
+    request<OnboardingStatus>(readPath("/onboarding/status", projectId), token),
+
+  completeOnboarding: (token: string, projectId: string | undefined) =>
+    request<{ onboarding_completed_at: string | null }>(
+      readPath("/onboarding/complete", projectId),
+      token,
+      { method: "POST" },
+    ),
 
   spendTrend: (token: string, projectId: string | undefined, days = 30) =>
     request<SpendTrend>(readPath("/metrics/spend-trend", projectId, { days }), token),
@@ -338,6 +355,32 @@ export const api = {
 
   adminConnections: (token: string, projectId: string | undefined) =>
     request<AdminConnections>(readPath("/admin/connections", projectId), token),
+
+  upsertProviderConnection: (
+    token: string,
+    projectId: string | undefined,
+    provider: string,
+    apiKey: string,
+  ) =>
+    request<ProviderConnection>(
+      readPath(`/admin/connections/${provider}`, projectId),
+      token,
+      {
+        method: "PUT",
+        body: JSON.stringify({ api_key: apiKey }),
+      },
+    ),
+
+  disconnectProviderConnection: (
+    token: string,
+    projectId: string | undefined,
+    provider: string,
+  ) =>
+    request<ProviderConnection>(
+      readPath(`/admin/connections/${provider}`, projectId),
+      token,
+      { method: "DELETE" },
+    ),
 
   adminTeam: (token: string, projectId: string | undefined) =>
     request<AdminTeam>(readPath("/admin/team", projectId), token),

@@ -1,0 +1,13 @@
+{
+  "name": "gemini_count_tokens_response",
+  "provider": "gemini",
+  "client_dialect": "gemini_native",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "totalTokens": 7
+  }
+}

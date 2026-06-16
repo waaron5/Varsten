@@ -1,0 +1,35 @@
+{
+  "name": "anthropic_message_batch_result",
+  "provider": "anthropic",
+  "client_dialect": "anthropic",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "custom_id": "req_001",
+    "result": {
+      "type": "succeeded",
+      "message": {
+        "id": "msg_batch_fixture",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-3-5-sonnet-20241022",
+        "content": [
+          {
+            "type": "text",
+            "text": "Varsten reduces AI spend and proves the savings."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 12,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 10
+        }
+      }
+    }
+  }
+}

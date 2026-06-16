@@ -1,19 +1,21 @@
 # Provider key vaulting: migration to AWS Secrets Manager
 
-Status: planned. This documents the path from today's interim key storage to a
-KMS-backed vault, so a security reviewer can see a concrete, credible plan even
-though the implementation is deferred.
+Status: implemented behind `PROVIDER_KEY_BACKEND`. The data plane resolves
+provider keys through a provider-aware TTL cache; production writes and deletes
+use AWS Secrets Manager and local/dev can still use env maps for rollback.
 
 ## Today (interim, Phase 1)
 
-A client's upstream provider key (e.g. their OpenAI `sk-...`) is supplied to the
-backend as a JSON env var, `PROXY_OPENAI_KEYS`, mapping `project_id -> key`:
+A client's upstream provider key can be supplied to the backend as a JSON env var,
+either with the legacy OpenAI-only map `PROXY_OPENAI_KEYS` or the provider-aware
+map `PROXY_PROVIDER_KEYS`:
 
 ```json
-{"<project-uuid>": "sk-..."}
+{"anthropic": {"<project-uuid>": "sk-ant-..."}, "gemini": {"<project-uuid>": "AIza-..."}}
 ```
 
-It is read in `app/proxy/keys.py` (`openai_key_for_project`) off `settings.proxy_openai_keys`.
+It is read in `app/proxy/keys.py` through
+`provider_key_for_project(project_id, provider)`.
 
 Properties of the interim approach:
 
@@ -24,7 +26,7 @@ Properties of the interim approach:
 
 Limitations a CTO will (correctly) flag:
 
-- **Onboarding a client requires a redeploy** (env change), which does not scale
+- **Onboarding a client via env requires a redeploy**, which does not scale
   past a handful of tenants.
 - **All tenant keys are co-resident in one process env**, so the blast radius of a
   process compromise is every client's key.
@@ -49,38 +51,49 @@ varsten/<env>/provider-keys/<project_id>/<provider>   ->  {"api_key": "sk-..."}
 
 ### Code seam
 
-`app/proxy/keys.py` already isolates resolution behind one function. The migration
-is additive behind that seam:
+`app/proxy/keys.py` isolates resolution and storage behind a provider-aware seam:
 
 ```python
-# app/proxy/keys.py  (target)
-async def provider_key_for(project_id: uuid.UUID, provider: str) -> str | None:
-    return await _key_resolver.get(project_id, provider)
+# app/proxy/keys.py
+def provider_key_for_project(project_id: uuid.UUID, provider: str) -> str | None:
+    ...
+
+def store_provider_key_for_project(project_id: uuid.UUID, provider: str, api_key: str) -> str:
+    ...
+
+def delete_provider_key_for_project(project_id: uuid.UUID, provider: str) -> None:
+    ...
 ```
 
-- A `KeyResolver` interface with two implementations: `EnvKeyResolver` (today) and
-  `SecretsManagerKeyResolver` (target), selected by a `provider_key_backend`
-  setting. This mirrors the provider-adapter registry pattern already in the
-  codebase, so swapping backends is config, not a rewrite.
-- The proxy calls `provider_key_for(project.id, adapter.provider)` instead of
-  `openai_key_for_project(project.id)`, making key resolution provider-aware (it is
-  OpenAI-only today).
+- `EnvProviderKeyResolver` supports local/dev env maps and refuses writes.
+- `SecretsManagerProviderKeyResolver` stores one secret per
+  `(project_id, provider)` and can delete the same secret on disconnect.
+  It is selected with `PROVIDER_KEY_BACKEND=secretsmanager`.
+- The proxy calls `provider_key_for_project(project.id, adapter.provider)`, so
+  OpenAI, Anthropic, and Gemini all use the same hot-path key-resolution contract.
 
 ### Hot-path latency
 
 A Secrets Manager `GetSecretValue` call is ~10-30ms — unacceptable on every
 request. Mitigation:
 
-- **In-process TTL cache** (the same `cachetools.TTLCache` pattern now used for
-  pricing), keyed by `(project_id, provider)`, short TTL (e.g. 5 min). First
-  request for a tenant pays the fetch; subsequent ones are in-memory.
+- **In-process TTL cache** (`cachetools.TTLCache` guarded by an `RLock`), keyed by
+  `(project_id, provider)`, default TTL 5 minutes. First request for a tenant pays
+  the fetch; subsequent ones are in-memory.
 - **Decrypt cache** via the AWS SDK is also available; the TTL cache is the primary
   control.
-- Cache is invalidated on rotation (below), so a rotated key takes effect promptly.
+- Cache is invalidated on rotation and disconnect, so a changed key takes effect
+  promptly and a disconnected provider does not continue using a stale in-memory
+  credential.
 
-### Rotation
+### Rotation and disconnect
 
-- Secrets Manager rotation schedule (or manual rotate) writes a new version.
+- Manual rotate through `PUT /v1/admin/connections/{provider}` writes a new
+  Secrets Manager version and updates `provider_connections.last_verified_at`.
+- Disconnect through `DELETE /v1/admin/connections/{provider}` deletes the
+  Secrets Manager secret, clears `provider_connections.secret_ref`, marks the row
+  `not_connected`, and invalidates the in-process key cache.
+- Secrets Manager rotation schedule can also write a new version.
 - An **EventBridge rule on `SecretsManager` rotation events** publishes to the app
   (SNS/webhook) which calls `clear_provider_key_cache(project_id, provider)`,
   matching the `clear_price_cache()` invalidation hook already in pricing.
@@ -94,20 +107,18 @@ request. Mitigation:
   scoped by resource ARN prefix `varsten/<env>/provider-keys/*` only — not broad
   Secrets Manager access.
 - Writes (creating/rotating a tenant's key) are done by the onboarding/control
-  path with a separate, narrower role, never by the data-plane task role.
+  path with a separate role that also has `secretsmanager:CreateSecret`,
+  `secretsmanager:PutSecretValue`, and `secretsmanager:DeleteSecret`, never by
+  the data-plane task role.
 
 ### Migration steps (no downtime)
 
-1. Add `KeyResolver` interface + `EnvKeyResolver` wrapping today's behavior. No
-   behavior change. Ship.
-2. Add `SecretsManagerKeyResolver` + TTL cache + the `provider_key_backend` flag,
-   defaulting to `env`. Ship dark.
-3. Backfill: write each existing tenant's key into Secrets Manager under the new
+1. Backfill: write each existing tenant's key into Secrets Manager under the new
    layout (one-off script, run from the control path).
-4. Flip `provider_key_backend=secretsmanager` in staging, smoke test, then prod.
+2. Flip `PROVIDER_KEY_BACKEND=secretsmanager` in staging, smoke test, then prod.
    `EnvKeyResolver` stays as the instant rollback.
-5. Wire the EventBridge rotation -> cache-invalidation hook.
-6. Remove `PROXY_OPENAI_KEYS` from the env once prod is stable on the vault.
+3. Wire the EventBridge rotation -> cache-invalidation hook.
+4. Remove env maps once prod is stable on the vault.
 
 ### What this lets us tell a security reviewer
 

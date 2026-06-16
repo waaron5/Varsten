@@ -1,0 +1,8 @@
+data: {"id":"chatcmpl-fixture-openai","object":"chat.completion.chunk","created":1730000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Varsten"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-openai","object":"chat.completion.chunk","created":1730000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":" reduces AI spend."},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-fixture-openai","object":"chat.completion.chunk","created":1730000000,"model":"gpt-4o-mini","choices":[],"usage":{"prompt_tokens":19,"completion_tokens":6,"total_tokens":25}}
+
+data: [DONE]
+

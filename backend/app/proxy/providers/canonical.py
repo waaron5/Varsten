@@ -1,11 +1,10 @@
-"""Varsten's canonical completion form and the client-facing (OpenAI) renderers.
+"""Varsten's canonical completion form and OpenAI-compatible renderers.
 
-The client dialect is permanently OpenAI: Client #1 points the OpenAI SDK at us,
-so requests arrive OpenAI-shaped and responses must leave OpenAI-shaped no matter
-which provider served them. So egress rendering is a fixed, provider-agnostic
-concern and lives here, not in any provider adapter. Adapters translate the
-UPSTREAM side into the canonical form below; this module renders that form back
-out to the client and into the cache.
+The current chat-completions data plane returns OpenAI-compatible responses no
+matter which provider served them. Egress rendering is therefore a fixed,
+provider-agnostic concern and lives here, not in any provider adapter. Adapters
+translate the upstream side into the canonical form below; this module renders
+that form back out to the client and into the cache.
 """
 
 import json

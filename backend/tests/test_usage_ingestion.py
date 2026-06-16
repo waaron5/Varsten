@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import ModelCatalog, ModelPrice
+from app.models import ModelCatalog, ModelPrice, Organization
 
 # The ingestion endpoint derives cost via an async pricing bridge that runs on a
 # separate connection, so a price flushed into the test's savepoint transaction is
@@ -459,6 +459,16 @@ def test_product_section_read_apis_render_with_api_key(client, db_session):
 
 def test_product_section_config_writes(client, db_session):
     token = _key(client)
+    # This exercises behaviour-changing config (auto-rollback guardrail, hard cap),
+    # which is Performance-only, so run it on a Performance org.
+    import uuid as _uuid
+
+    me = client.post(
+        "/v1/auth/sync", headers=_bearer("auth0|ingest"), json={"email": "ingest@example.com", "name": None}
+    ).json()
+    org = db_session.get(Organization, _uuid.UUID(me["organizations"][0]["id"]))
+    org.plan_tier = "performance"
+    db_session.flush()
 
     lever = client.patch(
         "/v1/engine/levers/token_trim",

@@ -141,7 +141,7 @@ async def test_new_provider_nonstream_needs_zero_router_changes(
     async_client, async_db_session, async_provision, echo_provider, monkeypatch
 ):
     ws = await async_provision(sub="auth0|echo", email="echo@example.com")
-    monkeypatch.setattr(settings, "proxy_openai_keys", {ws["project_id"]: "sk-echo"})
+    monkeypatch.setattr(settings, "proxy_provider_keys", {"echo": {ws["project_id"]: "sk-echo"}})
     _mock_echo_upstream(monkeypatch, stream=False)
 
     res = await async_client.post(
@@ -165,7 +165,7 @@ async def test_new_provider_stream_translates_to_openai_sse(
     async_client, async_db_session, async_provision, echo_provider, monkeypatch
 ):
     ws = await async_provision(sub="auth0|echo", email="echo@example.com")
-    monkeypatch.setattr(settings, "proxy_openai_keys", {ws["project_id"]: "sk-echo"})
+    monkeypatch.setattr(settings, "proxy_provider_keys", {"echo": {ws["project_id"]: "sk-echo"}})
     _mock_echo_upstream(monkeypatch, stream=True)
 
     res = await async_client.post(

@@ -6,8 +6,10 @@ router resolves adapters only through get_adapter, so a new provider needs no
 router changes.
 """
 
+from app.proxy.providers.anthropic import AnthropicAdapter
 from app.proxy.providers.base import LLMAdapter, StreamTranslator
 from app.proxy.providers.canonical import CanonicalCompletion, CanonicalUsage
+from app.proxy.providers.gemini import GeminiAdapter
 from app.proxy.providers.openai import OpenAIAdapter
 
 __all__ = [
@@ -38,6 +40,6 @@ def get_adapter(provider: str) -> LLMAdapter:
         raise UnknownProvider(provider) from exc
 
 
-# Phase 1: OpenAI is the only registered provider. Anthropic/Gemini/Bedrock slot
-# in here as additional register() calls with no router changes.
 register(OpenAIAdapter())
+register(AnthropicAdapter())
+register(GeminiAdapter())

@@ -333,6 +333,51 @@ a { color: inherit; text-decoration: none; }
 .crumb { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
+/* --- plan badge (top nav) + plan card (side nav) --- */
+.plan-badge {
+  font-size: 12px; font-weight: 600; line-height: 1;
+  padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.plan-badge.free { color: var(--text-2); background: var(--surface-2); }
+.plan-badge.perf {
+  color: var(--pos); background: var(--pos-soft);
+  border-color: color-mix(in srgb, var(--pos) 28%, transparent);
+}
+.plan-upgrade-btn {
+  font-size: 12px; font-weight: 600; line-height: 1; text-decoration: none;
+  padding: 6px 12px; border-radius: 8px;
+  color: #fff; background: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, #000 0%);
+}
+.plan-upgrade-btn:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+
+.plan-card {
+  margin: 0 8px 8px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+}
+.plan-card.perf { border-color: color-mix(in srgb, var(--pos) 28%, var(--border)); }
+.plan-card-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.plan-card.perf .plan-card-title { color: var(--pos); }
+.plan-card-sub { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+.plan-card-cta {
+  display: inline-block; margin-top: 8px; font-size: 12px; font-weight: 600;
+  text-decoration: none; color: var(--accent);
+}
+.plan-card-cta:hover { text-decoration: underline; }
+
+/* --- contextual locked-section notice (one calm CTA per locked section) --- */
+.locked-notice {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 12px; padding: 12px 16px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2);
+}
+.locked-notice-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.locked-notice-text strong { font-size: 13px; font-weight: 600; color: var(--text); }
+.locked-notice-text span { font-size: 12px; color: var(--text-2); }
+.locked-notice .btn { white-space: nowrap; }
+
 .content {
   flex: 1;
   min-height: 0;
@@ -363,6 +408,8 @@ a { color: inherit; text-decoration: none; }
 .btn:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-press); border-color: var(--accent-press); }
+.btn.danger { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 24%, var(--border)); }
+.btn.danger:hover { background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 36%, var(--border)); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .input {
   padding: 8px 11px; border: 1px solid var(--border); border-radius: 8px;
@@ -601,6 +648,9 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .quality-track i { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
 .config-form { display: grid; gap: 10px; padding: 18px 20px; }
 .config-form .btn { justify-content: center; }
+.inline-form { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-width: 280px; }
+.inline-form .input { width: min(240px, 36vw); }
+.inline-form .btn { flex: 0 0 auto; }
 .alert {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -777,6 +827,8 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   .lever-row { padding: 15px 14px; }
   .lever-row-stats { gap: 18px; }
   .tbl .seg { min-width: 154px; }
+  .inline-form { min-width: 0; flex-wrap: wrap; }
+  .inline-form .input { width: 100%; min-width: 180px; }
 }
 
 /* ===================== Command Center ===================== */

@@ -4,14 +4,16 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_user
+from app.auth.entitlements import invalidate_plan_tier
 from app.core.config import settings
 from app.core.security import generate_api_key
 from app.db.session import get_db
-from app.models import ApiKey, Organization, OrgMembership, Project, UsageEvent, User
+from app.models import PLAN_TIERS, ApiKey, Organization, OrgMembership, Project, UsageEvent, User
 from app.schemas import OperatorProvisionRequest, OperatorProvisionResponse, OperatorValidationSummary
 
 router = APIRouter(prefix="/operator", tags=["operator"])
@@ -162,3 +164,32 @@ def validation_summary(
         fail_open_status=fail_open_status,
         follow_up_draft=_validation_draft(project, request_count, p95_latency_ms, saved_usd, fail_open_status),
     )
+
+
+class PlanUpdate(BaseModel):
+    plan_tier: str
+
+
+@router.post("/organizations/{organization_id}/plan")
+def set_organization_plan(
+    organization_id: uuid.UUID,
+    payload: PlanUpdate,
+    _operator: User = Depends(_operator_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Operator-only plan switch for testing Free vs Performance. Gated by
+    operator_admin_emails; there is deliberately no public/self-serve plan switch."""
+    tier = payload.plan_tier.strip().lower()
+    if tier not in PLAN_TIERS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"plan_tier must be one of {list(PLAN_TIERS)}",
+        )
+    org = db.get(Organization, organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
+    org.plan_tier = tier
+    db.commit()
+    # Take effect immediately on the proxy's cached tier lookup.
+    invalidate_plan_tier(organization_id)
+    return {"organization_id": str(org.id), "plan_tier": org.plan_tier}

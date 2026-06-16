@@ -26,17 +26,35 @@ class Settings(BaseSettings):
     # Set as JSON in env, e.g. OPERATOR_ADMIN_EMAILS='["aaron@varsten.ai"]'.
     operator_admin_emails: list[str] = []
 
-    # --- Phase 1 inline proxy (OpenAI only) ---
+    # --- Inline proxy provider keys / routing ---
     # Upstream provider for proxied traffic. Resolved through the provider adapter
-    # registry. Phase 1 ships only "openai"; the routing policy will select this
-    # per-request once multiple providers are registered.
+    # registry. Phase 1 ships only "openai"; multi-provider support registers
+    # additional providers behind the same seam.
     proxy_default_provider: str = "openai"
     # Upstream OpenAI base URL (overridable to point at a mock in tests).
     openai_base_url: str = "https://api.openai.com"
-    # Temporary env-vaulted provider keys: project_id -> OpenAI API key. Supplied
-    # as JSON in PROXY_OPENAI_KEYS, e.g. {"<project-uuid>": "sk-..."}. A real
-    # per-tenant KMS-backed vault replaces this later.
+    anthropic_base_url: str = "https://api.anthropic.com"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    # Legacy env-vaulted OpenAI keys: project_id -> OpenAI API key. Supplied as
+    # JSON in PROXY_OPENAI_KEYS, e.g. {"<project-uuid>": "sk-..."}. Retained for
+    # local/dev and rollback compatibility.
     proxy_openai_keys: dict[str, str] = {}
+    # Generic dev/test env key map: provider -> project_id -> key, e.g.
+    # PROXY_PROVIDER_KEYS='{"anthropic":{"<project-uuid>":"sk-ant-..."}}'.
+    # Production uses provider_key_backend="secretsmanager" instead.
+    proxy_provider_keys: dict[str, dict[str, str]] = {}
+    proxy_anthropic_keys: dict[str, str] = {}
+    proxy_gemini_keys: dict[str, str] = {}
+    # Production provider-key backend. "env" preserves local/dev compatibility;
+    # production should set "secretsmanager".
+    provider_key_backend: str = "env"
+    # Mandatory hot-path memory cache for decrypted provider keys. Secrets Manager
+    # lookups must never happen on every proxied request.
+    provider_key_cache_ttl_seconds: int = 300
+    provider_key_cache_maxsize: int = 4096
+    provider_key_secret_prefix: str = "varsten"
+    provider_key_secret_environment: str = "development"
+    provider_key_aws_region: str = ""
     # Master switch for the proxy cache (exact-hash lookup + store). This is the
     # Day One lever: byte-identical repeats serve from the store at $0 with zero
     # added latency (no embedding call). Turn this off to disable caching entirely.
@@ -75,6 +93,25 @@ class Settings(BaseSettings):
     proxy_stream_connect_timeout_seconds: float = 10.0
     proxy_stream_read_timeout_seconds: float = 30.0
     proxy_stream_total_timeout_seconds: float = 600.0
+    # Max size of the client-supplied X-Varsten-Metadata JSON header. Larger
+    # payloads are ignored (fail-open), never an error, so a misbehaving client
+    # cannot bloat a ledger row or break its own request.
+    proxy_metadata_max_bytes: int = 8192
+
+    # --- Self-serve hardening: provider key validation + rate limits ---
+    # Probe a provider key with a cheap authenticated call before storing it, so a
+    # bad key fails at connect time with a clear message instead of failing every
+    # proxied request later. Off in tests (the network probe is mocked/disabled).
+    provider_key_validation_enabled: bool = True
+    provider_key_validation_timeout_seconds: float = 8.0
+    # In-memory fixed-window rate limits. Single-process only (not distributed):
+    # with more than one app instance, move this to a shared store. Generous by
+    # default; fail-open if the limiter itself errors.
+    rate_limit_enabled: bool = True
+    # Per Varsten API key, on the inline proxy (the public, abuse-exposed surface).
+    proxy_rate_limit_per_minute: int = 600
+    # Per user, on the provider-connect endpoint (cheap to abuse against providers).
+    connect_rate_limit_per_minute: int = 20
     # Global kill switch. When true, every project's traffic bypasses all Varsten
     # optimization and forwards straight to OpenAI (still metered). The operator's
     # emergency lever; a per-project switch lives on the project row.

@@ -43,15 +43,16 @@ In:
 - Analysis views for spend, customers, and models
 - Admin views for connections, API keys, team, billing, and security
 - Usage explorer and setup flow as supporting/admin tools
+- Inline SDK-compatible proxy for OpenAI chat completions, Anthropic Messages,
+  Gemini native `generateContent`, Gemini OpenAI-compatible chat completions,
+  streaming, tool calls, provider-key vaulting, and cross-provider routing audit
+  records
 
 Out for v1:
 
-- production inline gateway or SDK wrapper in the request path
-- real eval/replay harness
-- live randomized holdback experiments
+- published SDKs
 - in-VPC data plane deployment
 - billing-grade invoice reconciliation
-- published SDKs
 - full enterprise permissions
 - advanced ML forecasting
 
@@ -74,6 +75,30 @@ Health check:
 ```bash
 curl http://localhost:8000/health
 ```
+
+Provider SDK drop-in routes supported by the local API:
+
+- OpenAI-compatible: `POST /v1/chat/completions`
+- Anthropic native: `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1/messages/batches`
+- Gemini native: `POST /v1beta/models/{model}:generateContent`, `:streamGenerateContent?alt=sse`, `:countTokens`, `POST /v1beta/batches`
+- Gemini OpenAI-compatible: `POST /v1beta/openai/chat/completions`
+
+Run opt-in SDK smoke tests against a running Varsten API:
+
+```bash
+cd backend
+uv pip install openai anthropic google-genai
+cd ..
+VARSTEN_SDK_SMOKE=1 \
+VARSTEN_SDK_SMOKE_BASE_URL=http://127.0.0.1:8000 \
+VARSTEN_SDK_SMOKE_API_KEY=vk_your_project_key \
+make backend-sdk-smoke
+```
+
+Optional model overrides are `VARSTEN_SDK_SMOKE_OPENAI_MODEL`,
+`VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL`, and `VARSTEN_SDK_SMOKE_GEMINI_MODEL`.
+
+Production multi-provider setup is covered in `docs/OPERATIONS_SETUP.md`.
 
 Seed the local product demo after migrations:
 

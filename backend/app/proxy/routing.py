@@ -37,7 +37,13 @@ ARM_TREATMENT = "treatment"
 
 class RouteDecision(NamedTuple):
     candidate_model: str
+    candidate_provider: str
     holdback_percent: Decimal
+    # Provenance for the moat decision-evidence record. Optional/defaulted so
+    # existing constructors and tests are unaffected.
+    lever: str | None = None
+    policy_id: uuid.UUID | None = None
+    source_recommendation_id: uuid.UUID | None = None
 
 
 async def _routing_policy_for_model(
@@ -61,7 +67,12 @@ async def _routing_policy_for_model(
 
 
 async def resolve_route(
-    db: AsyncSession, project_id: uuid.UUID, requested_model: str, body: dict | None = None
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    requested_model: str,
+    body: dict | None = None,
+    *,
+    requested_provider: str = "openai",
 ) -> RouteDecision | None:
     """The candidate model and holdback fraction for an enabled routing policy on
     this model, or None when none applies. For smart_routing the per-request
@@ -78,7 +89,14 @@ async def resolve_route(
             pred = (policy.params or {}).get("predicate")
             if not predicate_mod.is_eligible(body or {}, pred):
                 return None
-        return RouteDecision(policy.candidate_model, policy.holdback_percent or Decimal("0"))
+        return RouteDecision(
+            policy.candidate_model,
+            policy.candidate_provider or requested_provider,
+            policy.holdback_percent or Decimal("0"),
+            lever=policy.lever,
+            policy_id=policy.id,
+            source_recommendation_id=policy.source_recommendation_id,
+        )
     except Exception:
         logger.exception("routing lookup failed; forwarding original model", extra={"project_id": str(project_id)})
         return None

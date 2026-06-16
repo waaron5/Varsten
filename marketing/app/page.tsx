@@ -12,7 +12,7 @@ import {
 } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { APP_URL, CONTACT_HREF, DPA_REQUEST_HREF } from "./site-links";
+import { APP_URL, CONTACT_HREF, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
 
 const SAVINGS_RATE = 0.2;
 const VARSTEN_SHARE = 0.25;
@@ -602,7 +602,7 @@ function StickyBanner({
   );
 }
 
-function Nav({ onStartFree }: { onStartFree: () => void }) {
+function Nav({ onStartFree, onBookCall }: { onStartFree: () => void; onBookCall: () => void }) {
   return (
     <header className="lp-nav">
       <div className="lp-container lp-nav-inner">
@@ -623,6 +623,9 @@ function Nav({ onStartFree }: { onStartFree: () => void }) {
           <Link href="/security">Security</Link>
         </nav>
         <div className="lp-nav-right">
+          <button type="button" className="lp-link" onClick={onBookCall}>
+            Book setup call
+          </button>
           <a className="lp-link" href={APP_URL}>
             Sign in
           </a>
@@ -1129,43 +1132,32 @@ function Footer({ onStartTrial }: { onStartTrial: () => void }) {
 }
 
 export default function LandingPage() {
-  const [emailOpen, setEmailOpen] = useState(false);
   const [demoOpen, setDemoOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
   const anchorScrollingRef = useSmoothHashLinks();
 
-  const openEmail = () => setEmailOpen(true);
-  const closeEmail = () => setEmailOpen(false);
+  // Primary CTA: go straight into the self-serve onboarding funnel. No lead form,
+  // no Calendly. Booking a setup call stays available as a secondary escape hatch.
+  const startFree = () => {
+    window.location.href = START_FREE_HREF;
+  };
   const openDemo = () => setDemoOpen(true);
   const closeDemo = () => setDemoOpen(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-
-    if (params.get("lead") !== "start-free") {
-      return;
-    }
-
-    params.delete("lead");
-    const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
-    window.history.replaceState(null, "", nextUrl);
-    const timer = window.setTimeout(() => setEmailOpen(true), 0);
-
-    return () => window.clearTimeout(timer);
-  }, []);
+  const openCall = () => setCallOpen(true);
+  const closeCall = () => setCallOpen(false);
 
   return (
     <main className="lp-page">
-      <StickyBanner anchorScrollingRef={anchorScrollingRef} onStartTrial={openEmail} />
-      <Nav onStartFree={openEmail} />
-      <Hero onStartFree={openEmail} onWatchDemo={openDemo} />
+      <StickyBanner anchorScrollingRef={anchorScrollingRef} onStartTrial={startFree} />
+      <Nav onStartFree={startFree} onBookCall={openCall} />
+      <Hero onStartFree={startFree} onWatchDemo={openDemo} />
       <Mechanism />
       <Features />
-      <Pricing onStartFree={openEmail} onStartPerformance={openEmail} />
+      <Pricing onStartFree={startFree} onStartPerformance={startFree} />
       <SavingsProofSection />
-      <Footer onStartTrial={openEmail} />
+      <Footer onStartTrial={startFree} />
 
-      {emailOpen && <EmailModal onClose={closeEmail} />}
+      {callOpen && <EmailModal onClose={closeCall} />}
       {demoOpen && <DemoModal onClose={closeDemo} />}
     </main>
   );

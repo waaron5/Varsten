@@ -10,6 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
+from app.auth.entitlements import require_performance
+from app.core import ratelimit
+from app.core.config import settings
 from app.db.session import get_db
 from app.eval.gate import (
     EvalGateError,
@@ -41,6 +44,8 @@ from app.models import (
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.execution import activate_execution, deactivate_execution
 from app.proxy.experiment import compute_experiment
+from app.proxy.keys import ProviderKeyStoreUnsupported, delete_provider_key_for_project, store_provider_key_for_project
+from app.proxy.provider_validation import validate_provider_key
 from app.proxy.trim import LEVER as TRIM_LEVER
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import compute_savings_summary, record_applied_savings
@@ -57,6 +62,7 @@ LEVERS = (
     ("batching", "auto"),
 )
 VALID_LEVERS = {lever for lever, _ in LEVERS}
+VALID_PROVIDER_CONNECTIONS = {"openai", "anthropic", "gemini"}
 
 
 class LeverConfigUpdate(BaseModel):
@@ -93,6 +99,10 @@ class AlertRuleCreate(BaseModel):
     destination_type: Literal["email", "slack"]
     destination: str = Field(min_length=1, max_length=255)
     enabled: bool = True
+
+
+class ProviderConnectionUpsert(BaseModel):
+    api_key: str = Field(min_length=1, max_length=4096)
 
 
 def _month_start(now: datetime) -> datetime:
@@ -284,10 +294,37 @@ def _provider_connection_payload(connection: ProviderConnection) -> dict:
         "provider": connection.provider,
         "connection_method": connection.connection_method,
         "status": connection.status,
+        "key_vaulted": connection.secret_ref is not None,
         "last_sync_at": connection.last_sync_at,
+        "last_verified_at": connection.last_verified_at,
+        "last_error": connection.last_error,
         "created_at": connection.created_at,
         "updated_at": connection.updated_at,
     }
+
+
+def _provider_connection_record(
+    db: Session,
+    project: Project,
+    provider: str,
+) -> ProviderConnection:
+    connection = db.scalar(
+        select(ProviderConnection).where(
+            ProviderConnection.project_id == project.id,
+            ProviderConnection.provider == provider,
+        )
+    )
+    if connection is None:
+        connection = ProviderConnection(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            provider=provider,
+            connection_method="secrets_manager",
+            status="not_connected",
+        )
+        db.add(connection)
+        db.flush()
+    return connection
 
 
 def _monthly_report_payload(report: MonthlyReport) -> dict:
@@ -487,6 +524,10 @@ def engine_update_recommendation(
     _assert_member(user, project, db)
     now = datetime.now(UTC)
     if payload.status == "applied":
+        # Observe-only gate: applying a recommendation activates a behaviour-changing
+        # lever, so it is Performance-only. Free stays observe-only. Dismiss / roll
+        # back / reopen remain available on every tier.
+        require_performance(db, project, action="Applying a recommendation")
         # Medium-risk model-swap levers must clear a shadow eval before applying.
         # The gate raises if the route is unproven; a passing run lets us attribute
         # the MEASURED savings instead of the estimate.
@@ -697,6 +738,10 @@ def engine_update_route(
     rule = db.get(ProxyPolicy, rule_id)
     if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
+    # Enabling (resuming) a route changes production behaviour -> Performance only.
+    # Pausing is always allowed so a customer can stop optimization on any tier.
+    if payload.enabled:
+        require_performance(db, project, action="Enabling a routing policy")
     if payload.enabled is not None:
         rule.enabled = payload.enabled
     if payload.holdback_percent is not None:
@@ -721,6 +766,8 @@ def engine_update_trim(
     policy = db.get(ProxyPolicy, policy_id)
     if policy is None or policy.project_id != project.id or policy.lever != TRIM_LEVER:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="trim policy not found")
+    if payload.enabled:
+        require_performance(db, project, action="Enabling a token-trim policy")
     if payload.enabled is not None:
         policy.enabled = payload.enabled
     if payload.holdback_percent is not None:
@@ -775,6 +822,12 @@ def engine_update_lever(
     config = db.scalar(select(LeverConfig).where(LeverConfig.project_id == project.id, LeverConfig.lever == lever))
     if config is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lever not found")
+    # Turning a lever on, or moving it to auto-apply, changes production behaviour.
+    # Both are Performance-only; turning a lever off / back to approve stays open.
+    if payload.enabled:
+        require_performance(db, project, action="Enabling a lever")
+    if payload.automation_mode == "auto":
+        require_performance(db, project, action="Enabling lever automation")
     if payload.enabled is not None:
         config.enabled = payload.enabled
         config.paused_at = None if payload.enabled else datetime.now(UTC)
@@ -821,6 +874,9 @@ def create_report(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
+    # Generating/publishing a shareable executive report is an advanced (Performance)
+    # capability. Free keeps the read-only Proof dashboards.
+    require_performance(db, project, action="Generating an executive report")
     snapshot = _report_snapshot(db, project)
     report = db.scalar(
         select(MonthlyReport).where(
@@ -967,6 +1023,10 @@ def create_quality_guardrail(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
+    # Auto-rollback is a behaviour-changing control (it disables a live route on
+    # drift); gate it to Performance. A plain quality floor stays observe-friendly.
+    if payload.auto_rollback_enabled:
+        require_performance(db, project, action="Enabling auto-rollback guardrails")
     rule = QualityGuardrail(
         organization_id=project.organization_id,
         project_id=project.id,
@@ -999,6 +1059,10 @@ def create_budget_rule(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
+    # A hard cap blocks production traffic when exceeded -> behaviour-changing,
+    # Performance only. A soft budget (alert/track) is fine on Free.
+    if payload.hard_cap_enabled:
+        require_performance(db, project, action="Enabling a hard budget cap")
     rule = BudgetRule(
         organization_id=project.organization_id,
         project_id=project.id,
@@ -1182,6 +1246,110 @@ def admin_connections(
         "provider_connections": [_provider_connection_payload(connection) for connection in connections],
         "api_keys": [_api_key_payload(api_key) for api_key in keys],
     }
+
+
+@router.put("/admin/connections/{provider}", response_model=None)
+def upsert_admin_connection(
+    provider: str,
+    payload: ProviderConnectionUpsert,
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    _assert_member(user, project, db)
+    provider_name = provider.strip().lower()
+    if provider_name not in VALID_PROVIDER_CONNECTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unsupported provider")
+
+    # Rate limit: connecting a provider runs an authenticated probe against the
+    # provider, so it is cheap to abuse. Keyed per user.
+    if not ratelimit.allow(f"connect:{user.id}", settings.connect_rate_limit_per_minute):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="too many connection attempts; slow down and try again shortly",
+            headers={"Retry-After": "60"},
+        )
+
+    # Validate the key with a cheap probe before storing it, so a bad key fails
+    # here with a clear message rather than failing every proxied request later.
+    validation = validate_provider_key(provider_name, payload.api_key)
+    if not validation.ok:
+        connection = _provider_connection_record(db, project, provider_name)
+        connection.status = "error"
+        connection.last_error = validation.message
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=validation.message or "provider key validation failed",
+        )
+
+    try:
+        secret_ref = store_provider_key_for_project(project.id, provider_name, payload.api_key)
+    except ProviderKeyStoreUnsupported as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except Exception as exc:
+        connection = _provider_connection_record(db, project, provider_name)
+        connection.connection_method = "secrets_manager"
+        connection.status = "error"
+        connection.last_error = "provider key store failed"
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="provider key store failed",
+        ) from exc
+
+    now = datetime.now(UTC)
+    connection = _provider_connection_record(db, project, provider_name)
+    connection.connection_method = "secrets_manager"
+    connection.status = "connected"
+    connection.secret_ref = secret_ref
+    connection.last_sync_at = now
+    connection.last_verified_at = now
+    connection.last_error = None
+    db.commit()
+    db.refresh(connection)
+    return _provider_connection_payload(connection)
+
+
+@router.delete("/admin/connections/{provider}", response_model=None)
+def disconnect_admin_connection(
+    provider: str,
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    _assert_member(user, project, db)
+    provider_name = provider.strip().lower()
+    if provider_name not in VALID_PROVIDER_CONNECTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unsupported provider")
+
+    try:
+        delete_provider_key_for_project(project.id, provider_name)
+    except ProviderKeyStoreUnsupported as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        connection = _provider_connection_record(db, project, provider_name)
+        connection.connection_method = "secrets_manager"
+        connection.status = "error"
+        connection.last_error = "provider key delete failed"
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="provider key delete failed",
+        ) from exc
+
+    connection = _provider_connection_record(db, project, provider_name)
+    connection.connection_method = "secrets_manager"
+    connection.status = "not_connected"
+    connection.secret_ref = None
+    connection.last_sync_at = datetime.now(UTC)
+    connection.last_verified_at = None
+    connection.last_error = None
+    db.commit()
+    db.refresh(connection)
+    return _provider_connection_payload(connection)
 
 
 @router.get("/admin/team")

@@ -161,7 +161,7 @@ async def poll_all_projects(db: Session, *, now: datetime | None = None) -> dict
     """Poll in-flight batch jobs for every project that has one. The scheduler's
     entry point. Projects without a configured OpenAI key are skipped. Returns a
     map of project_id -> number of jobs synced."""
-    from app.proxy.keys import openai_key_for_project
+    from app.proxy.keys import provider_key_for_project
 
     project_ids = list(db.scalars(select(BatchJob.project_id).where(BatchJob.status.in_(ACTIVE_STATUSES)).distinct()))
     out: dict[str, int] = {}
@@ -169,7 +169,7 @@ async def poll_all_projects(db: Session, *, now: datetime | None = None) -> dict
         project = db.get(Project, pid)
         if project is None:
             continue
-        client_key = openai_key_for_project(pid)
+        client_key = provider_key_for_project(pid, "openai")
         if not client_key:
             continue
         synced = await sync_active_jobs(db, project, client_key, now=now)

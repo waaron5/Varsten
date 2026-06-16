@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.models import (
     EvalRun,
     ModelPrice,
+    Organization,
     Project,
     ProxyPolicy,
     Recommendation,
@@ -61,7 +62,12 @@ def reset_circuit():
 
 def _project(db, provision) -> Project:
     ws = provision(sub="auth0|route", email="route@example.com")
-    return db.get(Project, uuid.UUID(ws["project_id"]))
+    project = db.get(Project, uuid.UUID(ws["project_id"]))
+    # Routing is a Performance-tier lever; these tests exercise it on a paid org.
+    org = db.get(Organization, project.organization_id)
+    org.plan_tier = "performance"
+    db.flush()
+    return project
 
 
 def _mk_rec(db, project) -> Recommendation:

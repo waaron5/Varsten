@@ -36,7 +36,7 @@ from app.models import (
     User,
 )
 from app.models.eval import SOURCE_GOLDEN
-from app.proxy.keys import openai_key_for_project
+from app.proxy.keys import provider_key_for_project
 from app.schemas import (
     EvalCaptureConfigUpdate,
     EvalRunDetail,
@@ -116,7 +116,7 @@ def evaluate_recommendation(
             detail="no catalog cheaper-substitute found for this route's model",
         )
     project = db.get(Project, recommendation.project_id)
-    key = openai_key_for_project(project.id) if project else None
+    key = provider_key_for_project(project.id, "openai") if project else None
     if not key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

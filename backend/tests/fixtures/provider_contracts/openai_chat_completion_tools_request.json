@@ -1,0 +1,42 @@
+{
+  "name": "openai_chat_completion_tools_request",
+  "provider": "openai",
+  "client_dialect": "openai",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1/chat/completions",
+  "headers": {
+    "authorization": "Bearer vk_test",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather in Boston?"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Return current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto"
+  }
+}

@@ -1,4 +1,4 @@
-.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code
+.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code backend-sdk-smoke
 
 # Bring up the full local stack (Postgres + API + frontend). The API container
 # applies migrations on boot. First run builds the API image.
@@ -53,6 +53,11 @@ backend-typecheck:
 # Run tests with branch coverage and the configured minimum threshold.
 backend-test:
 	cd backend && .venv/bin/python -m pytest --cov=app --cov=scripts
+
+# Opt-in live SDK smoke tests. Requires a running Varsten API, a vk_ API key,
+# installed official SDKs, and configured upstream provider keys for the project.
+backend-sdk-smoke:
+	cd backend && .venv/bin/python -m pytest -m sdk_smoke tests/test_sdk_smoke.py
 
 # Static security scan for application code. Dependency vulnerability auditing
 # lives in backend-audit because it may need network access.

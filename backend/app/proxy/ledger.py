@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Project, UsageEvent
 from app.pricing import price_usage_event
+from app.proxy.request_context import RequestContext
 
 
 async def record_proxy_usage(
@@ -29,11 +30,13 @@ async def record_proxy_usage(
     cache_hit: bool,
     provider: str = "openai",
     naive_model: str | None = None,
+    naive_provider: str | None = None,
     arm: str | None = None,
     experiment_from: str | None = None,
     experiment_to: str | None = None,
     quality_ok: bool | None = None,
     latency_ms: int | None = None,
+    context: RequestContext | None = None,
     now: datetime | None = None,
 ) -> UsageEvent:
     at = now or datetime.now(UTC)
@@ -59,7 +62,7 @@ async def record_proxy_usage(
             "naive_cost_usd": str(used_cost) if used_cost is not None else None,
             "saved_usd": str(used_cost) if used_cost is not None else None,
         }
-    elif naive_model and naive_model != model:
+    elif naive_model and (naive_model != model or (naive_provider is not None and naive_provider != provider)):
         # Routed to a cheaper model. Actual spend is the candidate's cost; the
         # naive baseline is what the incumbent would have cost for the same tokens
         # (the direct method). The difference is measured savings.
@@ -67,7 +70,7 @@ async def record_proxy_usage(
             db,
             organization_id=project.organization_id,
             model_key=naive_model,
-            provider=provider,
+            provider=naive_provider or provider,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cached_input_tokens=cached_input_tokens,
@@ -82,6 +85,8 @@ async def record_proxy_usage(
             "routed": True,
             "routed_from": naive_model,
             "routed_to": model,
+            "routed_from_provider": naive_provider or provider,
+            "routed_to_provider": provider,
             "naive_cost_usd": str(naive_cost) if naive_cost is not None else None,
             "saved_usd": str(saved) if saved is not None else None,
         }
@@ -108,6 +113,14 @@ async def record_proxy_usage(
         if quality_ok is not None:
             metadata["quality_ok"] = quality_ok
 
+    # Client-supplied business/task context. Business dimensions populate the
+    # existing first-class columns; task/quality context rides in metadata for
+    # Phase 1 (and is mirrored, indexed, onto the decision-evidence table).
+    # Absent context preserves the prior defaults (feature="proxy", prod).
+    ctx = context
+    if ctx is not None and not ctx.is_empty:
+        metadata.update(ctx.task_metadata())
+
     event = UsageEvent(
         project_id=project.id,
         organization_id=project.organization_id,
@@ -116,8 +129,14 @@ async def record_proxy_usage(
         model=model,
         operation="chat_completion",
         request_type="chat_completion",
-        feature="proxy",
-        environment="production",
+        feature=(ctx.feature if ctx and ctx.feature else "proxy"),
+        workflow=(ctx.workflow if ctx else None),
+        customer_id=(ctx.customer_id if ctx else None),
+        external_user_id=(ctx.external_user_id if ctx else None),
+        user_id=(ctx.user_id if ctx else None),
+        team=(ctx.team if ctx else None),
+        department=(ctx.department if ctx else None),
+        environment=(ctx.environment if ctx and ctx.environment else "production"),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cached_input_tokens=cached_input_tokens,

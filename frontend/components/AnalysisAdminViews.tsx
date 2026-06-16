@@ -22,6 +22,7 @@ import type {
   AnalysisModels,
   AnalysisSpend,
   ApiKeyCreated,
+  ProviderConnection,
 } from "@/lib/types";
 
 const ANALYSIS_TABS = [
@@ -35,6 +36,19 @@ const ADMIN_TABS = [
   { href: "/admin/team", label: "Team" },
   { href: "/admin/billing-security", label: "Billing & security" },
 ];
+const PROVIDERS = [
+  { id: "openai", label: "OpenAI", placeholder: "sk-..." },
+  { id: "anthropic", label: "Anthropic", placeholder: "sk-ant-..." },
+  { id: "gemini", label: "Gemini", placeholder: "AIza..." },
+];
+
+type ProviderBusy = { provider: string; action: "save" | "disconnect" } | null;
+
+function providerStatusTone(status: string): string {
+  if (status === "connected") return "green";
+  if (status === "error") return "amber";
+  return "neutral";
+}
 
 function marginPct(revenue: string | number | null, margin: string | number | null): string {
   const rev = numberValue(revenue);
@@ -164,29 +178,131 @@ export function AdminConnectionsView() {
 }
 
 function ProviderConnectionsCard({
+  activeProjectId,
+  busy,
   data,
   error,
+  keyDrafts,
   loading,
+  onDisconnect,
+  onKeyDraft,
+  onSave,
 }: {
+  activeProjectId: string | null;
+  busy: ProviderBusy;
   data: AdminConnections | null | undefined;
   error: string | null;
+  keyDrafts: Record<string, string>;
   loading: boolean;
+  onDisconnect: (provider: string) => void;
+  onKeyDraft: (provider: string, value: string) => void;
+  onSave: (event: FormEvent, provider: string) => void;
 }) {
+  const connections = useMemo(() => {
+    const byProvider = new Map((data?.provider_connections ?? []).map((connection) => [connection.provider, connection]));
+    return PROVIDERS.map((provider) => ({
+      provider,
+      connection: byProvider.get(provider.id) ?? null,
+    }));
+  }, [data]);
+
   return (
     <div className="card">
       <div className="card-head"><h3>Provider connections</h3></div>
       {loading || error || !data ? (
         <PageState loading={loading} error={error} empty={!data && !loading ? "No connection data" : undefined} />
-      ) : data.provider_connections.length === 0 ? (
-        <PageState empty="No provider connections" emptyDetail="Metadata ingestion can still run through API keys while provider sync is not configured." />
       ) : (
-        <table className="tbl"><thead><tr><th>Provider</th><th>Method</th><th>Status</th><th className="r">Last sync</th></tr></thead><tbody>
-          {data.provider_connections.map((connection) => (
-            <tr key={connection.id}><td>{connection.provider}</td><td className="muted">{titleize(connection.connection_method)}</td><td><span className="pill neutral">{titleize(connection.status)}</span></td><td className="r">{connection.last_sync_at ? relativeTime(connection.last_sync_at) : "-"}</td></tr>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Status</th>
+              <th>Last verified</th>
+              <th>Key</th>
+              <th className="r">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+          {connections.map(({ provider, connection }) => (
+            <ProviderConnectionRow
+              activeProjectId={activeProjectId}
+              busy={busy}
+              connection={connection}
+              key={provider.id}
+              keyDraft={keyDrafts[provider.id] ?? ""}
+              onDisconnect={onDisconnect}
+              onKeyDraft={onKeyDraft}
+              onSave={onSave}
+              provider={provider}
+            />
           ))}
-        </tbody></table>
+          </tbody>
+        </table>
       )}
     </div>
+  );
+}
+
+function ProviderConnectionRow({
+  activeProjectId,
+  busy,
+  connection,
+  keyDraft,
+  onDisconnect,
+  onKeyDraft,
+  onSave,
+  provider,
+}: {
+  activeProjectId: string | null;
+  busy: ProviderBusy;
+  connection: ProviderConnection | null;
+  keyDraft: string;
+  onDisconnect: (provider: string) => void;
+  onKeyDraft: (provider: string, value: string) => void;
+  onSave: (event: FormEvent, provider: string) => void;
+  provider: { id: string; label: string; placeholder: string };
+}) {
+  const status = connection?.status ?? "not_connected";
+  const saving = busy?.provider === provider.id && busy.action === "save";
+  const disconnecting = busy?.provider === provider.id && busy.action === "disconnect";
+  const disabled = !!busy || !activeProjectId;
+  return (
+    <tr>
+      <td>
+        <div className="name">{provider.label}</div>
+        <div className="muted">{connection?.connection_method ? titleize(connection.connection_method) : "Secrets Manager"}</div>
+      </td>
+      <td>
+        <span className={`pill ${providerStatusTone(status)}`}>{titleize(status)}</span>
+        {connection?.last_error ? <div className="form-error">{connection.last_error}</div> : null}
+      </td>
+      <td>{connection?.last_verified_at ? relativeTime(connection.last_verified_at) : "-"}</td>
+      <td>
+        <form className="inline-form" onSubmit={(event) => onSave(event, provider.id)}>
+          <input
+            className="input"
+            type="password"
+            autoComplete="off"
+            placeholder={provider.placeholder}
+            value={keyDraft}
+            onChange={(event) => onKeyDraft(provider.id, event.target.value)}
+          />
+          <button className="btn primary" disabled={disabled || !keyDraft.trim()} type="submit">
+            {saving ? "Saving..." : connection?.key_vaulted ? "Rotate" : "Connect"}
+          </button>
+        </form>
+      </td>
+      <td className="r">
+        <button
+          className="btn danger"
+          disabled={disabled || !connection?.key_vaulted}
+          onClick={() => onDisconnect(provider.id)}
+          type="button"
+        >
+          {disconnecting ? "Disconnecting..." : "Disconnect"}
+        </button>
+      </td>
+    </tr>
   );
 }
 
@@ -237,6 +353,44 @@ function AdminConnectionsBody() {
   const [name, setName] = useState("Production ingestion");
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
   const [busy, setBusy] = useState(false);
+  const [providerBusy, setProviderBusy] = useState<ProviderBusy>(null);
+  const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
+
+  const setProviderKey = (provider: string, value: string) => {
+    setProviderKeys((current) => ({ ...current, [provider]: value }));
+  };
+
+  const saveProviderKey = async (event: FormEvent, provider: string) => {
+    event.preventDefault();
+    if (!activeProjectId || !providerKeys[provider]?.trim()) return;
+    setProviderBusy({ provider, action: "save" });
+    setError(null);
+    try {
+      await api.upsertProviderConnection(await getToken(), activeProjectId, provider, providerKeys[provider].trim());
+      setProviderKeys((current) => ({ ...current, [provider]: "" }));
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProviderBusy(null);
+    }
+  };
+
+  const disconnectProvider = async (provider: string) => {
+    if (!activeProjectId) return;
+    setProviderBusy({ provider, action: "disconnect" });
+    setError(null);
+    try {
+      await api.disconnectProviderConnection(await getToken(), activeProjectId, provider);
+      setProviderKeys((current) => ({ ...current, [provider]: "" }));
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProviderBusy(null);
+    }
+  };
+
   const createKey = async (event: FormEvent) => {
     event.preventDefault();
     if (!activeProjectId || !name.trim()) return;
@@ -258,7 +412,17 @@ function AdminConnectionsBody() {
       <PageHeader section="Admin" title="Connections" description="Provider connections and project ingestion keys." />
       <Tabs tabs={ADMIN_TABS} active="/admin/connections" />
       <div className="grid cols-2">
-        <ProviderConnectionsCard data={data} loading={loading} error={error} />
+        <ProviderConnectionsCard
+          activeProjectId={activeProjectId}
+          busy={providerBusy}
+          data={data}
+          error={error}
+          keyDrafts={providerKeys}
+          loading={loading}
+          onDisconnect={disconnectProvider}
+          onKeyDraft={setProviderKey}
+          onSave={saveProviderKey}
+        />
         <ApiKeysCard
           activeProjectId={activeProjectId}
           busy={busy}

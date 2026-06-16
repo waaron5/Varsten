@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { Auth0Provider } from "@auth0/nextjs-auth0";
-import { ApiKeyProvider } from "@/components/providers";
+import { EntitlementsProvider } from "@/components/entitlements";
 import { SessionProvider } from "@/components/session";
 import { AppShell, SIDEBAR_COOKIE } from "@/components/AppShell";
 import { auth0 } from "@/lib/auth0";
@@ -29,9 +29,9 @@ export default async function RootLayout({
       <body>
         <Auth0Provider user={session?.user}>
           <SessionProvider>
-            <ApiKeyProvider>
+            <EntitlementsProvider>
               <AppShell initialCollapsed={sidebarCollapsed}>{children}</AppShell>
-            </ApiKeyProvider>
+            </EntitlementsProvider>
           </SessionProvider>
         </Auth0Provider>
       </body>

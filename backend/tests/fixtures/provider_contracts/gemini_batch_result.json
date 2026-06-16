@@ -1,0 +1,44 @@
+{
+  "name": "gemini_batch_result",
+  "provider": "gemini",
+  "client_dialect": "gemini_native",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "name": "batches/gemini_fixture_batch",
+    "metadata": {
+      "@type": "type.googleapis.com/google.ai.generativelanguage.v1beta.BatchGenerateContentMetadata",
+      "state": "JOB_STATE_SUCCEEDED"
+    },
+    "response": {
+      "inlinedResponses": [
+        {
+          "response": {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "Varsten reduces AI spend and proves the savings."
+                    }
+                  ]
+                },
+                "finishReason": "STOP",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 10,
+              "candidatesTokenCount": 9,
+              "totalTokenCount": 19
+            }
+          }
+        }
+      ]
+    }
+  }
+}

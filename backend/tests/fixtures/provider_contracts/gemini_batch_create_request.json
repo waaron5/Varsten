@@ -1,0 +1,37 @@
+{
+  "name": "gemini_batch_create_request",
+  "provider": "gemini",
+  "client_dialect": "gemini_native",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1beta/batches",
+  "headers": {
+    "x-goog-api-key": "vk_test",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "models/gemini-3.5-flash",
+    "src": {
+      "inlinedRequests": [
+        {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Summarize Varsten."
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "maxOutputTokens": 64
+          }
+        }
+      ]
+    },
+    "config": {
+      "displayName": "varsten-fixture-batch"
+    }
+  }
+}

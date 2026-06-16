@@ -1,0 +1,34 @@
+{
+  "name": "anthropic_messages_tool_response",
+  "provider": "anthropic",
+  "client_dialect": "anthropic",
+  "direction": "response",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "id": "msg_fixture_anthropic_tool",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-sonnet-20241022",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_fixture_weather",
+        "name": "get_weather",
+        "input": {
+          "city": "Boston"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 121,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 18
+    }
+  }
+}

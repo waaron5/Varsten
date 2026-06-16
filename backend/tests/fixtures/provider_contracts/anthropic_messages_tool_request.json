@@ -1,0 +1,64 @@
+{
+  "name": "anthropic_messages_tool_request",
+  "provider": "anthropic",
+  "client_dialect": "anthropic",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1/messages",
+  "headers": {
+    "x-api-key": "vk_test",
+    "anthropic-version": "2023-06-01",
+    "anthropic-beta": "tools-2024-04-04",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 256,
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Return current weather for a city.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ]
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather in Boston?"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_fixture_weather",
+            "name": "get_weather",
+            "input": {
+              "city": "Boston"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_fixture_weather",
+            "content": "54F and clear"
+          }
+        ]
+      }
+    ]
+  }
+}

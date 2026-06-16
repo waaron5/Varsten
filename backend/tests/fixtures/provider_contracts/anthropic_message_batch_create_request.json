@@ -1,0 +1,43 @@
+{
+  "name": "anthropic_message_batch_create_request",
+  "provider": "anthropic",
+  "client_dialect": "anthropic",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1/messages/batches",
+  "headers": {
+    "x-api-key": "vk_test",
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json"
+  },
+  "body": {
+    "requests": [
+      {
+        "custom_id": "req_001",
+        "params": {
+          "model": "claude-3-5-sonnet-20241022",
+          "max_tokens": 64,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Summarize Varsten."
+            }
+          ]
+        }
+      },
+      {
+        "custom_id": "req_002",
+        "params": {
+          "model": "claude-3-5-haiku-20241022",
+          "max_tokens": 64,
+          "messages": [
+            {
+              "role": "user",
+              "content": "Write a short label for AI savings."
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.models import ModelPrice, Project, ProxyPolicy, Recommendation, UsageEvent
+from app.models import ModelPrice, Organization, Project, ProxyPolicy, Recommendation, UsageEvent
 from app.proxy import circuit, http_client
 from app.proxy import drift as drift_mod
 from app.proxy.execution import activate_execution, deactivate_execution
@@ -33,7 +33,12 @@ def reset_circuit():
 
 def _project(db, provision) -> Project:
     ws = provision(sub="auth0|trim", email="trim@example.com")
-    return db.get(Project, uuid.UUID(ws["project_id"]))
+    project = db.get(Project, uuid.UUID(ws["project_id"]))
+    # Token-trim is a Performance-tier lever; exercise it on a paid org.
+    org = db.get(Organization, project.organization_id)
+    org.plan_tier = "performance"
+    db.flush()
+    return project
 
 
 def _trim_rec(db, project) -> Recommendation:

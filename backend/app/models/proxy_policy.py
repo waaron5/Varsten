@@ -10,8 +10,9 @@ abstraction instead of a table each:
 
 - `cheaper_model` / `smart_routing` (ROUTING_LEVERS): rewrite the upstream model.
   `target_key` is the incumbent model. `params["candidate_model"]` is the model
-  to route to. `smart_routing` later adds a deterministic per-request predicate
-  in `params`; until then it behaves like a single-candidate swap.
+  to route to, with optional `params["candidate_provider"]` for cross-provider
+  swaps. `smart_routing` later adds a deterministic per-request predicate in
+  `params`; until then it behaves like a single-candidate swap.
 - `token_trim`: transform the request body before forwarding. `target_key` is the
   route. `params` holds the trim strategy config.
 - `batching` runs on its own async data plane (the /v1/batches mirror), not this
@@ -96,3 +97,7 @@ class ProxyPolicy(Base, TimestampMixin):
     @property
     def candidate_model(self) -> str | None:
         return (self.params or {}).get("candidate_model")
+
+    @property
+    def candidate_provider(self) -> str | None:
+        return (self.params or {}).get("candidate_provider")

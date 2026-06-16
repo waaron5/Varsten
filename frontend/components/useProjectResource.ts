@@ -20,22 +20,26 @@ export function useProjectResource<T>(
   setData: Dispatch<SetStateAction<T | null>>;
   setError: Dispatch<SetStateAction<string | null>>;
 } {
-  const { activeProjectId, getToken } = useSession();
+  const { activeProjectId, getToken, status } = useSession();
   const [data, setData] = useState<T | null>(initialData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    if (status !== "ready" || !activeProjectId) {
+      setLoading(status === "loading");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      setData(await loadResource(await getToken(), activeProjectId ?? undefined));
+      setData(await loadResource(await getToken(), activeProjectId));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId, getToken, loadResource]);
+  }, [activeProjectId, getToken, loadResource, status]);
 
   useDeferredLoad(reload);
 

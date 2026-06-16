@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.core.observability import RequestContextMiddleware, init_sentry
 from app.proxy import http_client
+from app.proxy.router import beta_router as proxy_beta_router
 from app.scheduler import scheduler
 
 configure_logging()
@@ -43,6 +44,7 @@ app.add_middleware(
 # other layer runs and access-logs the final status after everything else.
 app.add_middleware(RequestContextMiddleware)
 app.include_router(api_router)
+app.include_router(proxy_beta_router)
 
 
 @app.get("/health")

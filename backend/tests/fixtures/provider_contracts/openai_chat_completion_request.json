@@ -1,0 +1,27 @@
+{
+  "name": "openai_chat_completion_request",
+  "provider": "openai",
+  "client_dialect": "openai",
+  "direction": "request",
+  "method": "POST",
+  "path": "/v1/chat/completions",
+  "headers": {
+    "authorization": "Bearer vk_test",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a concise assistant."
+      },
+      {
+        "role": "user",
+        "content": "Write one sentence about Varsten."
+      }
+    ],
+    "temperature": 0.2,
+    "max_tokens": 64
+  }
+}
