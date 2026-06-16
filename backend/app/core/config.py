@@ -199,5 +199,54 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     sentry_environment: str = "development"
 
+    # --- Deployment environment ---
+    # Drives production self-checks at startup. "production" makes a misconfigured
+    # deploy fail loudly at boot (validate_production) instead of silently running
+    # on dev-safe defaults (no auth, env-vaulted keys, localhost CORS). Set
+    # APP_ENV=production in the real environment.
+    app_env: str = "development"
+
+
+def _localhost_origin(origin: str) -> bool:
+    o = origin.lower()
+    return "localhost" in o or "127.0.0.1" in o or "0.0.0.0" in o  # nosec B104 - substring check, not a socket bind
+
+
+def validate_production(s: "Settings") -> list[str]:
+    """Return the list of production-readiness problems with ``s``.
+
+    These are the dev-safe defaults that are dangerous in production: no dashboard
+    auth, provider keys read from env instead of the vault, browser CORS open to
+    localhost, and no error visibility. Empty list means the config is safe to
+    serve a real customer. Pure function so it is unit-testable without booting.
+    """
+    problems: list[str] = []
+    if not s.auth0_domain or not s.auth0_audience:
+        problems.append("AUTH0_DOMAIN and AUTH0_AUDIENCE must be set (dashboard auth is disabled without them).")
+    if s.provider_key_backend.strip().lower() != "secretsmanager":
+        problems.append("PROVIDER_KEY_BACKEND must be 'secretsmanager' in production (env-vaulted keys are dev-only).")
+    elif not s.provider_key_aws_region:
+        problems.append("PROVIDER_KEY_AWS_REGION must be set when PROVIDER_KEY_BACKEND=secretsmanager.")
+    if not s.cors_origins:
+        problems.append("CORS_ORIGINS must list the real frontend origin(s).")
+    elif any(_localhost_origin(o) for o in s.cors_origins):
+        problems.append(f"CORS_ORIGINS must not include a localhost origin in production: {s.cors_origins}.")
+    if not s.sentry_dsn:
+        problems.append("SENTRY_DSN must be set in production so errors are visible.")
+    return problems
+
+
+def assert_production_ready(s: "Settings") -> None:
+    """Raise if ``s`` is unsafe to serve production traffic. Called at startup only
+    when APP_ENV=production, so a bad deploy never silently degrades a customer."""
+    if s.app_env.strip().lower() != "production":
+        return
+    problems = validate_production(s)
+    if problems:
+        raise RuntimeError(
+            "Refusing to start: APP_ENV=production but the configuration is not production-ready:\n"
+            + "\n".join(f"  - {p}" for p in problems)
+        )
+
 
 settings = Settings()

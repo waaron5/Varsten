@@ -33,27 +33,27 @@ router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 def _metadata_quality(task_type: str | None, feature: str | None, workflow: str | None) -> dict:
     """A friendly nudge that rewards good metadata without making it mandatory."""
     if task_type:
-        return {"level": "great", "message": "Great: task_type was included. Workflow-level savings analysis is unlocked."}
+        return {
+            "level": "great",
+            "message": "Great: task_type was included. Workflow-level savings analysis is unlocked.",
+        }
     if feature or workflow:
         return {"level": "good", "message": "Add task_type metadata to unlock better savings recommendations."}
-    return {"level": "none", "message": "Optional: add X-Varsten-Metadata (feature, workflow, task_type) to break spend down by workload."}
+    return {
+        "level": "none",
+        "message": "Optional: add X-Varsten-Metadata (feature, workflow, task_type) to break spend down by workload.",
+    }
 
 
 def _first_request(db: Session, project: Project) -> dict:
-    count = db.scalar(
-        select(func.count()).select_from(UsageEvent).where(UsageEvent.project_id == project.id)
-    ) or 0
+    count = db.scalar(select(func.count()).select_from(UsageEvent).where(UsageEvent.project_id == project.id)) or 0
     event = db.scalar(
         select(UsageEvent).where(UsageEvent.project_id == project.id).order_by(UsageEvent.received_at.desc()).limit(1)
     )
     if event is None:
         return {"seen": False, "request_count": 0, "metadata_quality": _metadata_quality(None, None, None)}
 
-    decision = db.scalar(
-        select(RequestDecisionEvent)
-        .where(RequestDecisionEvent.usage_event_id == event.id)
-        .limit(1)
-    )
+    decision = db.scalar(select(RequestDecisionEvent).where(RequestDecisionEvent.usage_event_id == event.id).limit(1))
     meta = event.event_metadata or {}
     task_type = meta.get("task_type") or (decision.task_type if decision else None)
     return {
@@ -85,11 +85,12 @@ def onboarding_status(
     org = db.get(Organization, project.organization_id)
     plan_tier = org.plan_tier if org else "free"
 
-    active_keys = db.scalar(
-        select(func.count())
-        .select_from(ApiKey)
-        .where(ApiKey.project_id == project.id, ApiKey.revoked_at.is_(None))
-    ) or 0
+    active_keys = (
+        db.scalar(
+            select(func.count()).select_from(ApiKey).where(ApiKey.project_id == project.id, ApiKey.revoked_at.is_(None))
+        )
+        or 0
+    )
 
     connections = list(
         db.scalars(

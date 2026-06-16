@@ -50,7 +50,13 @@ def test_status_fresh_workspace_is_observe_only(client, provision, db_session):
 
 def test_status_detects_first_request(client, provision, db_session):
     p = provision()
-    _add_event(db_session, p, feature="support_reply", workflow="billing", event_metadata={"task_type": "support_reply.billing"})
+    _add_event(
+        db_session,
+        p,
+        feature="support_reply",
+        workflow="billing",
+        event_metadata={"task_type": "support_reply.billing"},
+    )
     s = _status(client, p)
     fr = s["first_request"]
     assert fr["seen"] is True

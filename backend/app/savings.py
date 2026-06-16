@@ -27,6 +27,7 @@ from app.models import (
     SavingsAttribution,
     UsageEvent,
 )
+from app.savings_measurement import METHOD_ESTIMATED, compute_verified_savings, is_measured
 
 # Varsten's share of verified savings. One business parameter, not a fabricated
 # output; later this moves to per-org billing config.
@@ -39,10 +40,28 @@ class SavingsSummary(TypedDict):
     period_start: datetime
     period_end: datetime
     actual_spend_usd: Decimal
+    # NOTE: the gross/fee/net/counterfactual fields below are the ESTIMATED impact
+    # of applied optimizations, derived from recommendation estimates. They are NOT
+    # measured savings and must never be presented as "saved" — see the verified_*
+    # fields, which are the audited number. Kept under these names for backward
+    # compatibility with existing read paths.
     counterfactual_spend_usd: Decimal
     gross_savings_usd: Decimal
     varsten_fee_usd: Decimal
     net_savings_usd: Decimal
+    # Estimated opportunity still on the table (open, not-yet-applied recommendations).
+    estimated_opportunity_usd: Decimal
+    # Verified (measured) savings — direct + holdback, from the ledger. The honest
+    # "saved" number, with the fee and net Varsten can actually bill.
+    direct_measured_usd: Decimal
+    holdback_measured_usd: Decimal
+    holdback_ci_low_usd: Decimal
+    holdback_ci_high_usd: Decimal
+    holdback_has_signal: bool
+    verified_savings_usd: Decimal
+    verified_fee_usd: Decimal
+    verified_net_usd: Decimal
+    billable_savings_usd: Decimal
 
 
 def month_start(now: datetime) -> datetime:
@@ -129,20 +148,25 @@ def record_applied_savings(
             SavingsAttribution.period_end == end,
         )
     )
+    method = recommendation.measurement_method or METHOD_ESTIMATED
+    # A row is "measured" only when its method is one of the measured methods
+    # (replay/holdback/direct). Otherwise it is honestly an estimate.
+    row_status = "measured" if is_measured(method) else "estimated"
     if attribution is None:
         attribution = SavingsAttribution(
             organization_id=project.organization_id,
             project_id=project.id,
             lever=recommendation.lever,
-            measurement_method=recommendation.measurement_method or "estimated",
-            status="estimated",
+            measurement_method=method,
+            status=row_status,
             period_start=start,
             period_end=end,
         )
         db.add(attribution)
 
     attribution.recommendation_id = recommendation.id
-    attribution.measurement_method = recommendation.measurement_method or "estimated"
+    attribution.measurement_method = method
+    attribution.status = row_status
     attribution.gross_savings_usd = gross
     attribution.varsten_fee_usd = fee
     attribution.net_savings_usd = net
@@ -194,6 +218,21 @@ def compute_savings_summary(db: Session, project: Project, now: datetime | None 
     fee = _q(agg.fee)
     net = _q(agg.net)
 
+    # Estimated opportunity still open (not yet applied). Clearly an estimate.
+    opportunity = db.scalar(
+        select(func.coalesce(func.sum(Recommendation.estimated_monthly_savings_usd), 0)).where(
+            Recommendation.project_id == project.id,
+            Recommendation.status == "open",
+        )
+    ) or Decimal("0")
+
+    # Verified (measured) savings from the ledger. This is the audited "saved"
+    # number; the fee is charged on it (billable), never on the estimate.
+    verified = compute_verified_savings(db, project.id, start, end)
+    verified_gross = verified["verified_savings_usd"]
+    verified_fee = _q(verified_gross * FEE_PERCENT)
+    verified_net = verified_gross - verified_fee
+
     return {
         "period_start": start,
         "period_end": now,
@@ -202,4 +241,14 @@ def compute_savings_summary(db: Session, project: Project, now: datetime | None 
         "gross_savings_usd": gross,
         "varsten_fee_usd": fee,
         "net_savings_usd": net,
+        "estimated_opportunity_usd": _q(opportunity),
+        "direct_measured_usd": verified["direct_measured_usd"],
+        "holdback_measured_usd": verified["holdback_measured_usd"],
+        "holdback_ci_low_usd": verified["holdback_ci_low_usd"],
+        "holdback_ci_high_usd": verified["holdback_ci_high_usd"],
+        "holdback_has_signal": verified["holdback_has_signal"],
+        "verified_savings_usd": verified_gross,
+        "verified_fee_usd": verified_fee,
+        "verified_net_usd": verified_net,
+        "billable_savings_usd": verified_gross,
     }

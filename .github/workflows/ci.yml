@@ -7,7 +7,7 @@ on:
 
 jobs:
   backend:
-    name: Backend tests
+    name: Backend
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -36,13 +36,27 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen
+      # Static gates run first so a formatting/type/security/complexity regression
+      # fails fast, before the slower DB-backed test run.
+      - name: Lint (ruff check + format)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Typecheck (mypy)
+        run: uv run mypy app scripts tests
+      - name: Security scan (bandit)
+        run: uv run bandit -q -c pyproject.toml -r app scripts
+      - name: Complexity budget
+        run: |
+          uv run radon cc app scripts -s -nb
+          uv run python -m scripts.check_complexity
       - name: Apply migrations
         run: uv run alembic upgrade head
-      - name: Run tests
-        run: uv run pytest -q
+      - name: Run tests with coverage
+        run: uv run pytest --cov=app --cov=scripts
 
   frontend:
-    name: Frontend build
+    name: Frontend
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -65,5 +79,35 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Build
         run: npm run build
+
+  marketing:
+    name: Marketing
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: marketing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: marketing/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+
+  docker:
+    name: Docker build (API image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t varsten-api:ci ./backend

@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
-from app.auth.entitlements import require_performance
+from app.auth.entitlements import is_performance, require_performance
 from app.core import ratelimit
 from app.core.config import settings
 from app.db.session import get_db
@@ -406,10 +406,14 @@ def _report_snapshot(db: Session, project: Project) -> dict:
             .limit(5)
         )
     ]
+    # Honest framing: the applied-optimization figure is an ESTIMATE; the verified
+    # figure is measured from the ledger. Never present the estimate as "saved".
     summary = (
-        f"Varsten saved {_money(savings['gross_savings_usd']):,.2f} gross this month, "
-        f"{_money(savings['net_savings_usd']):,.2f} net after fee, across "
-        f"{quality['requests_month']} measured requests."
+        f"Applied optimizations carry an estimated monthly impact of "
+        f"{_money(savings['gross_savings_usd']):,.2f} "
+        f"({_money(savings['net_savings_usd']):,.2f} net after fee). "
+        f"Verified, measured savings this month: {_money(savings['verified_savings_usd']):,.2f}. "
+        f"Across {quality['requests_month']} measured requests."
     )
     return {
         "period_start": start,
@@ -418,6 +422,11 @@ def _report_snapshot(db: Session, project: Project) -> dict:
         "executive_summary": summary,
         "counterfactual_spend_usd": _money(savings["counterfactual_spend_usd"]),
         "actual_spend_usd": _money(savings["actual_spend_usd"]),
+        # These persist to MonthlyReport columns and hold the ESTIMATED impact of
+        # applied optimizations. The executive_summary above states the verified
+        # (measured) figure alongside it; the live /proof/savings endpoint exposes
+        # the full verified breakdown. Persisting verified columns is a follow-up
+        # migration.
         "gross_savings_usd": _money(savings["gross_savings_usd"]),
         "varsten_fee_usd": _money(savings["varsten_fee_usd"]),
         "net_savings_usd": _money(savings["net_savings_usd"]),
@@ -473,13 +482,21 @@ def command_center(
     # savings figure. A zero-traffic project shows "—" everywhere (null here),
     # never a fabricated $0 that implies a measurement that never happened.
     gross = summary["gross_savings_usd"]
+    verified = summary["verified_savings_usd"]
     has_events = spend_row.requests_month > 0
     has_savings = gross != Decimal("0")
+    has_verified = verified != Decimal("0")
     return {
         "live_savings": {
             "spend_month": spend_row.spend_month if has_events else None,
+            # saved_month is the ESTIMATED impact of applied optimizations, kept for
+            # back-compat. The UI should lead with verified_saved_month (measured)
+            # and label estimated_impact_month as an estimate, never as "saved".
             "saved_month": gross if has_savings else None,
             "net_saved_month": summary["net_savings_usd"] if has_savings else None,
+            "estimated_impact_month": gross if has_savings else None,
+            "verified_saved_month": verified if has_verified else None,
+            "verified_net_saved_month": summary["verified_net_usd"] if has_verified else None,
             "annual_run_rate": (_money(gross) * Decimal("12")) if has_savings else None,
             "trust_score": quality["trust_score"],
         },
@@ -951,13 +968,63 @@ def proof_savings(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    # actual = real month-to-date spend run-rated; counterfactual = actual plus the
-    # savings attributed to applied recommendations. Every number is derived.
+    """Proof of savings, split by provenance so a skeptical reader can tell an
+    estimate from a measurement:
+
+    - observed: real month-to-date spend.
+    - estimated: the modeled impact of applied optimizations, plus open
+      opportunity. Never presented as "saved".
+    - verified (Performance only): savings measured from the ledger -- direct
+      (cache/batch/route avoided cost) plus holdback A/B with a confidence
+      interval. This is the number the fee is billed on.
+    """
     summary = compute_savings_summary(db, project)
-    return {
-        **summary,
-        "measurement_note": "v1 savings are the applied recommendations' run-rate estimates, labelled by measurement method. Randomized-holdback measurement is the production upgrade.",
+    performance = is_performance(db, project)
+    payload = {
+        "plan_tier": "performance" if performance else "free",
+        "period_start": summary["period_start"],
+        "period_end": summary["period_end"],
+        "observed_spend_usd": summary["actual_spend_usd"],
+        "estimated": {
+            "label": "Estimated impact of applied optimizations (modeled, not measured)",
+            "gross_savings_usd": summary["gross_savings_usd"],
+            "net_savings_usd": summary["net_savings_usd"],
+            "varsten_fee_usd": summary["varsten_fee_usd"],
+            "counterfactual_spend_usd": summary["counterfactual_spend_usd"],
+            "open_opportunity_usd": summary["estimated_opportunity_usd"],
+        },
+        # Back-compat top-level keys (estimated impact). Prefer the grouped fields.
+        "actual_spend_usd": summary["actual_spend_usd"],
+        "counterfactual_spend_usd": summary["counterfactual_spend_usd"],
+        "gross_savings_usd": summary["gross_savings_usd"],
+        "varsten_fee_usd": summary["varsten_fee_usd"],
+        "net_savings_usd": summary["net_savings_usd"],
     }
+    if performance:
+        payload["verified"] = {
+            "label": "Verified savings, measured from the ledger",
+            "direct_measured_usd": summary["direct_measured_usd"],
+            "holdback_measured_usd": summary["holdback_measured_usd"],
+            "holdback_ci_low_usd": summary["holdback_ci_low_usd"],
+            "holdback_ci_high_usd": summary["holdback_ci_high_usd"],
+            "holdback_has_signal": summary["holdback_has_signal"],
+            "verified_savings_usd": summary["verified_savings_usd"],
+            "verified_fee_usd": summary["verified_fee_usd"],
+            "verified_net_usd": summary["verified_net_usd"],
+            "billable_savings_usd": summary["billable_savings_usd"],
+        }
+        payload["measurement_note"] = (
+            "Verified savings are measured: direct (cache/batch/route avoided cost summed from the "
+            "ledger) plus holdback A/B with a 95% confidence interval. Estimated figures are the "
+            "modeled impact of applied optimizations and are shown separately, never as 'saved'."
+        )
+    else:
+        payload["measurement_note"] = (
+            "Free is observe-only: these are estimated opportunity figures, not measured savings. "
+            "Verified, measured savings unlock on Performance, where Varsten applies levers and "
+            "proves the result against a live holdback."
+        )
+    return payload
 
 
 @router.get("/proof/attribution")

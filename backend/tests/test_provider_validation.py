@@ -62,7 +62,9 @@ def test_connect_rejects_invalid_key_without_storing(client, provision, db_sessi
 
     monkeypatch.setattr(product_sections, "store_provider_key_for_project", fail_if_called)
     monkeypatch.setattr(
-        product_sections, "validate_provider_key", lambda p, k: ValidationResult(False, "The provider rejected this key.")
+        product_sections,
+        "validate_provider_key",
+        lambda p, k: ValidationResult(False, "The provider rejected this key."),
     )
 
     resp = client.put(_path(ws["project_id"], "openai"), headers=auth_headers(ws["token"]), json={"api_key": "sk-bad"})

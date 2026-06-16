@@ -52,7 +52,9 @@ def _body():
 
 
 @pytest.mark.anyio
-async def test_free_does_not_cache_or_capture_savings(async_client, async_provision, async_db_session, monkeypatch, mock_openai):
+async def test_free_does_not_cache_or_capture_savings(
+    async_client, async_provision, async_db_session, monkeypatch, mock_openai
+):
     p = await async_provision(plan_tier="free")
     monkeypatch.setattr(settings, "proxy_openai_keys", {p["project_id"]: "sk-test"})
     headers = {"Authorization": f"Bearer {p['api_key']}"}
@@ -67,7 +69,9 @@ async def test_free_does_not_cache_or_capture_savings(async_client, async_provis
     # saved_usd was recorded (no captured savings on Free).
     assert mock_openai["completions"] == 2
     entries = await async_db_session.scalar(
-        select(func.count()).select_from(ProxyCacheEntry).where(ProxyCacheEntry.project_id == uuid.UUID(p["project_id"]))
+        select(func.count())
+        .select_from(ProxyCacheEntry)
+        .where(ProxyCacheEntry.project_id == uuid.UUID(p["project_id"]))
     )
     assert entries == 0
     events = list(

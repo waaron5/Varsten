@@ -123,7 +123,9 @@ class RequestDecisionEvent(Base):
     # swap applied).
     provider_counterfactual: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model_counterfactual: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    counterfactual_path: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    counterfactual_path: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
 
     # --- economics (measured; predicted is deferred to the learning phase) ---
     realized_naive_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)

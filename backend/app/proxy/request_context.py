@@ -95,13 +95,7 @@ class RequestContext:
 
     @property
     def is_empty(self) -> bool:
-        return (
-            not any(
-                getattr(self, f) is not None
-                for f in (*_STRING_FIELDS, "task_confidence")
-            )
-            and not self.extra
-        )
+        return not any(getattr(self, f) is not None for f in (*_STRING_FIELDS, "task_confidence")) and not self.extra
 
     def task_metadata(self) -> dict[str, Any]:
         """Task/quality context to merge into the ledger's metadata JSONB. Business

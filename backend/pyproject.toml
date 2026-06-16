@@ -94,6 +94,12 @@ check_untyped_defs = true
 ignore_missing_imports = true
 no_implicit_optional = true
 no_site_packages = true
+# tests/ has no __init__.py (so pytest can collect conftest by path). Without these
+# mypy resolves tests/conftest.py as both "conftest" and "tests.conftest" and aborts
+# with a duplicate-module error. Anchoring package names to the backend root (the cwd)
+# makes every file resolve to exactly one module name.
+namespace_packages = true
+explicit_package_bases = true
 pretty = true
 show_error_codes = true
 warn_redundant_casts = true

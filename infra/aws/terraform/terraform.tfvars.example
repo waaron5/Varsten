@@ -1,0 +1,28 @@
+# Copy to terraform.tfvars (gitignored) or pass with -var-file. One file per
+# environment; keep staging and production in separate Terraform workspaces/state.
+
+region      = "us-east-1"
+environment = "production"
+
+# Pin to an immutable image tag (a git SHA). Never "latest" — rollback is just
+# re-applying the previous SHA.
+image_tag = "REPLACE_WITH_GIT_SHA"
+
+# Real frontend origin(s) as a JSON array. The API refuses to boot in production
+# if this contains localhost.
+cors_origins = "[\"https://app.varsten.ai\"]"
+
+auth0_domain   = "varsten.us.auth0.com"
+auth0_audience = "https://api.varsten.ai"
+
+# Required in production (the API refuses to boot without it). Treat as a secret;
+# prefer TF_VAR_sentry_dsn in the environment over committing it.
+sentry_dsn = "https://REPLACE@oXXXX.ingest.sentry.io/XXXX"
+
+# Sized for a first customer. Scale up, not out, until the in-process scheduler
+# and rate limiter move to a shared store (keep app_max_instances = 1).
+db_instance_class        = "db.t4g.small"
+db_backup_retention_days = 14
+db_deletion_protection   = true
+app_min_instances        = 1
+app_max_instances        = 1

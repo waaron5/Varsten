@@ -139,7 +139,9 @@ def test_confidence_is_clamped_and_junk_dropped():
 
 
 @pytest.mark.anyio
-async def test_context_populates_usage_event_and_evidence(async_client, async_provision, async_db_session, monkeypatch, mock_openai):
+async def test_context_populates_usage_event_and_evidence(
+    async_client, async_provision, async_db_session, monkeypatch, mock_openai
+):
     p = await async_provision()
     _configure_key(monkeypatch, p["project_id"])
 
@@ -164,7 +166,9 @@ async def test_context_populates_usage_event_and_evidence(async_client, async_pr
     assert resp.status_code == 200
     assert resp.headers.get("X-Varsten-Request-Id")
 
-    ue = (await async_db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == uuid.UUID(p["project_id"])))).one()
+    ue = (
+        await async_db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == uuid.UUID(p["project_id"])))
+    ).one()
     assert ue.feature == "support_reply"
     assert ue.workflow == "billing_support"
     assert ue.customer_id == "cust_123"
@@ -190,7 +194,9 @@ async def test_context_populates_usage_event_and_evidence(async_client, async_pr
 
 
 @pytest.mark.anyio
-async def test_no_metadata_preserves_defaults(async_client, async_provision, async_db_session, monkeypatch, mock_openai):
+async def test_no_metadata_preserves_defaults(
+    async_client, async_provision, async_db_session, monkeypatch, mock_openai
+):
     p = await async_provision()
     _configure_key(monkeypatch, p["project_id"])
     resp = await async_client.post(
@@ -199,7 +205,9 @@ async def test_no_metadata_preserves_defaults(async_client, async_provision, asy
         json=_body(),
     )
     assert resp.status_code == 200
-    ue = (await async_db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == uuid.UUID(p["project_id"])))).one()
+    ue = (
+        await async_db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == uuid.UUID(p["project_id"])))
+    ).one()
     assert ue.feature == "proxy"
     assert ue.environment == "production"
     assert ue.workflow is None
@@ -369,15 +377,15 @@ async def test_evidence_tenant_isolation(async_client, async_provision, async_db
     a = await async_provision(project_name="a")
     b = await async_provision(project_name="b")
     _configure_key(monkeypatch, a["project_id"])
-    await async_client.post(
-        "/v1/chat/completions", headers={"Authorization": f"Bearer {a['api_key']}"}, json=_body()
-    )
+    await async_client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {a['api_key']}"}, json=_body())
     assert len(await _decisions(async_db_session, a["project_id"])) == 1
     assert len(await _decisions(async_db_session, b["project_id"])) == 0
 
 
 @pytest.mark.anyio
-async def test_evidence_failure_does_not_fail_request(async_client, async_provision, async_db_session, monkeypatch, mock_openai):
+async def test_evidence_failure_does_not_fail_request(
+    async_client, async_provision, async_db_session, monkeypatch, mock_openai
+):
     p = await async_provision()
     _configure_key(monkeypatch, p["project_id"])
 

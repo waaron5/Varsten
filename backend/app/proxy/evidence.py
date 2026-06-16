@@ -54,7 +54,9 @@ def _to_decimal(value) -> Decimal | None:
         return None
 
 
-def _decision_type(*, cache_status: str | None, bypassed: bool, arm: str | None, trim_applied: bool, routed: bool) -> str:
+def _decision_type(
+    *, cache_status: str | None, bypassed: bool, arm: str | None, trim_applied: bool, routed: bool
+) -> str:
     if cache_status in {"hit", "semantic"}:
         return "cache"
     if bypassed:
@@ -104,9 +106,7 @@ async def record_request_decision(
             trim_applied=trim_applied,
             routed=routed,
         )
-        optimization_applied = bool(
-            cache_status in {"hit", "semantic"} or trim_applied or routed
-        )
+        optimization_applied = bool(cache_status in {"hit", "semantic"} or trim_applied or routed)
 
         # Realized economics come from the ledger row (single source of truth), so
         # pricing is never recomputed here.
