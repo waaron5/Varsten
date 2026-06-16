@@ -25,6 +25,8 @@ from app.models.base import Base
 ACTION_PLAN_CHANGED = "plan.changed"
 ACTION_PROVIDER_KEY_CONNECTED = "provider_key.connected"
 ACTION_PROVIDER_KEY_DISCONNECTED = "provider_key.disconnected"
+ACTION_BILLING_UPDATED = "billing.updated"
+ACTION_INVOICE_GENERATED = "invoice.generated"
 
 
 class AuditEvent(Base):

@@ -6,6 +6,8 @@ from app.models.alerting import (
 )
 from app.models.api_key import ApiKey
 from app.models.audit import (
+    ACTION_BILLING_UPDATED,
+    ACTION_INVOICE_GENERATED,
     ACTION_PLAN_CHANGED,
     ACTION_PROVIDER_KEY_CONNECTED,
     ACTION_PROVIDER_KEY_DISCONNECTED,
@@ -13,6 +15,15 @@ from app.models.audit import (
 )
 from app.models.base import Base
 from app.models.batch import BatchJob
+from app.models.billing import (
+    INVOICE_DRAFT,
+    INVOICE_FINALIZED,
+    INVOICE_PAID,
+    INVOICE_SENT,
+    INVOICE_STATUSES,
+    INVOICE_VOID,
+    Invoice,
+)
 from app.models.engine import (
     AlertRule,
     BudgetRule,
@@ -33,9 +44,15 @@ from app.models.proxy_cache import ProxyCacheEntry
 from app.models.proxy_policy import ROUTING_LEVERS, ProxyPolicy
 from app.models.recommendation import Recommendation
 from app.models.tenant import (
+    DEFAULT_GAIN_SHARE_PERCENT,
     PLAN_FREE,
     PLAN_PERFORMANCE,
     PLAN_TIERS,
+    SUBSCRIPTION_ACTIVE,
+    SUBSCRIPTION_CANCELED,
+    SUBSCRIPTION_PAST_DUE,
+    SUBSCRIPTION_STATUSES,
+    SUBSCRIPTION_TRIALING,
     Organization,
     OrgMembership,
     User,
@@ -43,17 +60,31 @@ from app.models.tenant import (
 from app.models.usage_event import UsageEvent
 
 __all__ = [
+    "ACTION_BILLING_UPDATED",
+    "ACTION_INVOICE_GENERATED",
     "ACTION_PLAN_CHANGED",
     "ACTION_PROVIDER_KEY_CONNECTED",
     "ACTION_PROVIDER_KEY_DISCONNECTED",
+    "DEFAULT_GAIN_SHARE_PERCENT",
     "DELIVERY_FAILED",
     "DELIVERY_SENT",
     "DELIVERY_SKIPPED",
     "FEEDBACK_OUTCOMES",
+    "INVOICE_DRAFT",
+    "INVOICE_FINALIZED",
+    "INVOICE_PAID",
+    "INVOICE_SENT",
+    "INVOICE_STATUSES",
+    "INVOICE_VOID",
     "PLAN_FREE",
     "PLAN_PERFORMANCE",
     "PLAN_TIERS",
     "ROUTING_LEVERS",
+    "SUBSCRIPTION_ACTIVE",
+    "SUBSCRIPTION_CANCELED",
+    "SUBSCRIPTION_PAST_DUE",
+    "SUBSCRIPTION_STATUSES",
+    "SUBSCRIPTION_TRIALING",
     "AlertDelivery",
     "AlertRule",
     "ApiKey",
@@ -64,6 +95,7 @@ __all__ = [
     "CustomerEconomics",
     "EvalRun",
     "EvalSampleResult",
+    "Invoice",
     "LeverConfig",
     "ModelCatalog",
     "ModelPrice",

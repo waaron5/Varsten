@@ -19,6 +19,22 @@ PLAN_FREE = "free"
 PLAN_PERFORMANCE = "performance"
 PLAN_TIERS = (PLAN_FREE, PLAN_PERFORMANCE)
 
+# Subscription lifecycle, independent of the entitlement tier. Manual today
+# (operator-set); a Stripe webhook drives these later. Default active.
+SUBSCRIPTION_TRIALING = "trialing"
+SUBSCRIPTION_ACTIVE = "active"
+SUBSCRIPTION_PAST_DUE = "past_due"
+SUBSCRIPTION_CANCELED = "canceled"
+SUBSCRIPTION_STATUSES = (
+    SUBSCRIPTION_TRIALING,
+    SUBSCRIPTION_ACTIVE,
+    SUBSCRIPTION_PAST_DUE,
+    SUBSCRIPTION_CANCELED,
+)
+
+# Varsten's default share of verified savings (gain-share). Per-org overridable.
+DEFAULT_GAIN_SHARE_PERCENT = Decimal("0.20")
+
 
 class Organization(Base, TimestampMixin):
     __tablename__ = "organizations"
@@ -36,6 +52,16 @@ class Organization(Base, TimestampMixin):
     # Null means onboarding is unfinished. All other setup state (has key, has
     # provider, first request) is derived from existing tables, not stored here.
     onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Subscription lifecycle (manual today; Stripe later). Independent of plan_tier.
+    subscription_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, server_default=text(f"'{SUBSCRIPTION_ACTIVE}'")
+    )
+    plan_effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Gain-share billing config. The fee is this fraction of VERIFIED savings, with
+    # a monthly floor; the floor is always capped at the savings so net stays >= 0.
+    gain_share_percent: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, server_default=text("0.2000"))
+    monthly_fee_floor_usd: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, server_default=text("0"))
 
     memberships: Mapped[list["OrgMembership"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"

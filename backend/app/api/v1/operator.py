@@ -4,17 +4,30 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session
 
+from app import billing
 from app.api.deps import require_user
 from app.auth.entitlements import invalidate_plan_tier
 from app.core.audit import client_ip, record_audit
 from app.core.config import settings
 from app.core.security import generate_api_key
 from app.db.session import get_db
-from app.models import ACTION_PLAN_CHANGED, PLAN_TIERS, ApiKey, Organization, OrgMembership, Project, UsageEvent, User
+from app.models import (
+    ACTION_BILLING_UPDATED,
+    ACTION_INVOICE_GENERATED,
+    ACTION_PLAN_CHANGED,
+    PLAN_TIERS,
+    SUBSCRIPTION_STATUSES,
+    ApiKey,
+    Organization,
+    OrgMembership,
+    Project,
+    UsageEvent,
+    User,
+)
 from app.schemas import OperatorProvisionRequest, OperatorProvisionResponse, OperatorValidationSummary
 
 router = APIRouter(prefix="/operator", tags=["operator"])
@@ -192,6 +205,7 @@ def set_organization_plan(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
     previous = org.plan_tier
     org.plan_tier = tier
+    org.plan_effective_at = datetime.now(UTC)
     # A plan change moves money (gain-share) and unlocks behaviour-changing levers,
     # so it is audited: who changed which org from which tier to which, and from where.
     record_audit(
@@ -209,3 +223,133 @@ def set_organization_plan(
     # Take effect immediately on the proxy's cached tier lookup.
     invalidate_plan_tier(organization_id)
     return {"organization_id": str(org.id), "plan_tier": org.plan_tier}
+
+
+class BillingConfigUpdate(BaseModel):
+    gain_share_percent: Decimal | None = Field(default=None, ge=0, le=1)
+    monthly_fee_floor_usd: Decimal | None = Field(default=None, ge=0)
+    subscription_status: str | None = None
+    trial_ends_at: datetime | None = None
+
+
+@router.post("/organizations/{organization_id}/billing")
+def set_billing_config(
+    organization_id: uuid.UUID,
+    payload: BillingConfigUpdate,
+    request: Request,
+    operator: User = Depends(_operator_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Operator-only gain-share + subscription config. Manual today; a Stripe
+    webhook drives subscription_status later. Audited."""
+    org = db.get(Organization, organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
+    if payload.subscription_status is not None and payload.subscription_status not in SUBSCRIPTION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"subscription_status must be one of {list(SUBSCRIPTION_STATUSES)}",
+        )
+    before = {
+        "gain_share_percent": str(org.gain_share_percent),
+        "monthly_fee_floor_usd": str(org.monthly_fee_floor_usd),
+        "subscription_status": org.subscription_status,
+    }
+    if payload.gain_share_percent is not None:
+        org.gain_share_percent = payload.gain_share_percent
+    if payload.monthly_fee_floor_usd is not None:
+        org.monthly_fee_floor_usd = payload.monthly_fee_floor_usd
+    if payload.subscription_status is not None:
+        org.subscription_status = payload.subscription_status
+    if payload.trial_ends_at is not None:
+        org.trial_ends_at = payload.trial_ends_at
+    record_audit(
+        db,
+        action=ACTION_BILLING_UPDATED,
+        actor=operator,
+        organization_id=org.id,
+        target_type="organization",
+        target_id=str(org.id),
+        source_ip=client_ip(request),
+        before=before,
+        after={
+            "gain_share_percent": str(org.gain_share_percent),
+            "monthly_fee_floor_usd": str(org.monthly_fee_floor_usd),
+            "subscription_status": org.subscription_status,
+        },
+    )
+    db.commit()
+    return {
+        "organization_id": str(org.id),
+        "gain_share_percent": org.gain_share_percent,
+        "monthly_fee_floor_usd": org.monthly_fee_floor_usd,
+        "subscription_status": org.subscription_status,
+        "trial_ends_at": org.trial_ends_at,
+    }
+
+
+class InvoiceGenerateRequest(BaseModel):
+    # Default: the last fully-elapsed month. Override for backfills.
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+
+
+@router.post("/organizations/{organization_id}/invoices", status_code=status.HTTP_201_CREATED)
+def generate_org_invoice(
+    organization_id: uuid.UUID,
+    payload: InvoiceGenerateRequest,
+    request: Request,
+    operator: User = Depends(_operator_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Operator-only: generate (or refresh) the draft gain-share invoice for a
+    period from VERIFIED savings. No charge is made; this is the manual-invoicing
+    record a human sends. Audited."""
+    org = db.get(Organization, organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
+    if (payload.period_start is None) != (payload.period_end is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="provide both period_start and period_end, or neither",
+        )
+    if payload.period_start is not None and payload.period_end is not None:
+        start, end = payload.period_start, payload.period_end
+    else:
+        start, end = billing.previous_month_period()
+    invoice = billing.generate_invoice(db, org, start, end)
+    record_audit(
+        db,
+        action=ACTION_INVOICE_GENERATED,
+        actor=operator,
+        organization_id=org.id,
+        target_type="invoice",
+        target_id=str(invoice.id),
+        source_ip=client_ip(request),
+        after={
+            "period_start": start.isoformat(),
+            "period_end": end.isoformat(),
+            "verified_savings_usd": str(invoice.verified_savings_usd),
+            "fee_usd": str(invoice.fee_usd),
+        },
+    )
+    db.commit()
+    return _invoice_payload(invoice)
+
+
+def _invoice_payload(invoice) -> dict:
+    return {
+        "id": str(invoice.id),
+        "organization_id": str(invoice.organization_id),
+        "period_start": invoice.period_start,
+        "period_end": invoice.period_end,
+        "verified_savings_usd": invoice.verified_savings_usd,
+        "gain_share_percent": invoice.gain_share_percent,
+        "monthly_fee_floor_usd": invoice.monthly_fee_floor_usd,
+        "fee_usd": invoice.fee_usd,
+        "net_savings_usd": invoice.net_savings_usd,
+        "currency": invoice.currency,
+        "status": invoice.status,
+        "notes": invoice.notes,
+        "created_at": invoice.created_at,
+    }
