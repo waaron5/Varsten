@@ -678,3 +678,82 @@ async def test_soft_budget_does_not_block(async_client, async_db_session, async_
     )
     assert res.status_code == 200
     assert mock_openai["completions"] == 1
+
+
+# --- failure-mode matrix (client-facing behavior per upstream failure) ----------
+
+
+@pytest.mark.anyio
+async def test_nonstream_upstream_5xx_passes_through(async_client, async_provision, controllable_openai, monkeypatch):
+    """A provider 5xx is forwarded transparently: the client sees the provider's own
+    status and body, not a generic Varsten error."""
+    ws = await async_provision(sub="auth0|f1", email="f1@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    controllable_openai["mode"] = "fail_503"
+    res = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=_msg())
+    assert res.status_code == 503
+    assert res.json()["error"] == "overloaded"  # the upstream body, verbatim
+
+
+@pytest.mark.anyio
+async def test_nonstream_connection_error_returns_502(async_client, async_provision, controllable_openai, monkeypatch):
+    """Upstream unreachable (connect/transport error) -> a clean 502 with a typed
+    Varsten error, never a stack trace."""
+    ws = await async_provision(sub="auth0|f2", email="f2@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    controllable_openai["mode"] = "raise"
+    res = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=_msg())
+    assert res.status_code == 502
+    assert res.json()["error"]["type"] == "varsten_upstream_error"
+
+
+@pytest.mark.anyio
+async def test_streaming_upstream_5xx_delivers_error_body(
+    async_client, async_provision, controllable_openai, monkeypatch
+):
+    """On a streaming request, an upstream non-200 is delivered in the stream body
+    (the HTTP envelope is already 200 by the time headers are sent)."""
+    ws = await async_provision(sub="auth0|f3", email="f3@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
+    controllable_openai["mode"] = "fail_503"
+    res = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json={**_msg(), "stream": True})
+    assert res.status_code == 200
+    assert "overloaded" in res.text  # upstream error body passed through the stream
+
+
+@pytest.mark.anyio
+async def test_streaming_connection_error_emits_sse_error(
+    async_client, async_provision, controllable_openai, monkeypatch
+):
+    """A transport error while streaming is surfaced as a clean SSE error event
+    followed by [DONE], so the client's stream parser terminates cleanly."""
+    ws = await async_provision(sub="auth0|f4", email="f4@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
+    controllable_openai["mode"] = "raise"
+    res = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json={**_msg(), "stream": True})
+    assert res.status_code == 200
+    assert "varsten_upstream_error" in res.text and "[DONE]" in res.text
+
+
+@pytest.mark.anyio
+async def test_upstream_429_trips_circuit(async_client, async_provision, controllable_openai, monkeypatch):
+    """A provider 429 (rate limited) counts as an upstream failure and trips the
+    breaker, so Varsten stops hammering a throttled provider."""
+    ws = await async_provision(sub="auth0|f5", email="f5@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "circuit_breaker_fail_threshold", 1)
+
+    def handler(request):
+        if request.url.path.endswith("/embeddings"):
+            return _embeddings_response(request)
+        return httpx.Response(429, json={"error": "rate_limited"})
+
+    monkeypatch.setattr(http_client, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    hdr = _b(ws["api_key"])
+    assert (await async_client.post("/v1/chat/completions", headers=hdr, json=_msg())).status_code == 429
+    # Breaker now open: next request short-circuits to 503 without touching upstream.
+    res = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("b"))
+    assert res.status_code == 503
+    assert res.headers.get("x-varsten-circuit") == "open"
