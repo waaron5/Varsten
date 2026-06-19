@@ -28,13 +28,13 @@ function Stat({
 }) {
   const TrendIcon = trendDir === "down" ? ArrowDownRight : ArrowUpRight
   return (
-    <div className="flex flex-col justify-between rounded-lg border border-border bg-background p-4">
+    <div className="min-w-0 flex flex-col justify-between rounded-lg border border-border bg-background p-4">
       <p className="text-[0.7rem] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
       <div className="mt-2 flex items-end justify-between gap-2">
         <span
-          className={`text-2xl font-semibold tracking-tight ${accent ? "text-accent" : "text-foreground"}`}
+          className={`min-w-0 text-2xl font-semibold tracking-tight ${accent ? "text-accent" : "text-foreground"}`}
         >
           {value}
         </span>
@@ -50,15 +50,15 @@ function Stat({
   )
 }
 
-export function CommandCenter() {
+export function Dashboard() {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-2xl shadow-foreground/10 ring-1 ring-foreground/5">
+    <div className="w-full max-w-[22rem] overflow-hidden rounded-xl border border-border bg-card shadow-2xl shadow-foreground/10 ring-1 ring-foreground/5 sm:max-w-full">
       {/* window chrome */}
       <div className="flex items-center justify-between border-b border-border bg-secondary/60 px-4 py-3">
         <div className="flex items-center gap-3">
           <VarstenLogo className="[&_span:last-child]:text-sm" />
           <span className="hidden text-xs text-muted-foreground sm:inline">
-            / Command Center
+            / Dashboard
           </span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -72,9 +72,9 @@ export function CommandCenter() {
         </div>
       </div>
 
-      <div className="p-4 sm:p-5">
+      <div className="min-w-0 p-4 sm:p-5">
         {/* top metric grid */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat
             label="AI spend this month"
             value="$25,000"
@@ -105,7 +105,7 @@ export function CommandCenter() {
         <div className="mt-3 grid gap-3 lg:grid-cols-3">
           {/* savings ledger / chart */}
           <div className="rounded-lg border border-border bg-background p-4 lg:col-span-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-foreground">
                   Verified savings ledger
@@ -114,7 +114,7 @@ export function CommandCenter() {
                   Attributed by lever, route &amp; method
                 </p>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
+              <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
                 <BadgeCheck className="h-3.5 w-3.5" />
                 Reconciled
               </span>
@@ -143,11 +143,11 @@ export function CommandCenter() {
                   key={row.lever}
                   className="flex items-center justify-between text-sm"
                 >
-                  <span className="flex items-center gap-2 text-muted-foreground">
+                  <span className="min-w-0 flex items-center gap-2 text-muted-foreground">
                     <CircleDot className="h-3.5 w-3.5 text-accent" />
-                    {row.lever}
+                    <span className="truncate">{row.lever}</span>
                   </span>
-                  <span className="flex items-center gap-3">
+                  <span className="flex shrink-0 items-center gap-3">
                     <span className="text-xs text-muted-foreground">
                       {row.pct}
                     </span>

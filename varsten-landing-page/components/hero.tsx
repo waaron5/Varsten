@@ -1,6 +1,6 @@
 import { ArrowRight, Check } from "lucide-react"
 import { ButtonLink } from "@/components/button-link"
-import { CommandCenter } from "@/components/command-center"
+import { Dashboard } from "@/components/dashboard"
 
 const heroPoints = [
   "Reduces AI spend",
@@ -18,11 +18,13 @@ export function Hero() {
             The financial control plane for AI spend
           </span>
 
-          <h1 className="mt-6 text-balance text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            Reduce AI spend without sacrificing quality.
+          <h1 className="mx-auto mt-6 max-w-72 text-balance text-3xl font-semibold tracking-tight text-foreground sm:max-w-none sm:text-5xl lg:text-6xl">
+            <span className="block sm:inline">Reduce AI spend</span>{" "}
+            <span className="block sm:inline">without sacrificing</span>{" "}
+            <span className="block sm:inline">quality.</span>
           </h1>
 
-          <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
+          <p className="mx-auto mt-5 max-w-72 text-pretty text-base leading-relaxed text-muted-foreground sm:max-w-2xl sm:text-lg">
             Varsten sits in front of your AI providers, applies safe cost
             optimizations, and proves the savings with a ledger your finance
             team can trust.
@@ -33,7 +35,7 @@ export function Hero() {
               size="lg"
               variant="primary"
               href="https://app.varsten.ai/start"
-              className="w-full sm:w-auto"
+              className="w-72 max-w-full sm:w-auto"
             >
               Start Free
               <ArrowRight />
@@ -41,8 +43,8 @@ export function Hero() {
             <ButtonLink
               size="lg"
               variant="outline"
-              href="#book-call"
-              className="w-full sm:w-auto"
+              href="mailto:mail@varsten.ai?subject=Varsten%20setup%20call"
+              className="w-72 max-w-full sm:w-auto"
             >
               Book setup call
             </ButtonLink>
@@ -59,7 +61,7 @@ export function Hero() {
         </div>
 
         <div className="mx-auto mt-14 max-w-5xl">
-          <CommandCenter />
+          <Dashboard />
         </div>
       </div>
     </section>

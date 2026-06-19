@@ -1,13 +1,22 @@
 import { ArrowRight, Check } from "lucide-react"
 import { ButtonLink } from "@/components/button-link"
 
-const includes = [
+const freeFeatures = [
+  "AI spend monitoring",
+  "Month-by-month spend trends",
+  "Savings recommendations",
+  "Pricing and catalog trust checks",
+  "Read-only Proof dashboard",
+  "Observe-only mode",
+]
+
+const performanceFeatures = [
+  "Everything in Free",
   "Inline OpenAI / Anthropic / Gemini proxy",
-  "Cache, routing, trimming & batching levers",
-  "Quality guardrails with regression floors",
-  "Verified savings ledger & attribution",
-  "Versioned pricing catalog",
-  "Fail-open data plane",
+  "Cache, routing, trimming, and batching levers",
+  "Eval-gated model swaps",
+  "Quality guardrails and rollback",
+  "Verified savings ledger and attribution",
 ]
 
 const ledger = [
@@ -34,17 +43,24 @@ export function PricingSection() {
           </p>
         </div>
 
-        <div className="mx-auto mt-12 grid max-w-4xl gap-5 lg:grid-cols-2">
-          {/* what's included */}
+        <div className="mx-auto mt-12 grid max-w-5xl gap-5 lg:grid-cols-3">
+          {/* free */}
           <div className="rounded-xl border border-border bg-card p-7">
             <h3 className="text-lg font-semibold text-foreground">
-              Performance plan
+              Free
             </h3>
+            <p className="mt-3 text-4xl font-semibold tracking-tight text-foreground">
+              $0
+              <span className="text-base font-normal text-muted-foreground">
+                /mo
+              </span>
+            </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Everything you need to safely cut spend.
+              Monitor spend and review recommendations before Varsten changes
+              production behavior.
             </p>
             <ul className="mt-6 space-y-3">
-              {includes.map((item) => (
+              {freeFeatures.map((item) => (
                 <li
                   key={item}
                   className="flex items-start gap-2.5 text-sm text-foreground"
@@ -54,6 +70,52 @@ export function PricingSection() {
                 </li>
               ))}
             </ul>
+            <ButtonLink
+              className="mt-7 w-full"
+              variant="outline"
+              href="https://app.varsten.ai/start"
+            >
+              Start Free
+            </ButtonLink>
+          </div>
+
+          {/* performance */}
+          <div className="rounded-xl border-2 border-primary bg-card p-7 shadow-xl shadow-foreground/5">
+            <span className="inline-flex rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
+              14-day free trial
+            </span>
+            <h3 className="mt-4 text-lg font-semibold text-foreground">
+              Performance
+            </h3>
+            <p className="mt-3 text-4xl font-semibold tracking-tight text-foreground">
+              25%
+              <span className="text-base font-normal text-muted-foreground">
+                {" "}
+                of verified savings
+              </span>
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Automate savings levers with quality guardrails. You keep 75%. If
+              Varsten saves $0, you pay $0.
+            </p>
+            <ul className="mt-6 space-y-3">
+              {performanceFeatures.map((item) => (
+                <li
+                  key={item}
+                  className="flex items-start gap-2.5 text-sm text-foreground"
+                >
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <ButtonLink
+              className="mt-7 w-full"
+              variant="primary"
+              href="https://app.varsten.ai/start"
+            >
+              Start Performance trial
+            </ButtonLink>
           </div>
 
           {/* example math */}
@@ -96,16 +158,15 @@ export function PricingSection() {
               </p>
             </div>
 
-            <Button
-              asChild
+            <ButtonLink
               size="lg"
-              className="mt-6 w-full bg-accent text-accent-foreground hover:bg-accent/90"
+              variant="accent"
+              className="mt-6 w-full"
+              href="https://app.varsten.ai/start"
             >
-              <a href="https://app.varsten.ai/start">
-                Start Free
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </a>
-            </Button>
+              Start Free
+              <ArrowRight className="ml-1 h-4 w-4" />
+            </ButtonLink>
           </div>
         </div>
       </div>

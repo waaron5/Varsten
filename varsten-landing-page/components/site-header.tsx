@@ -13,6 +13,8 @@ const navLinks = [
   { label: "Docs", href: "https://docs.varsten.ai" },
 ]
 
+const setupCallHref = "mailto:mail@varsten.ai?subject=Varsten%20setup%20call"
+
 export function SiteHeader() {
   const [open, setOpen] = useState(false)
 
@@ -39,6 +41,9 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-2 lg:flex">
+          <ButtonLink variant="ghost" href={setupCallHref}>
+            Book setup call
+          </ButtonLink>
           <ButtonLink variant="ghost" href="https://app.varsten.ai">
             Log in
           </ButtonLink>
@@ -72,6 +77,9 @@ export function SiteHeader() {
               </a>
             ))}
             <div className="mt-2 flex flex-col gap-2 border-t border-border pt-4">
+              <ButtonLink variant="outline" href={setupCallHref}>
+                Book setup call
+              </ButtonLink>
               <ButtonLink variant="outline" href="https://app.varsten.ai">
                 Log in
               </ButtonLink>

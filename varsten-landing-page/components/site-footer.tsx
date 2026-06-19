@@ -6,6 +6,7 @@ const columns = [
     links: [
       { label: "Overview", href: "#product" },
       { label: "How it works", href: "#how-it-works" },
+      { label: "Savings levers", href: "#how-it-works" },
       { label: "Pricing", href: "#pricing" },
       { label: "Security", href: "#security" },
     ],
@@ -15,17 +16,17 @@ const columns = [
     links: [
       { label: "Documentation", href: "https://docs.varsten.ai" },
       { label: "API reference", href: "https://docs.varsten.ai" },
-      { label: "Status", href: "#" },
-      { label: "Changelog", href: "#" },
+      { label: "Status", href: "mailto:mail@varsten.ai?subject=Varsten%20status%20question" },
+      { label: "Changelog", href: "https://docs.varsten.ai" },
     ],
   },
   {
     heading: "Company",
     links: [
       { label: "Log in", href: "https://app.varsten.ai" },
-      { label: "Book setup call", href: "#book-call" },
-      { label: "Privacy", href: "#" },
-      { label: "DPA", href: "#" },
+      { label: "Book setup call", href: "mailto:mail@varsten.ai?subject=Varsten%20setup%20call" },
+      { label: "Privacy", href: "mailto:mail@varsten.ai?subject=Varsten%20privacy" },
+      { label: "DPA", href: "mailto:mail@varsten.ai?subject=DPA%20request" },
     ],
   },
 ]

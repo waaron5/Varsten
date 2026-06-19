@@ -25,8 +25,8 @@ const items = [
   },
   {
     icon: EyeOff,
-    title: "No retention by default",
-    body: "Prompts and completions are not stored unless you opt in to metadata enrichment for deeper attribution.",
+    title: "Content storage is controlled",
+    body: "The usage ledger stores metadata, not prompt or completion content. Cache and eval replay storage are explicit controls.",
   },
   {
     icon: Lock,

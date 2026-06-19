@@ -1,5 +1,5 @@
 import { ArrowRight, CalendarClock } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { ButtonLink } from "@/components/button-link"
 
 export function CtaSection() {
   return (
@@ -14,27 +14,24 @@ export function CtaSection() {
             white-glove setup against your real workload.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button
-              asChild
+            <ButtonLink
               size="lg"
-              className="w-full bg-accent text-accent-foreground hover:bg-accent/90 sm:w-auto"
+              variant="accent"
+              className="w-full sm:w-auto"
+              href="https://app.varsten.ai/start"
             >
-              <a href="https://app.varsten.ai/start">
-                Start Free
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </a>
-            </Button>
-            <Button
-              asChild
+              Start Free
+              <ArrowRight className="ml-1 h-4 w-4" />
+            </ButtonLink>
+            <ButtonLink
               size="lg"
-              variant="outline"
+              variant="outline-invert"
               className="w-full border-primary-foreground/20 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground sm:w-auto"
+              href="mailto:mail@varsten.ai?subject=Varsten%20setup%20call"
             >
-              <a href="#book-call">
-                <CalendarClock className="mr-1 h-4 w-4" />
-                Book setup call
-              </a>
-            </Button>
+              <CalendarClock className="mr-1 h-4 w-4" />
+              Book setup call
+            </ButtonLink>
           </div>
           <p className="mt-5 text-sm text-primary-foreground/50">
             No credit card to start · Cancel any time · You keep most of the
