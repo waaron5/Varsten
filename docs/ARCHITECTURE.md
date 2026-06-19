@@ -185,7 +185,7 @@
   recommendations.py. Critical framing: the levers do not execute anything. Each "lever" is a detector that reads usage rows and writes
   a Recommendation row (deduped by a dedupe_key like token_trim:<route>:2026-06). The text describes a cut; nothing applies it.
 
-  refresh_recommendations() runs on ingestion, on overview load, and on command-center load. It scans the current month and emits:
+  refresh_recommendations() runs on ingestion, on overview load, and on dashboard load. It scans the current month and emits:
 
   The five product levers:
 
@@ -216,12 +216,12 @@
 
   - recommendation_actions records when a human applies or dismisses a recommendation (PATCH /engine/recommendations/{id}). That part
   is real.
-  - savings_attributions is what Proof and Command Center read for "saved this month" / "net after fee" / "annual run-rate." In
+  - savings_attributions is what Proof and Dashboard read for "saved this month" / "net after fee" / "annual run-rate." In
   production this would be the measured before/after delta of an applied cut. Today nothing writes measured attribution rows. They are
-  populated only by scripts/seed_demo.py, which also hard-codes each lever's savings_to_date. So the Command Center "Saved this month"
+  populated only by scripts/seed_demo.py, which also hard-codes each lever's savings_to_date. So the Dashboard "Saved this month"
   number is real demo data, but it is seeded, not measured from your traffic.
 
-  Command Center math: saved_month = SUM(gross_savings) from attribution rows, annual_run_rate = gross × 12, trust_score = the
+  Dashboard math: saved_month = SUM(gross_savings) from attribution rows, annual_run_rate = gross × 12, trust_score = the
   priced-share from the same data-quality query as overview.
 
   So the closed loop the product guide promises — apply a cut, measure the real delta against what you would have spent, write a

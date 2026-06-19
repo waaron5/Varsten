@@ -62,11 +62,11 @@ For each lever the customer decides whether the engine acts on its own or waits 
 
 ## The app, section by section
 
-Varsten is a left side nav with six sections. The vertical order is the flow. A user lands at the top, works in the Engine, and drops into Analysis only to investigate. Each side nav item is a page. The tabs inside a page swap the main content and default to the first tab on open. Command Center is the only multi-panel dashboard and has no tabs.
+Varsten is a left side nav with six sections. The vertical order is the flow. A user lands at the top, works in the Engine, and drops into Analysis only to investigate. Each side nav item is a page. The tabs inside a page swap the main content and default to the first tab on open. Dashboard is the only multi-panel dashboard and has no tabs.
 
-### Command center
+### Dashboard
 
-The home surface. It answers "what should I do right now" and produces approvals. It shows live savings (saved this month and current annual run-rate), a decision queue of cuts waiting for a yes, a feed of what the engine has already done on its own, and the single largest source of waste right now. A user can approve or dismiss a recommendation here without going deeper. Command Center and the Engine together should cover the large majority of daily use.
+The home surface. It answers "what should I do right now" and produces approvals. It shows live savings (saved this month and current annual run-rate), a decision queue of cuts waiting for a yes, a feed of what the engine has already done on its own, and the single largest source of waste right now. A user can approve or dismiss a recommendation here without going deeper. Dashboard and the Engine together should cover the large majority of daily use.
 
 ### Engine
 

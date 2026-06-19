@@ -10,9 +10,9 @@ The daily product loop is: spend comes in, the engine identifies cuts, guardrail
 
 ## Product Screenshots
 
-### Command Center
+### Dashboard
 
-![Varsten Command Center](docs/assets/screenshots/varsten-home.png)
+![Varsten Dashboard](docs/assets/screenshots/varsten-home.png)
 
 ### Savings Levers
 
@@ -36,7 +36,7 @@ In:
 - Pydantic validation
 - Authoritative cost measurement with pricing catalog, overrides, `cost_source`, and `pricing_status`
 - Rule-based recommendation engine mapped to the five savings levers
-- Command Center and Engine decision-loop UI
+- Dashboard and Engine decision-loop UI
 - Apply, dismiss, and status tracking for recommendations
 - Proof views for estimated/backtested savings, attribution method, net-after-fee, and data quality
 - Guardrails configuration for quality floors, budgets, and alerts

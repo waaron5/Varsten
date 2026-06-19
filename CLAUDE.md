@@ -50,12 +50,12 @@ The ledger stores metadata facts only: token counts, latencies, derived costs, a
 
 ## The product, top to bottom
 
-The UI is a left side nav with six sections. The vertical order is the flow: you land at the top, you work in the Engine, you drop into Analysis only when investigating. Each side nav item is a page (a top-level route). The pills inside a page are tabs that swap the main content. A page with tabs defaults to its first tab on load. Command Center is the only multi-panel dashboard and has no tabs.
+The UI is a left side nav with six sections. The vertical order is the flow: you land at the top, you work in the Engine, you drop into Analysis only when investigating. Each side nav item is a page (a top-level route). The pills inside a page are tabs that swap the main content. A page with tabs defaults to its first tab on load. Dashboard is the only multi-panel dashboard and has no tabs.
 
 Routes:
 
 ```
-/command-center          dashboard, no tabs
+/dashboard          dashboard, no tabs
                          panels: live savings, decision queue, recent auto-actions, top waste now
 
 /engine                  redirects to /engine/recommendations
@@ -84,7 +84,7 @@ Routes:
   /billing-security      plan, SOC 2, data controls
 ```
 
-Command Center and Engine should cover ninety percent of daily use. If a user has to leave those two to get value, the IA has drifted back toward a reporting tool and something is wrong. If a tab inside a page starts wanting its own sub-tabs, that page is doing too much and the tab should probably be promoted to its own nav item.
+Dashboard and Engine should cover ninety percent of daily use. If a user has to leave those two to get value, the IA has drifted back toward a reporting tool and something is wrong. If a tab inside a page starts wanting its own sub-tabs, that page is doing too much and the tab should probably be promoted to its own nav item.
 
 Proof is the load-bearing page. The net-to-you-after-fee row and the counterfactual baseline are the difference between a number finance trusts and a number finance argues with. Build it like the renewal depends on it, because it does.
 
@@ -256,7 +256,7 @@ In v1 the data plane behavior can be stubbed or simulated so the full loop demon
 2. Measurement: `model_prices`, `model_price_overrides`, `scripts/sync_prices.py`, cost calculation, `pricing_status`, `cost_source`
 3. Spend breakdowns: by model, provider, project, feature, customer, environment, plus top spend drivers (this feeds the recommendation engine and Analysis)
 4. Recommendation engine: rule-based detection of candidate cuts per lever, estimated savings, risk level, rationale, recommendation status
-5. Decision loop UI: Command Center and Engine (Recommendations, Levers, Automation), apply / dismiss / status
+5. Decision loop UI: Dashboard and Engine (Recommendations, Levers, Automation), apply / dismiss / status
 6. Proof: savings attribution view, by-lever breakdown, net-after-fee, confidence intervals, data quality
 7. Guardrails: budgets, threshold alerts, anomaly alerts, forecast over-budget alerts, quality floors as config
 8. Analysis (demoted) and Admin

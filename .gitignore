@@ -19,6 +19,14 @@ coverage.xml
 .env.*
 !.env.example
 
+# Terraform — state and tfvars hold secrets (DB URL, Sentry DSN) in plaintext
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
 # Other
 
 /memory
@@ -27,3 +35,10 @@ coverage.xml
 .cache/
 
 /.fallow
+
+# Customer Company Avatar
+Varsten-Buyer-Avatar.md
+
+# FRONTEND COPY and style guide
+FRONTEND_COPY.md
+BRAND_STYLE_GUIDE.md

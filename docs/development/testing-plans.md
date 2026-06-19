@@ -60,7 +60,7 @@ A non-operator caller gets `403`; an unknown tier gets `422`.
 
 ### Free observe-only dashboard
 - Nav shows `Free · Observe-only` + `Upgrade`. Side nav shows the Free plan card.
-- Command Center shows observed spend/requests/tokens/latency/model usage.
+- Dashboard shows observed spend/requests/tokens/latency/model usage.
 - Savings panels are empty / $0 ("No savings recorded yet"). **There must be no
   captured-savings numbers** — observe-only disables caching, so a repeated request
   is *not* served from cache and accrues no `saved_usd`.
