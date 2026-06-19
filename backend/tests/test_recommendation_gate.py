@@ -29,7 +29,7 @@ def test_reads_recompute_at_most_once_per_window(client, provision, monkeypatch)
     # First read recomputes (no prior stamp); the rest are served from storage.
     client.get("/v1/metrics/overview", headers=_b(token))
     client.get("/v1/metrics/overview", headers=_b(token))
-    client.get("/v1/command-center", headers=_b(token))
+    client.get("/v1/dashboard", headers=_b(token))
     client.get("/v1/engine/recommendations", headers=_b(token))
     client.get("/v1/recommendations", headers=_b(token))
 

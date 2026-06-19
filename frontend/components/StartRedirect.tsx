@@ -17,11 +17,11 @@ export function StartRedirect() {
 
 function StartBody() {
   const router = useRouter();
-  const { data } = useProjectResource<OnboardingStatus>(api.onboardingStatus);
+  const { data } = useProjectResource<OnboardingStatus>(["onboardingStatus"], api.onboardingStatus);
 
   useEffect(() => {
     if (!data) return;
-    router.replace(data.onboarding_completed_at ? "/command-center" : "/onboarding");
+    router.replace(data.onboarding_completed_at ? "/dashboard" : "/onboarding");
   }, [data, router]);
 
   return (

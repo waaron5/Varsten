@@ -55,7 +55,7 @@ from app.proxy.keys import ProviderKeyStoreUnsupported, delete_provider_key_for_
 from app.proxy.provider_validation import validate_provider_key
 from app.proxy.trim import LEVER as TRIM_LEVER
 from app.recommendations import ensure_recommendations_fresh
-from app.savings import compute_savings_summary, record_applied_savings
+from app.savings import FEE_PERCENT, compute_savings_summary, record_applied_savings
 from app.schemas.eval import EvalRunSummary
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
 
@@ -459,8 +459,8 @@ def _api_key_payload(api_key: ApiKey) -> dict:
     }
 
 
-@router.get("/command-center")
-def command_center(
+@router.get("/dashboard")
+def dashboard(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -985,8 +985,12 @@ def proof_savings(
       (cache/batch/route avoided cost) plus holdback A/B with a confidence
       interval. This is the number the fee is billed on.
     """
+    _refresh_open_recommendations(db, project)
     summary = compute_savings_summary(db, project)
     performance = is_performance(db, project)
+    open_opportunity = summary["estimated_opportunity_usd"]
+    open_opportunity_fee = open_opportunity * FEE_PERCENT
+    open_opportunity_net = open_opportunity - open_opportunity_fee
     payload = {
         "plan_tier": "performance" if performance else "free",
         "period_start": summary["period_start"],
@@ -998,7 +1002,10 @@ def proof_savings(
             "net_savings_usd": summary["net_savings_usd"],
             "varsten_fee_usd": summary["varsten_fee_usd"],
             "counterfactual_spend_usd": summary["counterfactual_spend_usd"],
-            "open_opportunity_usd": summary["estimated_opportunity_usd"],
+            "open_opportunity_usd": open_opportunity,
+            "open_opportunity_gross_usd": open_opportunity,
+            "open_opportunity_fee_usd": open_opportunity_fee,
+            "open_opportunity_net_usd": open_opportunity_net,
         },
         # Back-compat top-level keys (estimated impact). Prefer the grouped fields.
         "actual_spend_usd": summary["actual_spend_usd"],

@@ -83,7 +83,7 @@ export interface SpendTrend {
   points: SpendTrendPoint[];
 }
 
-// Command Center narrative 1: savings vs baseline over time. baseline is naive
+// Dashboard narrative 1: savings vs baseline over time. baseline is naive
 // retail (optimized + saved); the cumulative line is the "only goes up" story.
 export interface SavingsTrendPoint {
   date: string;
@@ -95,12 +95,17 @@ export interface SavingsTrendPoint {
 
 export interface SavingsTrend {
   granularity: string;
+  period: "rolling" | "mtd" | string;
+  period_start: string;
+  period_end: string;
   points: SavingsTrendPoint[];
+  total_optimized_usd: string;
   total_saved_usd: string;
   total_baseline_usd: string;
+  effective_savings_rate: string | null;
 }
 
-// Command Center narrative 2: proxy traffic health.
+// Dashboard narrative 2: proxy traffic health.
 export interface CacheTrafficPoint {
   date: string;
   requests: number;
@@ -394,17 +399,20 @@ export interface RecommendationAction {
   occurred_at: string;
 }
 
-export interface CommandCenterLiveSavings {
+export interface DashboardLiveSavings {
   // Null when there is no data behind the value — the dashboard renders "—".
   spend_month: string | number | null;
   saved_month: string | number | null;
   net_saved_month: string | number | null;
+  estimated_impact_month: string | number | null;
+  verified_saved_month: string | number | null;
+  verified_net_saved_month: string | number | null;
   annual_run_rate: string | number | null;
   trust_score: string | number | null;
 }
 
-export interface CommandCenter {
-  live_savings: CommandCenterLiveSavings;
+export interface Dashboard {
+  live_savings: DashboardLiveSavings;
   decision_queue: Recommendation[];
   recent_actions: RecommendationAction[];
   top_waste_now: Recommendation | null;
@@ -432,9 +440,38 @@ export interface AutomationLever {
   risk_profile: string;
 }
 
+export interface ProofSavingsEstimated {
+  label: string;
+  gross_savings_usd: string | number;
+  net_savings_usd: string | number;
+  varsten_fee_usd: string | number;
+  counterfactual_spend_usd: string | number;
+  open_opportunity_usd: string | number;
+  open_opportunity_gross_usd: string | number;
+  open_opportunity_fee_usd: string | number;
+  open_opportunity_net_usd: string | number;
+}
+
+export interface ProofSavingsVerified {
+  label: string;
+  direct_measured_usd: string | number;
+  holdback_measured_usd: string | number;
+  holdback_ci_low_usd: string | number;
+  holdback_ci_high_usd: string | number;
+  holdback_has_signal: boolean;
+  verified_savings_usd: string | number;
+  verified_fee_usd: string | number;
+  verified_net_usd: string | number;
+  billable_savings_usd: string | number;
+}
+
 export interface ProofSavings {
+  plan_tier: string;
   period_start: string;
   period_end: string;
+  observed_spend_usd: string | number;
+  estimated: ProofSavingsEstimated;
+  verified?: ProofSavingsVerified;
   counterfactual_spend_usd: string | number;
   actual_spend_usd: string | number;
   gross_savings_usd: string | number;

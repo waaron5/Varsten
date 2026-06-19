@@ -2,7 +2,7 @@
 
 Exercises the demo path a buyer sees: the seed builds a workspace, the engine
 produces recommendations from real usage and pricing, applying one writes a real
-savings attribution, and Proof / Command Center / Levers report derived numbers.
+savings attribution, and Proof / Dashboard / Levers report derived numbers.
 """
 
 from decimal import Decimal
@@ -53,8 +53,8 @@ def test_seed_drives_real_dashboards_and_proof(client, db_session):
     assert _num(proof["counterfactual_spend_usd"]) > _num(proof["actual_spend_usd"])
     assert _num(proof["net_savings_usd"]) < gross
 
-    # Command Center mirrors the same derived savings.
-    cc = client.get("/v1/command-center", headers=_bearer(token)).json()
+    # Dashboard mirrors the same derived savings.
+    cc = client.get("/v1/dashboard", headers=_bearer(token)).json()
     assert _num(cc["live_savings"]["saved_month"]) == gross
 
     # Lever savings-to-date is the sum of attributions, not a seeded constant.

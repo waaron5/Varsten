@@ -17,7 +17,7 @@ import type {
   BudgetRuleCreate,
   Breakdown,
   BreakdownDimension,
-  CommandCenter,
+  Dashboard,
   Entitlements,
   EvalConfig,
   EvalRunSummary,
@@ -85,7 +85,6 @@ async function request<T>(
       authorization: `Bearer ${token}`,
       ...(init?.headers ?? {}),
     },
-    cache: "no-store",
   }));
 }
 
@@ -112,6 +111,12 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   } catch (error) {
     if (timedOut || (error instanceof Error && error.name === "AbortError")) {
       throw new ApiError(408, "API request timed out. Check that the Varsten backend is running and reachable.");
+    }
+    if (error instanceof TypeError) {
+      throw new ApiError(
+        0,
+        `Could not reach the Varsten API at ${BASE}. Start the backend on port 8000 or set NEXT_PUBLIC_API_BASE to the running API URL.`,
+      );
     }
     throw error;
   } finally {
@@ -175,8 +180,14 @@ export const api = {
   spendTrend: (token: string, projectId: string | undefined, days = 30) =>
     request<SpendTrend>(readPath("/metrics/spend-trend", projectId, { days }), token),
 
-  savingsTrend: (token: string, projectId: string | undefined, days = 30) =>
-    request<SavingsTrend>(readPath("/metrics/savings-trend", projectId, { days }), token),
+  savingsTrend: (
+    token: string,
+    projectId: string | undefined,
+    opts: number | { days?: number; period?: "rolling" | "mtd" } = 30,
+  ) => {
+    const params = typeof opts === "number" ? { days: opts } : opts;
+    return request<SavingsTrend>(readPath("/metrics/savings-trend", projectId, params), token);
+  },
 
   proxyTraffic: (token: string, projectId: string | undefined, days = 30) =>
     request<ProxyTraffic>(readPath("/metrics/proxy-traffic", projectId, { days }), token),
@@ -185,7 +196,7 @@ export const api = {
     token: string,
     projectId: string | undefined,
     dimension: BreakdownDimension,
-    opts: { days?: number; limit?: number } = {},
+    opts: { days?: number; period?: "rolling" | "mtd"; limit?: number } = {},
   ) =>
     request<Breakdown>(
       readPath("/metrics/breakdown", projectId, { dimension, ...opts }),
@@ -211,8 +222,8 @@ export const api = {
       token,
     ),
 
-  commandCenter: (token: string, projectId: string | undefined) =>
-    request<CommandCenter>(readPath("/command-center", projectId), token),
+  dashboard: (token: string, projectId: string | undefined) =>
+    request<Dashboard>(readPath("/dashboard", projectId), token),
 
   engineRecommendations: (
     token: string,

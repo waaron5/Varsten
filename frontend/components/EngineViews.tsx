@@ -10,6 +10,7 @@ import { useProjectResource } from "@/components/useProjectResource";
 import {
   CollectionState,
   leverLabel,
+  NoticeCard,
   PageHeader,
   PageState,
   percent,
@@ -446,19 +447,13 @@ function EngineUpgradeBanner({ items }: { items: Recommendation[] | null }) {
   const total = rows.reduce((sum, r) => sum + (r.estimated_monthly_savings_usd ? Number(r.estimated_monthly_savings_usd) : 0), 0);
   const count = rows.length;
   return (
-    <div className="card" style={{ marginBottom: 12 }}>
-      <div className="card-head">
-        <h3>Observe-only — savings are estimated, not yet captured</h3>
-        <div className="right"><span className="pill neutral">Free</span></div>
-      </div>
-      <div className="es" style={{ padding: "0 12px 12px" }}>
-        {count > 0
-          ? `You have ${count} savings ${count === 1 ? "opportunity" : "opportunities"}${total > 0 ? ` worth an estimated ${usd(total, 0)}/mo` : ""}. `
-          : "Varsten is measuring your traffic. "}
-        Enable Performance to apply these recommendations with eval gates and rollback, and to track
-        verified savings. No production behavior is changed until you do.
-      </div>
-    </div>
+    <NoticeCard badge="Free" title="Observe-only — savings are estimated, not yet captured" style={{ marginBottom: 12 }}>
+      {count > 0
+        ? `You have ${count} savings ${count === 1 ? "opportunity" : "opportunities"}${total > 0 ? ` worth an estimated ${usd(total, 0)}/mo` : ""}. `
+        : "Varsten is measuring your traffic. "}
+      Enable Performance to apply these recommendations with eval gates and rollback, and to track
+      verified savings. No production behavior is changed until you do.
+    </NoticeCard>
   );
 }
 
@@ -472,7 +467,7 @@ function EngineRecommendationsBody() {
     loading,
     setData: setItems,
     setError,
-  } = useProjectResource<Recommendation[]>(api.engineRecommendations, []);
+  } = useProjectResource<Recommendation[]>(["engineRecommendations"], api.engineRecommendations, []);
   // Shared entitlements: optimistic until known (don't lock on a slow fetch). The
   // backend is the real gate (a free apply returns 403, surfaced as an error).
   const { canApplyRecommendations, loading: entLoading } = useEntitlements();
@@ -827,7 +822,7 @@ function ActiveRoutesCard() {
     loading,
     setData: setRoutes,
     setError,
-  } = useProjectResource<ActiveRoute[]>(api.engineRoutes, []);
+  } = useProjectResource<ActiveRoute[]>(["engineRoutes"], api.engineRoutes, []);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const pause = async (route: ActiveRoute) => {
@@ -927,7 +922,7 @@ function ActiveTrimsCard() {
     loading,
     setData: setTrims,
     setError,
-  } = useProjectResource<ActiveTrim[]>(api.engineTrims, []);
+  } = useProjectResource<ActiveTrim[]>(["engineTrims"], api.engineTrims, []);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const pause = async (trim: ActiveTrim) => {
@@ -1009,7 +1004,7 @@ function BatchJobsTable({ jobs }: { jobs: BatchJob[] }) {
 }
 
 function BatchJobsCard() {
-  const { data: jobs, error, loading } = useProjectResource<BatchJob[]>(api.engineBatches, []);
+  const { data: jobs, error, loading } = useProjectResource<BatchJob[]>(["engineBatches"], api.engineBatches, []);
 
   // Quiet until the client has run at least one batch.
   if (loading || error || !jobs || jobs.length === 0) {
@@ -1035,7 +1030,7 @@ function EngineLeversBody() {
     error,
     setData: setItems,
     setError,
-  } = useProjectResource<LeverConfig[]>(api.engineLevers, []);
+  } = useProjectResource<LeverConfig[]>(["engineLevers"], api.engineLevers, []);
 
   const toggle = async (item: LeverConfig) => {
     try {
@@ -1195,7 +1190,7 @@ function EngineAutomationBody() {
     error,
     setData: setItems,
     setError,
-  } = useProjectResource<AutomationLever[]>(api.engineAutomation, []);
+  } = useProjectResource<AutomationLever[]>(["engineAutomation"], api.engineAutomation, []);
 
   const setMode = async (item: AutomationLever, mode: AutomationMode) => {
     if (item.automation_mode === mode) return;

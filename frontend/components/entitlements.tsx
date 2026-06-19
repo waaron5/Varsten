@@ -30,26 +30,43 @@ interface EntitlementsValue {
 
 const EntitlementsContext = createContext<EntitlementsValue | null>(null);
 
-export function EntitlementsProvider({ children }: { children: React.ReactNode }) {
-  const { data, loading } = useProjectResource<Entitlements>(api.entitlements);
-  const f = data?.features;
-  const value: EntitlementsValue = {
+const LOCKED_FEATURES = {
+  advanced_proof: false,
+  advanced_reports: false,
+  apply_recommendations: false,
+  enable_caching: false,
+  enable_levers: false,
+  enable_routing: false,
+  enable_trimming: false,
+  extended_retention: false,
+  guardrail_automation: false,
+  submit_batches: false,
+  use_batching: false,
+} satisfies Entitlements["features"];
+
+function entitlementsValue(data: Entitlements | null, loading: boolean): EntitlementsValue {
+  const features = data?.features ?? LOCKED_FEATURES;
+  const planTier = data?.plan_tier ?? null;
+  return {
     entitlements: data,
     loading,
-    planTier: data?.plan_tier ?? null,
-    isPerformance: data?.plan_tier === "performance",
-    observeOnly: data ? data.observe_only : false,
-    // Default locked while unknown so paid controls never briefly appear unlocked.
-    canApplyRecommendations: f?.apply_recommendations ?? false,
-    canEnableRouting: f?.enable_routing ?? false,
-    canEnableCaching: f?.enable_caching ?? false,
-    canEnableTrimming: f?.enable_trimming ?? false,
-    canUseBatching: f?.use_batching ?? false,
-    canUseGuardrailAutomation: f?.guardrail_automation ?? false,
-    canUseAdvancedProof: f?.advanced_proof ?? false,
-    canUseAdvancedReports: f?.advanced_reports ?? false,
+    planTier,
+    isPerformance: planTier === "performance",
+    observeOnly: data?.observe_only === true,
+    canApplyRecommendations: features.apply_recommendations,
+    canEnableRouting: features.enable_routing,
+    canEnableCaching: features.enable_caching,
+    canEnableTrimming: features.enable_trimming,
+    canUseBatching: features.use_batching,
+    canUseGuardrailAutomation: features.guardrail_automation,
+    canUseAdvancedProof: features.advanced_proof,
+    canUseAdvancedReports: features.advanced_reports,
   };
-  return <EntitlementsContext.Provider value={value}>{children}</EntitlementsContext.Provider>;
+}
+
+export function EntitlementsProvider({ children }: { children: React.ReactNode }) {
+  const { data, loading } = useProjectResource<Entitlements>(["entitlements"], api.entitlements);
+  return <EntitlementsContext.Provider value={entitlementsValue(data, loading)}>{children}</EntitlementsContext.Provider>;
 }
 
 export function useEntitlements(): EntitlementsValue {

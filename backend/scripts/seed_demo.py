@@ -797,7 +797,7 @@ def _upsert_connections(db: Session, org: Organization, project: Project) -> Non
 
 def _apply_demo_recommendations(db: Session, project: Project, now: datetime) -> int:
     """Apply the highest-value open recommendations through the real apply path so
-    Proof, lever savings-to-date, and Command Center activity are all computed from
+    Proof, lever savings-to-date, and Dashboard activity are all computed from
     the engine's own output. Leaves the rest open for the decision queue.
 
     Idempotent: re-seeding clears prior demo attributions/actions first, then

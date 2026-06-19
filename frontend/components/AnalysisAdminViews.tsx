@@ -61,7 +61,7 @@ export function AnalysisSpendView() {
 }
 
 function AnalysisSpendBody() {
-  const { data, loading, error } = useProjectResource<AnalysisSpend>(api.analysisSpend);
+  const { data, loading, error } = useProjectResource<AnalysisSpend>(["analysisSpend"], api.analysisSpend);
   const total = useMemo(() => data?.rows.reduce((sum, row) => sum + numberValue(row.spend_usd), 0) ?? 0, [data]);
   return (
     <div className="view">
@@ -103,7 +103,7 @@ export function AnalysisCustomersView() {
 }
 
 function AnalysisCustomersBody() {
-  const { data, loading, error } = useProjectResource<AnalysisCustomers>(api.analysisCustomers);
+  const { data, loading, error } = useProjectResource<AnalysisCustomers>(["analysisCustomers"], api.analysisCustomers);
   return (
     <div className="view">
       <PageHeader section="Analysis" title="Customers" description="Customer-level AI economics for margin and value decisions." />
@@ -141,7 +141,7 @@ export function AnalysisModelsView() {
 }
 
 function AnalysisModelsBody() {
-  const { data, loading, error } = useProjectResource<AnalysisModels>(api.analysisModels);
+  const { data, loading, error } = useProjectResource<AnalysisModels>(["analysisModels"], api.analysisModels);
   return (
     <div className="view">
       <PageHeader section="Analysis" title="Models" description="Model cost, request volume, and average cost per request." />
@@ -349,7 +349,7 @@ function ApiKeysCard({
 
 function AdminConnectionsBody() {
   const { activeProjectId, data, error, getToken, loading, reload, setError } =
-    useProjectResource<AdminConnections>(api.adminConnections);
+    useProjectResource<AdminConnections>(["adminConnections"], api.adminConnections);
   const [name, setName] = useState("Production ingestion");
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
   const [busy, setBusy] = useState(false);
@@ -443,7 +443,7 @@ export function AdminTeamView() {
 }
 
 function AdminTeamBody() {
-  const { data, loading, error } = useProjectResource<AdminTeam>(api.adminTeam);
+  const { data, loading, error } = useProjectResource<AdminTeam>(["adminTeam"], api.adminTeam);
   return (
     <div className="view">
       <PageHeader section="Admin" title="Team" description="Organization members and roles, including finance-friendly Proof access." />
@@ -471,7 +471,7 @@ export function AdminBillingSecurityView() {
 }
 
 function AdminBillingSecurityBody() {
-  const { data, loading, error } = useProjectResource<AdminBillingSecurity>(api.adminBillingSecurity);
+  const { data, loading, error } = useProjectResource<AdminBillingSecurity>(["adminBillingSecurity"], api.adminBillingSecurity);
   return (
     <div className="view">
       <PageHeader section="Admin" title="Billing & Security" description="Verified-savings commercial model and deployment security posture." />

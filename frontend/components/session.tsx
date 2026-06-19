@@ -9,9 +9,8 @@ import {
 } from "react";
 import { useUser } from "@auth0/nextjs-auth0";
 import { api } from "@/lib/api";
+import { readActiveProjectCookie, writeActiveProjectCookie } from "@/lib/projectCookie";
 import type { Project, UserProfile } from "@/lib/types";
-
-const ACTIVE_PROJECT_KEY = "varsten_active_project";
 const AUTH_LOADING_TIMEOUT_MS = 12000;
 const ACCESS_TOKEN_TIMEOUT_MS = 12000;
 const BOOTSTRAP_TIMEOUT_MS = 20000;
@@ -32,6 +31,8 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null);
 
+type PickActiveProject = (list: Project[]) => void;
+
 function authErrorMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
   const error = "error" in body ? body.error : null;
@@ -43,7 +44,42 @@ function authErrorMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
-async function getAccessTokenWithTimeout(): Promise<string> {
+// Access tokens are cached in module scope and reused until they are about to
+// expire, so the many resource hooks that mount on a single page (the Dashboard
+// alone mounts ~8) share one token instead of each hitting /auth/access-token.
+// A shared in-flight promise collapses a concurrent burst into a single fetch.
+// Module state resets on logout/login because both are full-page navigations.
+const TOKEN_REFRESH_WINDOW_MS = 60_000;
+// Used when a token's expiry cannot be read (e.g. an opaque, non-JWT token):
+// cache briefly so the concurrent-mount burst still dedups, but refresh often
+// enough that a stale token self-heals on the next load.
+const TOKEN_FALLBACK_TTL_MS = 5 * 60_000;
+
+let cachedToken: { token: string; expiresAtMs: number } | null = null;
+let inFlightToken: Promise<string> | null = null;
+
+// Best-effort read of the JWT `exp` claim (seconds since epoch) without a
+// dependency. Returns null for opaque tokens or malformed payloads.
+function jwtExpiryMs(token: string): number | null {
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = JSON.parse(globalThis.atob(base64)) as { exp?: number };
+    return typeof json.exp === "number" ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+// Drops the cached token so the next request fetches a fresh one. Exposed for
+// callers that learn the token is bad (e.g. an API 401) before its cached expiry.
+export function invalidateAccessToken(): void {
+  cachedToken = null;
+  inFlightToken = null;
+}
+
+async function fetchAccessToken(): Promise<string> {
   const controller = new AbortController();
   let timedOut = false;
   const timer = globalThis.setTimeout(() => {
@@ -80,40 +116,28 @@ async function getAccessTokenWithTimeout(): Promise<string> {
   }
 }
 
-export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useUser();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [activeProjectId, setActive] = useState<string | null>(null);
-  const [bootstrapped, setBootstrapped] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+async function getAccessTokenWithTimeout(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAtMs - TOKEN_REFRESH_WINDOW_MS > Date.now()) {
+    return cachedToken.token;
+  }
+  if (inFlightToken) return inFlightToken;
+
+  inFlightToken = (async () => {
+    try {
+      const token = await fetchAccessToken();
+      const expiresAtMs = jwtExpiryMs(token) ?? Date.now() + TOKEN_FALLBACK_TTL_MS;
+      cachedToken = { token, expiresAtMs };
+      return token;
+    } finally {
+      inFlightToken = null;
+    }
+  })();
+
+  return inFlightToken;
+}
+
+function useAuthLoadingTimeout(isLoading: boolean): boolean {
   const [authTimedOut, setAuthTimedOut] = useState(false);
-  const [loadingLabel, setLoadingLabel] = useState<string | null>("Checking session");
-
-  const getToken = useCallback(() => getAccessTokenWithTimeout(), []);
-
-  const setActiveProjectId = useCallback((id: string) => {
-    localStorage.setItem(ACTIVE_PROJECT_KEY, id);
-    setActive(id);
-  }, []);
-
-  const pickActive = useCallback((list: Project[]) => {
-    const stored = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    const storedProject = list.find((p) => p.id === stored);
-    // Prefer a demo-tenant project (org.is_demo) so the dashboard lands on the
-    // seeded narrative, keyed off the structural flag rather than a hard-coded
-    // project name. Falls through to the stored choice, then the first project.
-    const demoProject = list.find((p) => p.is_demo);
-    const nextProject = demoProject ?? storedProject ?? list[0] ?? null;
-    if (nextProject) localStorage.setItem(ACTIVE_PROJECT_KEY, nextProject.id);
-    setActive(nextProject?.id ?? null);
-  }, []);
-
-  const refreshProjects = useCallback(async () => {
-    const list = await api.projects(await getAccessTokenWithTimeout());
-    setProjects(list);
-    pickActive(list);
-  }, [pickActive]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -131,65 +155,189 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return () => globalThis.clearTimeout(timer);
   }, [isLoading, authTimedOut]);
 
+  return authTimedOut;
+}
+
+function useBootstrapTimeout({
+  active,
+  onTimeout,
+}: {
+  active: boolean;
+  onTimeout: () => void;
+}) {
   useEffect(() => {
-    if (authTimedOut || isLoading || !user || bootstrapped) return;
-
-    const timer = globalThis.setTimeout(() => {
-      setError("Account bootstrap timed out. Try resetting your session, then log in again.");
-      setBootstrapped(true);
-    }, BOOTSTRAP_TIMEOUT_MS);
-
+    if (!active) return;
+    const timer = globalThis.setTimeout(onTimeout, BOOTSTRAP_TIMEOUT_MS);
     return () => globalThis.clearTimeout(timer);
-  }, [authTimedOut, bootstrapped, isLoading, user]);
+  }, [active, onTimeout]);
+}
 
-  // On login: provision the user (sync) and load their projects. Logout is a
-  // full-page nav, so stale state clears on its own.
+async function bootstrapAccount({
+  email,
+  isCancelled,
+  name,
+  pickActive,
+  setBootstrapped,
+  setError,
+  setLoadingLabel,
+  setProfile,
+  setProjects,
+}: {
+  email: string;
+  isCancelled: () => boolean;
+  name: string | null;
+  pickActive: PickActiveProject;
+  setBootstrapped: (value: boolean) => void;
+  setError: (value: string | null) => void;
+  setLoadingLabel: (value: string | null) => void;
+  setProfile: (value: UserProfile | null) => void;
+  setProjects: (value: Project[]) => void;
+}) {
+  try {
+    setLoadingLabel("Requesting API token");
+    const token = await getAccessTokenWithTimeout();
+    if (isCancelled()) return;
+    setLoadingLabel("Syncing account");
+    const profile = await api.syncUser(token, { email, name });
+    if (isCancelled()) return;
+    setLoadingLabel("Loading projects");
+    const list = await api.projects(token);
+    if (isCancelled()) return;
+    setProfile(profile);
+    setProjects(list);
+    pickActive(list);
+    setError(null);
+    setLoadingLabel(null);
+  } catch (error) {
+    if (!isCancelled()) {
+      setError(error instanceof Error ? error.message : String(error));
+      setLoadingLabel(null);
+    }
+  } finally {
+    if (!isCancelled()) setBootstrapped(true);
+  }
+}
+
+function sessionStatus({
+  authTimedOut,
+  bootstrapped,
+  error,
+  isLoading,
+  userReady,
+}: {
+  authTimedOut: boolean;
+  bootstrapped: boolean;
+  error: string | null;
+  isLoading: boolean;
+  userReady: boolean;
+}): Status {
+  if (authTimedOut) return "error";
+  if (isLoading || (userReady && !bootstrapped)) return "loading";
+  if (!userReady) return "anonymous";
+  return error ? "error" : "ready";
+}
+
+export function SessionProvider({
+  children,
+  initialProjects,
+  initialActiveProjectId = null,
+}: {
+  children: React.ReactNode;
+  // When the server bootstrap resolves projects, they seed the provider so the
+  // first paint is "ready" and the client skips its sync/projects waterfall.
+  initialProjects?: Project[];
+  initialActiveProjectId?: string | null;
+}) {
+  const seeded = Boolean(initialProjects && initialProjects.length > 0);
+  const { user, isLoading } = useUser();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [projects, setProjects] = useState<Project[]>(initialProjects ?? []);
+  const [activeProjectId, setActive] = useState<string | null>(initialActiveProjectId);
+  const [bootstrapped, setBootstrapped] = useState(seeded);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingLabel, setLoadingLabel] = useState<string | null>("Checking session");
+  const authTimedOut = useAuthLoadingTimeout(isLoading);
+
+  const getToken = useCallback(() => getAccessTokenWithTimeout(), []);
+
+  const setActiveProjectId = useCallback((id: string) => {
+    writeActiveProjectCookie(id);
+    setActive(id);
+  }, []);
+
+  const pickActive = useCallback((list: Project[]) => {
+    const storedProject = list.find((p) => p.id === readActiveProjectCookie());
+    // Prefer a demo-tenant project (org.is_demo) so the dashboard lands on the
+    // seeded narrative, keyed off the structural flag rather than a hard-coded
+    // project name. Falls through to the stored choice, then the first project.
+    // This must match pickActiveProject in lib/serverSession.ts.
+    const demoProject = list.find((p) => p.is_demo);
+    const nextProject = demoProject ?? storedProject ?? list[0] ?? null;
+    if (nextProject) writeActiveProjectCookie(nextProject.id);
+    setActive(nextProject?.id ?? null);
+  }, []);
+
+  const refreshProjects = useCallback(async () => {
+    const list = await api.projects(await getAccessTokenWithTimeout());
+    setProjects(list);
+    pickActive(list);
+  }, [pickActive]);
+
+  const onBootstrapTimeout = useCallback(() => {
+    setError("Account bootstrap timed out. Try resetting your session, then log in again.");
+    setBootstrapped(true);
+  }, []);
+
+  useBootstrapTimeout({
+    active: Boolean(!seeded && !authTimedOut && !isLoading && user && !bootstrapped),
+    onTimeout: onBootstrapTimeout,
+  });
+
+  // On login: provision the user (sync) and load their projects. Skipped when the
+  // server already seeded projects. Logout is a full-page nav, so stale state
+  // clears on its own.
   useEffect(() => {
-    if (isLoading || authTimedOut || !user) return;
+    if (seeded || isLoading || authTimedOut || !user) return;
     let cancelled = false;
-    (async () => {
+    void bootstrapAccount({
+      email: user.email ?? "",
+      isCancelled: () => cancelled,
+      name: user.name ?? null,
+      pickActive,
+      setBootstrapped,
+      setError,
+      setLoadingLabel,
+      setProfile,
+      setProjects,
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [seeded, user, isLoading, authTimedOut, pickActive]);
+
+  // On the seeded path the provider is already "ready", but the profile (org
+  // name, first-project orgId) still needs the user sync. Run it in the
+  // background without blocking first paint; provisioning is idempotent.
+  useEffect(() => {
+    if (!seeded || !user || profile) return;
+    let cancelled = false;
+    void (async () => {
       try {
-        setLoadingLabel("Requesting API token");
-        const token = await getAccessTokenWithTimeout();
-        if (cancelled) return;
-        setLoadingLabel("Syncing account");
-        const p = await api.syncUser(token, {
+        const synced = await api.syncUser(await getAccessTokenWithTimeout(), {
           email: user.email ?? "",
           name: user.name ?? null,
         });
-        if (cancelled) return;
-        setLoadingLabel("Loading projects");
-        const list = await api.projects(token);
-        if (cancelled) return;
-        setProfile(p);
-        setProjects(list);
-        pickActive(list);
-        setError(null);
-        setLoadingLabel(null);
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
-          setLoadingLabel(null);
-        }
-      } finally {
-        if (!cancelled) setBootstrapped(true);
+        if (!cancelled) setProfile(synced);
+      } catch {
+        // Non-fatal: header falls back to project/email until this lands.
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user, isLoading, authTimedOut, pickActive]);
+  }, [seeded, user, profile]);
 
-  const status: Status =
-    authTimedOut
-      ? "error"
-      : isLoading || (!!user && !bootstrapped)
-      ? "loading"
-      : !user
-        ? "anonymous"
-        : error
-          ? "error"
-          : "ready";
+  const status = sessionStatus({ authTimedOut, bootstrapped, error, isLoading, userReady: Boolean(user) });
   const visibleError = authTimedOut
     ? "Authentication is taking too long to load. Try signing out and signing in again."
     : error;

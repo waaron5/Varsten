@@ -3,10 +3,12 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { Auth0Provider } from "@auth0/nextjs-auth0";
+import { QueryProvider } from "@/components/queryProvider";
 import { EntitlementsProvider } from "@/components/entitlements";
 import { SessionProvider } from "@/components/session";
 import { AppShell, SIDEBAR_COOKIE } from "@/components/AppShell";
 import { auth0 } from "@/lib/auth0";
+import { loadServerBootstrap } from "@/lib/serverSession";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -14,6 +16,9 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "Varsten — AI Savings Engine",
   description: "Cut AI spend safely and prove the savings.",
+  icons: {
+    icon: [{ url: "/varsten-icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default async function RootLayout({
@@ -24,15 +29,23 @@ export default async function RootLayout({
   // same value, so server and client agree and there is no hydration mismatch.
   const sidebarCollapsed = (await cookies()).get(SIDEBAR_COOKIE)?.value === "collapsed";
   const session = await auth0.getSession();
+  // Resolve projects + active project on the server so the client can skip its
+  // sync/projects bootstrap waterfall and the first paint is immediately "ready".
+  const bootstrap = await loadServerBootstrap();
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
         <Auth0Provider user={session?.user}>
-          <SessionProvider>
-            <EntitlementsProvider>
-              <AppShell initialCollapsed={sidebarCollapsed}>{children}</AppShell>
-            </EntitlementsProvider>
-          </SessionProvider>
+          <QueryProvider>
+            <SessionProvider
+              initialProjects={bootstrap?.projects}
+              initialActiveProjectId={bootstrap?.activeProjectId ?? null}
+            >
+              <EntitlementsProvider>
+                <AppShell initialCollapsed={sidebarCollapsed}>{children}</AppShell>
+              </EntitlementsProvider>
+            </SessionProvider>
+          </QueryProvider>
         </Auth0Provider>
       </body>
     </html>

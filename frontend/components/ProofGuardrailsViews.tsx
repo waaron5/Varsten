@@ -177,7 +177,7 @@ function ProofSavingsContent({ data }: { data: ProofSavings }) {
 }
 
 function ProofSavingsBody() {
-  const { data, loading, error } = useProjectResource<ProofSavings>(api.proofSavings);
+  const { data, loading, error } = useProjectResource<ProofSavings>(["proofSavings"], api.proofSavings);
 
   return (
     <div className="view">
@@ -202,7 +202,7 @@ export function ProofAttributionView() {
 
 function ProofAttributionBody() {
   const { observeOnly } = useEntitlements();
-  const { data, loading, error } = useProjectResource<ProofAttribution>(api.proofAttribution);
+  const { data, loading, error } = useProjectResource<ProofAttribution>(["proofAttribution"], api.proofAttribution);
 
   return (
     <div className="view">
@@ -241,7 +241,7 @@ export function ProofDataQualityView() {
 }
 
 function ProofDataQualityBody() {
-  const { data, loading, error } = useProjectResource<ProofDataQuality>(api.proofDataQuality);
+  const { data, loading, error } = useProjectResource<ProofDataQuality>(["proofDataQuality"], api.proofDataQuality);
 
   return (
     <div className="view">
@@ -405,7 +405,7 @@ function EvalHarnessControls() {
     reload,
     setData: setConfig,
     setError,
-  } = useProjectResource<EvalConfig>(api.evalConfig);
+  } = useProjectResource<EvalConfig>(["evalConfig"], api.evalConfig);
 
   const [route, setRoute] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -529,7 +529,7 @@ function GuardrailsQualityBody() {
     loading,
     setData: setItems,
     setError,
-  } = useProjectResource<QualityGuardrail[]>(api.guardrailsQuality, []);
+  } = useProjectResource<QualityGuardrail[]>(["guardrailsQuality"], api.guardrailsQuality, []);
   const [route, setRoute] = useState("");
   const [tier, setTier] = useState("");
   const [evalGate, setEvalGate] = useState("");
@@ -634,7 +634,7 @@ function GuardrailsBudgetsBody() {
     loading,
     setData: setItems,
     setError,
-  } = useProjectResource<BudgetRule[]>(api.guardrailsBudgets, []);
+  } = useProjectResource<BudgetRule[]>(["guardrailsBudgets"], api.guardrailsBudgets, []);
   const [ownerType, setOwnerType] = useState<"team" | "feature" | "customer">("team");
   const [ownerKey, setOwnerKey] = useState("");
   const [budget, setBudget] = useState("");
@@ -733,7 +733,7 @@ function GuardrailsAlertsBody() {
     loading,
     setData: setItems,
     setError,
-  } = useProjectResource<AlertRule[]>(api.guardrailsAlerts, []);
+  } = useProjectResource<AlertRule[]>(["guardrailsAlerts"], api.guardrailsAlerts, []);
   const [alertType, setAlertType] = useState("forecast_over_budget");
   const [thresholdUsd, setThresholdUsd] = useState("");
   const [thresholdPercent, setThresholdPercent] = useState("");

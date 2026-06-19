@@ -1,10 +1,10 @@
 """Demo tenant seeder: a realistic 30-day proxy narrative, written fast and safe.
 
 This populates the shared demo organization with proxy-shaped ledger rows so every
-Command Center panel lights up with internally consistent numbers a buyer can trust.
+Dashboard panel lights up with internally consistent numbers a buyer can trust.
 
 How it differs from the older ``seed_demo.py``:
-  * It writes the *proxy* telemetry the new Command Center reads (``feature='proxy'``
+  * It writes the *proxy* telemetry the new Dashboard reads (``feature='proxy'``
     usage events carrying cache/holdback/saved_usd metadata), not ingestion-style
     workflow events.
   * It is strictly isolated. It only ever touches an organization flagged
@@ -128,14 +128,14 @@ class DemoResult:
     total_events: int
     month_events: int
     # Current-month ledger saved per lever, raw (pre-cent-rounding). The attribution
-    # rows are _q_cents() of these, which is what the Command Center reads back.
+    # rows are _q_cents() of these, which is what the Dashboard reads back.
     cache_saved_month: Decimal
     routing_saved_month: Decimal
     batch_saved_month: Decimal
 
     @property
     def expected_saved_month(self) -> Decimal:
-        """What the Command Center `saved_month` KPI must equal: the sum of the
+        """What the Dashboard `saved_month` KPI must equal: the sum of the
         per-lever attributions, each rounded to cents independently."""
         return _q_cents(self.cache_saved_month) + _q_cents(self.routing_saved_month) + _q_cents(self.batch_saved_month)
 
@@ -695,7 +695,7 @@ def main() -> int:
     print(f"  project_id    {result.project_id}")
     print(f"  api_key       {result.api_key}")
     print(f"  events        {result.total_events} total, {result.month_events} this month")
-    print("  current-month savings (reconciles with the Command Center):")
+    print("  current-month savings (reconciles with the Dashboard):")
     print(f"    semantic_cache  {_q_cents(result.cache_saved_month)}")
     print(f"    cheaper_model   {_q_cents(result.routing_saved_month)}")
     print(f"    batching        {_q_cents(result.batch_saved_month)}")

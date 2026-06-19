@@ -1,11 +1,11 @@
 """Demo seeder: isolation guardrails and the cross-dashboard reconciliation.
 
 The seeder's job is to produce a 30-day proxy narrative whose numbers agree across
-every Command Center surface. These tests pin the two things that must hold:
+every Dashboard surface. These tests pin the two things that must hold:
 
   * Isolation: the seeder structurally refuses to touch any org that is not
     is_demo=True, so it can never wipe a real customer tenant.
-  * Reconciliation: the Command Center KPI `saved_month`, the Margin chart
+  * Reconciliation: the Dashboard KPI `saved_month`, the Margin chart
     (savings-trend), and the proxy traffic panels all read the same underlying
     ledger savings the attributions claim. No painted-on numbers.
 
@@ -86,11 +86,11 @@ def test_resolve_creates_demo_org_flagged(db_session):
 # --- reconciliation -----------------------------------------------------------
 
 
-def test_command_center_reconciles_with_ledger(db_session, client):
+def test_dashboard_reconciles_with_ledger(db_session, client):
     now = datetime.now(UTC)
     result = build_demo(db_session, base_requests=_BASE, now=now)
 
-    cc = client.get("/v1/command-center", headers=_b(result.api_key)).json()
+    cc = client.get("/v1/dashboard", headers=_b(result.api_key)).json()
     live = cc["live_savings"]
 
     # Every headline value is backed by data (no "—" on a seeded tenant).
@@ -159,5 +159,5 @@ def test_reseed_is_idempotent(db_session, client):
     ).all()
     assert len(attributions) == 3  # one per lever, refreshed not duplicated
 
-    cc = client.get("/v1/command-center", headers=_b(second.api_key)).json()
+    cc = client.get("/v1/dashboard", headers=_b(second.api_key)).json()
     assert Decimal(str(cc["live_savings"]["saved_month"])) == second.expected_saved_month

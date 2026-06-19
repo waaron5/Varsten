@@ -20,7 +20,7 @@ const NAV_GROUPS: {
   {
     label: "Operate",
     items: [
-      { href: "/command-center", match: "/command-center", label: "Command Center", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
+      { href: "/dashboard", match: "/dashboard", label: "Dashboard", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
       { href: "/engine/recommendations", match: "/engine", label: "Engine", icon: "M9 9h6v6H9z M9 2v3 M15 2v3 M9 19v3 M15 19v3 M2 9h3 M2 15h3 M19 9h3 M19 15h3 M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" },
       { href: "/guardrails/quality", match: "/guardrails", label: "Guardrails", icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" },
       { href: "/proof/savings", match: "/proof", label: "Proof", icon: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8.5 12.5l2.5 2.5 4.5-5" },
@@ -38,7 +38,7 @@ const NAV_GROUPS: {
 ];
 
 const ROUTE_LABELS: Record<string, { title: string; crumb: string }> = {
-  "/command-center": { title: "Command Center", crumb: "Home" },
+  "/dashboard": { title: "Dashboard", crumb: "Month to date" },
   "/engine": { title: "Engine", crumb: "Engine / Recommendations" },
   "/engine/recommendations": { title: "Engine", crumb: "Engine / Recommendations" },
   "/engine/levers": { title: "Engine", crumb: "Engine / Levers" },
@@ -92,13 +92,18 @@ function initials(nameOrEmail: string | null | undefined): string {
   return `${first}${second}`.toUpperCase();
 }
 
+function isNavItemActive(item: NavItem, pathname: string): boolean {
+  if (item.href === "/admin/operator") return pathname.startsWith("/admin/operator");
+  if (item.href === "/admin/connections") return pathname.startsWith("/admin") && !pathname.startsWith("/admin/operator");
+  return pathname.startsWith(item.match);
+}
+
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
-  const active = pathname.startsWith(item.match);
+  const active = isNavItemActive(item, pathname);
   return (
     <Link
       href={item.href}
       className={`nav-item${active ? " active" : ""}`}
-      title={item.label}
       aria-label={item.label}
       data-label={item.label}
     >
@@ -134,10 +139,39 @@ function AccountPanel({
   setAccountOpen: Dispatch<SetStateAction<boolean>>;
   userReady: boolean;
 }) {
+  const accountRef = useRef<HTMLDivElement | null>(null);
+  const { loading: entitlementsLoading, planTier, isPerformance, observeOnly } = useEntitlements();
+  const showPlan = !entitlementsLoading && planTier !== null;
+  const planName = isPerformance ? "Performance" : "Free";
+  const planDetail = isPerformance && !observeOnly ? "Optimization enabled" : "Observe-only";
+  const planActionHref = isPerformance ? "/admin/billing-security" : "/upgrade";
+  const planActionLabel = isPerformance ? "Billing & plan" : "Upgrade to Performance";
+
+  useEffect(() => {
+    if (!accountOpen) return;
+
+    const closeIfOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && accountRef.current?.contains(target)) return;
+      setAccountOpen(false);
+    };
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeIfOutside, true);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeIfOutside, true);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [accountOpen, setAccountOpen]);
+
   if (isLoading) return null;
   if (!userReady) return <a href="/auth/login" className="account-login">Log in</a>;
   return (
-    <div className="account-wrap">
+    <div className="account-wrap" ref={accountRef}>
       <button
         className="account-button"
         type="button"
@@ -152,10 +186,32 @@ function AccountPanel({
           <span className="account-name">{displayName}</span>
           <span className="account-org">{orgName}</span>
         </span>
-        <span className="account-dots" aria-hidden="true">•••</span>
+        <svg className="account-options-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
+        </svg>
       </button>
       {accountOpen ? (
         <div className="account-menu" role="menu">
+          {showPlan ? (
+            <>
+              <div className="account-menu-section" role="group" aria-label="Workspace">
+                <div className="account-menu-kicker">Workspace</div>
+                <div className="account-plan" role="presentation">
+                  <span className="account-plan-label">Plan: {planName}</span>
+                  <span className="account-plan-detail">{planDetail}</span>
+                </div>
+              </div>
+              <Link
+                href={planActionHref}
+                className={`account-menu-item${isPerformance ? "" : " upgrade"}`}
+                role="menuitem"
+                onClick={() => setAccountOpen(false)}
+              >
+                {planActionLabel}
+              </Link>
+              <div className="account-menu-divider" role="separator" />
+            </>
+          ) : null}
           {/* Auth routes must use <a>, not <Link>, to avoid client-side routing. */}
           <a href="/auth/logout" className="account-menu-item" role="menuitem">Log out</a>
         </div>
@@ -188,9 +244,9 @@ function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <Link href="/command-center" className="brand-link" aria-label="Go to Command Center">
+        <Link href="/dashboard" className="brand-link" aria-label="Go to Dashboard">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-varsten-lockup-white.svg" alt="Varsten" className="brand-logo" />
+          <img src="/varsten-logo.svg" alt="Varsten" className="brand-logo" />
         </Link>
         <button
           type="button"
@@ -209,7 +265,6 @@ function Sidebar({
         {NAV_GROUPS.map((group) => <NavGroup key={group.label} group={group} pathname={pathname} />)}
       </nav>
       <div className="side-account">
-        <PlanCard collapsed={isCollapsed} />
         <AccountPanel
           accountOpen={accountOpen}
           displayName={displayName}
@@ -224,51 +279,12 @@ function Sidebar({
   );
 }
 
-function PlanBadge() {
-  const { planTier, isPerformance } = useEntitlements();
-  if (planTier === null) return null; // unknown yet — don't flash a wrong plan
-  if (isPerformance) {
-    return <span className="plan-badge perf" title="Performance plan">Performance</span>;
-  }
-  return (
-    <>
-      <span className="plan-badge free" title="Observe-only: Varsten is measuring traffic, not changing behavior">
-        Free · Observe-only
-      </span>
-      <Link href="/upgrade" className="plan-upgrade-btn">Upgrade</Link>
-    </>
-  );
-}
-
-function PlanCard({ collapsed }: { collapsed: boolean }) {
-  const { planTier, isPerformance } = useEntitlements();
-  if (planTier === null || collapsed) return null;
-  if (isPerformance) {
-    return (
-      <div className="plan-card perf">
-        <div className="plan-card-title">Performance</div>
-        <div className="plan-card-sub">Optimization enabled</div>
-      </div>
-    );
-  }
-  return (
-    <div className="plan-card free">
-      <div className="plan-card-title">Free plan</div>
-      <div className="plan-card-sub">Observing traffic only</div>
-      <Link href="/upgrade" className="plan-card-cta">Upgrade to Performance</Link>
-    </div>
-  );
-}
-
 function Topbar({ route }: { route: { title: string; crumb: string } }) {
   return (
     <header className="topbar">
       <div className="topbar-title">
         <h1>{route.title}</h1>
         <div className="crumb">{route.crumb}</div>
-      </div>
-      <div className="topbar-actions">
-        <PlanBadge />
       </div>
     </header>
   );

@@ -432,7 +432,7 @@ def test_product_section_read_apis_render_with_api_key(client, db_session):
     )
 
     for path in (
-        "/v1/command-center",
+        "/v1/dashboard",
         "/v1/engine/recommendations",
         "/v1/engine/levers",
         "/v1/engine/automation",
@@ -452,9 +452,9 @@ def test_product_section_read_apis_render_with_api_key(client, db_session):
         res = client.get(path, headers=_bearer(token))
         assert res.status_code == 200, path
 
-    command_center = client.get("/v1/command-center", headers=_bearer(token)).json()
-    assert "live_savings" in command_center
-    assert "decision_queue" in command_center
+    dashboard = client.get("/v1/dashboard", headers=_bearer(token)).json()
+    assert "live_savings" in dashboard
+    assert "decision_queue" in dashboard
 
 
 def test_product_section_config_writes(client, db_session):

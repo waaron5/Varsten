@@ -9,17 +9,12 @@
 import dynamic from "next/dynamic";
 import { PanelSkeleton } from "./primitives";
 
-export const CumulativeSavingsChart = dynamic(() => import("./charts").then((m) => m.CumulativeSavingsChart), {
+export const NetSavingsTrendChart = dynamic(() => import("./charts").then((m) => m.NetSavingsTrendChart), {
   ssr: false,
   loading: () => <PanelSkeleton />,
 });
 
-export const CacheHitMissChart = dynamic(() => import("./charts").then((m) => m.CacheHitMissChart), {
-  ssr: false,
-  loading: () => <PanelSkeleton />,
-});
-
-export const LatencyChart = dynamic(() => import("./charts").then((m) => m.LatencyChart), {
+export const SpendDonutChart = dynamic(() => import("./charts").then((m) => m.SpendDonutChart), {
   ssr: false,
   loading: () => <PanelSkeleton />,
 });

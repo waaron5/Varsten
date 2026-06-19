@@ -115,7 +115,7 @@ def create_usage_event(
         response.status_code = status.HTTP_200_OK
         return existing
     db.refresh(event)
-    # Recommendations are recomputed on read (overview / command center / engine),
+    # Recommendations are recomputed on read (overview / Dashboard / engine),
     # never on the write path: a full month-scan per ingested event would cap
     # ingestion throughput, which is the endpoint that has to stay fast at volume.
     return event

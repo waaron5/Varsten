@@ -162,7 +162,7 @@ function ReportsBody() {
     loading,
     setData: setReports,
     setError,
-  } = useProjectResource<MonthlyReport[]>(api.reports, []);
+  } = useProjectResource<MonthlyReport[]>(["reports"], api.reports, []);
   const [busy, setBusy] = useState(false);
   const latest = reports?.[0] ?? null;
   const generate = async () => {

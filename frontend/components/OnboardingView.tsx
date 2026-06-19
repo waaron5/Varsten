@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RequireSession } from "@/components/RequireSession";
+import { NoticeCard } from "@/components/viewPrimitives";
 import { useProjectResource } from "@/components/useProjectResource";
 import { useSession } from "@/components/session";
 import { api } from "@/lib/api";
@@ -38,7 +39,7 @@ export function OnboardingView() {
 function OnboardingBody() {
   const router = useRouter();
   const { activeProjectId, getToken } = useSession();
-  const { data, loading, error, reload } = useProjectResource<OnboardingStatus>(api.onboardingStatus);
+  const { data, loading, error, reload } = useProjectResource<OnboardingStatus>(["onboardingStatus"], api.onboardingStatus);
 
   const firstSeen = data?.first_request.seen ?? false;
 
@@ -58,7 +59,7 @@ function OnboardingBody() {
     } catch {
       // Completion is best-effort; the dashboard still works if it fails.
     }
-    router.push("/command-center");
+    router.push("/dashboard");
   }, [activeProjectId, getToken, router]);
 
   if (loading && !data) {
@@ -86,17 +87,11 @@ function OnboardingBody() {
 
   return (
     <div className="view" style={{ maxWidth: 860 }}>
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-head">
-          <h3>Connect Varsten</h3>
-          <div className="right"><span className="pill neutral">Observe-only</span></div>
-        </div>
-        <div className="es" style={{ padding: "0 12px 12px" }}>
-          Send your AI traffic through Varsten to see spend, tokens, latency, and savings
-          opportunities. Varsten is observing only — no production behavior is changed until you
-          enable Performance.
-        </div>
-      </div>
+      <NoticeCard badge="Observe-only" title="Connect Varsten" style={{ marginBottom: 12 }}>
+        Send your AI traffic through Varsten to see spend, tokens, latency, and savings
+        opportunities. Varsten is observing only — no production behavior is changed until you
+        enable Performance.
+      </NoticeCard>
 
       <ApiKeyStep status={data} />
       <ProviderStep status={data} onChanged={() => void reload()} />

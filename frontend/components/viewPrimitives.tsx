@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect } from "react";
 
 export type TabLink = {
@@ -15,6 +15,7 @@ const LEVER_LABELS: Record<string, string> = {
   batching: "Batching",
   cheaper_model: "Cheaper model",
   smart_routing: "Smart routing",
+  prompt_cache: "Prompt cache",
 };
 
 export function titleize(value: string): string {
@@ -62,10 +63,7 @@ export function riskClass(risk: string): string {
 
 export function useDeferredLoad(load: () => Promise<void>) {
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
+    void load();
   }, [load]);
 }
 
@@ -94,6 +92,30 @@ export function Tabs({ tabs, active }: { tabs: TabLink[]; active: string }) {
           {tab.label}
         </Link>
       ))}
+    </div>
+  );
+}
+
+export function NoticeCard({
+  badge,
+  children,
+  style,
+  title,
+}: {
+  badge: string;
+  children: ReactNode;
+  style?: CSSProperties;
+  title: string;
+}) {
+  return (
+    <div className="card" style={style}>
+      <div className="card-head">
+        <h3>{title}</h3>
+        <div className="right"><span className="pill neutral">{badge}</span></div>
+      </div>
+      <div className="es" style={{ padding: "0 12px 12px" }}>
+        {children}
+      </div>
     </div>
   );
 }
