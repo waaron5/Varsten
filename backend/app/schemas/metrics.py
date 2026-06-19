@@ -64,7 +64,7 @@ class Breakdown(BaseModel):
     rows: list[BreakdownRow]
 
 
-# --- Command Center narrative 1: savings vs baseline over time ---
+# --- Dashboard narrative 1: savings vs baseline over time ---
 
 
 class SavingsTrendPoint(BaseModel):
@@ -79,12 +79,17 @@ class SavingsTrendPoint(BaseModel):
 
 class SavingsTrend(BaseModel):
     granularity: str
+    period: str
+    period_start: date
+    period_end: date
     points: list[SavingsTrendPoint]
+    total_optimized_usd: Decimal
     total_saved_usd: Decimal
     total_baseline_usd: Decimal
+    effective_savings_rate: Decimal | None
 
 
-# --- Command Center narrative 2: proxy traffic health ---
+# --- Dashboard narrative 2: proxy traffic health ---
 
 
 class CacheTrafficPoint(BaseModel):

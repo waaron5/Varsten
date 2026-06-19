@@ -1,5 +1,5 @@
 import calendar
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 
@@ -176,12 +176,15 @@ def savings_trend(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
     days: int = Query(default=30, ge=1, le=365),
+    period: Literal["rolling", "mtd"] = Query(default="rolling"),
 ) -> SavingsTrend:
     """Saved-vs-baseline over time, the Proof/Margin narrative. baseline is naive
     retail (optimized + saved); the cumulative line is what a CFO watches climb.
     All derived from the ledger: optimized = SUM(cost_usd), saved = SUM(saved_usd)."""
     now = datetime.now(UTC)
-    start = _utc_day_start(now) - timedelta(days=days - 1)
+    today_start = _utc_day_start(now)
+    start = today_start.replace(day=1) if period == "mtd" else today_start - timedelta(days=days - 1)
+    end_exclusive = today_start + timedelta(days=1)
 
     day = func.date_trunc("day", UsageEvent.received_at).label("day")
     stmt = (
@@ -190,36 +193,62 @@ def savings_trend(
             func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("optimized"),
             func.coalesce(func.sum(_SAVED), 0).label("saved"),
         )
-        .where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+        .where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.received_at >= start,
+            UsageEvent.received_at < end_exclusive,
+        )
         .group_by(day)
         .order_by(day)
     )
 
     points: list[SavingsTrendPoint] = []
+    rows = db.execute(stmt).all()
     cumulative = Decimal("0")
+    total_optimized = Decimal("0")
     total_saved = Decimal("0")
     total_baseline = Decimal("0")
-    for r in db.execute(stmt):
-        optimized = Decimal(r.optimized)
-        saved = Decimal(r.saved)
+
+    def append_point(day_value: date, optimized: Decimal, saved: Decimal) -> None:
+        nonlocal cumulative, total_optimized, total_saved, total_baseline
         baseline = optimized + saved
         cumulative += saved
+        total_optimized += optimized
         total_saved += saved
         total_baseline += baseline
         points.append(
             SavingsTrendPoint(
-                date=r.day.date(),
+                date=day_value,
                 baseline_usd=baseline,
                 optimized_usd=optimized,
                 saved_usd=saved,
                 cumulative_saved_usd=cumulative,
             )
         )
+
+    if period == "mtd" and rows:
+        by_day = {r.day.date(): (Decimal(r.optimized), Decimal(r.saved)) for r in rows}
+        current = start.date()
+        end_day = today_start.date()
+        while current <= end_day:
+            optimized, saved = by_day.get(current, (Decimal("0"), Decimal("0")))
+            append_point(current, optimized, saved)
+            current += timedelta(days=1)
+    else:
+        for r in rows:
+            append_point(r.day.date(), Decimal(r.optimized), Decimal(r.saved))
+
+    effective_rate = total_saved / total_baseline if total_baseline > 0 else None
     return SavingsTrend(
         granularity="day",
+        period=period,
+        period_start=start.date(),
+        period_end=today_start.date(),
         points=points,
+        total_optimized_usd=total_optimized,
         total_saved_usd=total_saved,
         total_baseline_usd=total_baseline,
+        effective_savings_rate=effective_rate,
     )
 
 
@@ -333,10 +362,14 @@ def breakdown(
         "request_type",
     ] = Query(..., description="Column to group spend by"),
     days: int = Query(default=30, ge=1, le=365),
+    period: Literal["rolling", "mtd"] = Query(default="rolling"),
     limit: int = Query(default=10, ge=1, le=100),
 ) -> Breakdown:
     col = BREAKDOWN_DIMENSIONS[dimension]
-    start = _utc_day_start(datetime.now(UTC)) - timedelta(days=days - 1)
+    now = datetime.now(UTC)
+    today_start = _utc_day_start(now)
+    start = today_start.replace(day=1) if period == "mtd" else today_start - timedelta(days=days - 1)
+    end_exclusive = today_start + timedelta(days=1)
 
     spend = func.coalesce(func.sum(UsageEvent.cost_usd), 0).label("spend")
     stmt = (
@@ -347,7 +380,11 @@ def breakdown(
             func.coalesce(func.sum(UsageEvent.input_tokens), 0).label("input_tokens"),
             func.coalesce(func.sum(UsageEvent.output_tokens), 0).label("output_tokens"),
         )
-        .where(UsageEvent.project_id == project.id, UsageEvent.received_at >= start)
+        .where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.received_at >= start,
+            UsageEvent.received_at < end_exclusive,
+        )
         .group_by(col)
         .order_by(spend.desc())
         .limit(limit)
