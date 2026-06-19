@@ -9,6 +9,9 @@ export const metadata: Metadata = {
   title: "Varsten — Reduce AI spend without sacrificing quality",
   description:
     "A drop-in AI proxy that caches exact hits, routes traffic to the most cost-effective models, and proves quality with concurrent holdback evals.",
+  icons: {
+    icon: [{ url: "/varsten-icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

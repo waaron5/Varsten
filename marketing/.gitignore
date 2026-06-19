@@ -9,3 +9,6 @@ next-env.d.ts
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+
+# PAGE COPY
+/page_copy

@@ -589,9 +589,7 @@ function StickyBanner({
     <div className={`lp-sticky-banner${visible ? " lp-sticky-banner-visible" : ""}`} aria-hidden={!visible}>
       <div className="lp-sticky-banner-inner">
         <div className="lp-sticky-banner-left">
-          <svg className="lp-sticky-mark" width="24" height="18" viewBox="0 0 36 26" aria-hidden="true">
-            <path d="M 0,0 L 10,0 L 18,13 L 26,0 L 36,0 L 36,26 L 0,26 Z" fill="currentColor" />
-          </svg>
+          <Image className="lp-sticky-mark" src="/varsten-icon.svg" alt="" width={24} height={23} aria-hidden="true" />
           <span>Cut your AI costs <strong>by up to 43%.</strong></span>
         </div>
         <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartTrial}>
@@ -608,10 +606,10 @@ function Nav({ onStartFree, onBookCall }: { onStartFree: () => void; onBookCall:
       <div className="lp-container lp-nav-inner">
         <Link className="lp-logo" href="/" aria-label="Varsten home">
           <Image
-            src="/logo-varsten-lockup-white.svg"
+            src="/varsten-logo.svg"
             alt="Varsten"
-            width={190}
-            height={28}
+            width={180}
+            height={37}
             priority
             style={{ width: "100%", height: "auto" }}
           />
@@ -640,20 +638,19 @@ function Nav({ onStartFree, onBookCall }: { onStartFree: () => void; onBookCall:
 
 function ProductShotPlaceholder() {
   return (
-    <div className="lp-product-shot" aria-label="Varsten command center preview">
+    <div className="lp-product-shot" aria-label="Varsten Dashboard preview">
       <div className="lp-browser-bar">
         <div className="lp-browser-dots" aria-hidden="true">
           <span />
           <span />
           <span />
         </div>
-        <div className="lp-url-pill">app.varsten.ai/command-center</div>
+        <div className="lp-url-pill">app.varsten.ai/dashboard</div>
       </div>
       <div className="lp-dashboard-body">
         <aside className="lp-dashboard-sidebar" aria-hidden="true">
           <div className="lp-sidebar-logo">
-            <span />
-            <b>varsten</b>
+            <Image src="/varsten-logo-black.svg" alt="" width={118} height={24} />
           </div>
           <i />
           <i />
@@ -676,7 +673,7 @@ function ProductShotPlaceholder() {
         </div>
         <div className="lp-dashboard-panels">
           <div className="lp-dashboard-panel wide">
-            <span>Command center</span>
+            <span>Dashboard</span>
             <div className="lp-chart-line" aria-hidden="true" />
             <i />
             <b />
@@ -1095,7 +1092,7 @@ function Footer({ onStartTrial }: { onStartTrial: () => void }) {
         <div className="lp-footer-grid">
           <div className="lp-footer-brand">
             <div className="lp-footer-logo" aria-label="Varsten">
-              <Image src="/logo-varsten-lockup-white.svg" alt="Varsten" width={192} height={28} />
+              <Image src="/varsten-logo.svg" alt="Varsten" width={176} height={36} />
             </div>
             <p>Reduce AI spend without sacrificing quality. The proxy that proves its savings.</p>
             <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartTrial}>

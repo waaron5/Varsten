@@ -270,8 +270,8 @@ button {
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  width: 180px;
-  height: 34px;
+  width: 172px;
+  height: 36px;
 }
 
 .lp-logo img {
@@ -358,7 +358,8 @@ button {
 
 .lp-sticky-mark {
   flex-shrink: 0;
-  color: var(--brand);
+  width: 24px;
+  height: auto;
 }
 
 @media (max-width: 900px) {
@@ -633,20 +634,15 @@ button {
 }
 
 .lp-sidebar-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
   margin-bottom: 34px;
-  color: var(--ink);
-  font-size: 17px;
-  font-weight: 800;
+  width: 118px;
 }
 
-.lp-sidebar-logo span {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  background: var(--brand);
+.lp-sidebar-logo img {
+  display: block;
+  width: 118px;
+  height: auto;
 }
 
 .lp-dashboard-sidebar i {
@@ -1501,7 +1497,7 @@ button {
 
 .lp-footer-logo img {
   display: block;
-  width: 192px;
+  width: 176px;
   height: auto;
 }
 
@@ -2094,7 +2090,7 @@ button {
   }
 
   .lp-logo {
-    width: 154px;
+    width: 148px;
   }
 
   .lp-nav-right {
@@ -2364,7 +2360,7 @@ button {
   }
 
   .lp-logo {
-    width: 138px;
+    width: 132px;
   }
 
   .lp-nav .lp-btn {

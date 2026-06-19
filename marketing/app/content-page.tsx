@@ -80,7 +80,7 @@ function ContentNav() {
     <header className="lp-content-nav">
       <div className="lp-container lp-content-nav-inner">
         <Link className="lp-logo" href="/" aria-label="Varsten home">
-          <Image src="/logo-varsten-lockup-white.svg" alt="Varsten" width={190} height={28} priority />
+          <Image src="/varsten-logo.svg" alt="Varsten" width={180} height={37} priority />
         </Link>
         <nav className="lp-content-nav-center" aria-label="Primary">
           <Link href="/#how-it-works">Product</Link>
@@ -108,7 +108,7 @@ function ContentFooter() {
         <div className="lp-footer-grid">
           <div className="lp-footer-brand">
             <div className="lp-footer-logo" aria-label="Varsten">
-              <Image src="/logo-varsten-lockup-white.svg" alt="Varsten" width={192} height={28} />
+              <Image src="/varsten-logo.svg" alt="Varsten" width={176} height={36} />
             </div>
             <p>Reduce AI spend without sacrificing quality. The proxy that proves its savings.</p>
             <Link className="lp-btn lp-btn-primary lp-btn-cta" href={START_FREE_HREF}>
