@@ -4,9 +4,15 @@
 region      = "us-east-1"
 environment = "production"
 
-# Pin to an immutable image tag (a git SHA). Never "latest" — rollback is just
+# Pin to an immutable image tag (a git SHA). Never "latest" -- rollback is just
 # re-applying the previous SHA.
 image_tag = "REPLACE_WITH_GIT_SHA"
+
+# Managed Postgres connection string. Use Neon (free tier) now, RDS later. Must use
+# the psycopg driver and SSL. From Neon's dashboard, take the connection string and
+# rewrite the scheme to postgresql+psycopg:// (keep ?sslmode=require). Sensitive --
+# prefer TF_VAR_database_url in the environment over committing it.
+database_url = "postgresql+psycopg://USER:PASSWORD@ep-xxxx.us-east-1.aws.neon.tech/varsten?sslmode=require"
 
 # Real frontend origin(s) as a JSON array. The API refuses to boot in production
 # if this contains localhost.
@@ -21,8 +27,5 @@ sentry_dsn = "https://REPLACE@oXXXX.ingest.sentry.io/XXXX"
 
 # Sized for a first customer. Scale up, not out, until the in-process scheduler
 # and rate limiter move to a shared store (keep app_max_instances = 1).
-db_instance_class        = "db.t4g.small"
-db_backup_retention_days = 14
-db_deletion_protection   = true
-app_min_instances        = 1
-app_max_instances        = 1
+app_min_instances = 1
+app_max_instances = 1

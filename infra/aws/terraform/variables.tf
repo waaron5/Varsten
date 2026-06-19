@@ -44,33 +44,10 @@ variable "app_max_instances" {
   default     = 1
 }
 
-variable "db_instance_class" {
-  description = "RDS instance class."
+variable "database_url" {
+  description = "SQLAlchemy/psycopg connection string for the managed Postgres (Neon now, RDS later). Must use the psycopg driver and SSL, e.g. postgresql+psycopg://USER:PASS@HOST/DB?sslmode=require. Stored in Secrets Manager, never in plaintext env. Sensitive."
   type        = string
-  default     = "db.t4g.small"
-}
-
-variable "db_allocated_storage" {
-  description = "RDS allocated storage in GB."
-  type        = number
-  default     = 20
-}
-
-variable "db_backup_retention_days" {
-  description = "Automated backup retention. >0 enables daily snapshots AND point-in-time recovery. Never set to 0 in production."
-  type        = number
-  default     = 14
-
-  validation {
-    condition     = var.db_backup_retention_days >= 1
-    error_message = "Backups must be retained for at least 1 day; production should use >= 7."
-  }
-}
-
-variable "db_deletion_protection" {
-  description = "Block `terraform destroy` from dropping the database. Leave true in production."
-  type        = bool
-  default     = true
+  sensitive   = true
 }
 
 variable "cors_origins" {

@@ -1,8 +1,9 @@
 // The API on AWS App Runner: a managed container host (the AWS analogue of Cloud
 // Run), chosen over hand-rolled ECS at this stage per CLAUDE.md. App Runner owns
 // TLS, autoscaling, health checks, and zero-downtime deploys + one-click rollback
-// between revisions. The image comes from ECR; a VPC connector lets it reach the
-// private RDS instance.
+// between revisions. The image comes from ECR. Egress is the default public path,
+// which reaches the managed Postgres (Neon, SSL) and the upstream providers -- no
+// VPC connector needed while the database is an external managed service.
 
 resource "aws_ecr_repository" "api" {
   name                 = "varsten-api"
@@ -12,12 +13,6 @@ resource "aws_ecr_repository" "api" {
   image_scanning_configuration {
     scan_on_push = true
   }
-}
-
-resource "aws_apprunner_vpc_connector" "main" {
-  vpc_connector_name = "varsten-${var.environment}"
-  subnets            = data.aws_subnets.default.ids
-  security_groups    = [aws_security_group.app_egress.id]
 }
 
 resource "aws_apprunner_service" "api" {
@@ -38,18 +33,18 @@ resource "aws_apprunner_service" "api" {
         port = "8000"
 
         runtime_environment_variables = {
-          APP_ENV                       = var.environment
-          PROVIDER_KEY_BACKEND          = "secretsmanager"
-          PROVIDER_KEY_AWS_REGION       = var.region
-          PROVIDER_KEY_SECRET_PREFIX    = "varsten"
+          APP_ENV                         = var.environment
+          PROVIDER_KEY_BACKEND            = "secretsmanager"
+          PROVIDER_KEY_AWS_REGION         = var.region
+          PROVIDER_KEY_SECRET_PREFIX      = "varsten"
           PROVIDER_KEY_SECRET_ENVIRONMENT = var.environment
-          PROXY_DEFAULT_PROVIDER        = "openai"
-          SCHEDULER_ENABLED             = "true"
-          CORS_ORIGINS                  = var.cors_origins
-          AUTH0_DOMAIN                  = var.auth0_domain
-          AUTH0_AUDIENCE                = var.auth0_audience
-          SENTRY_ENVIRONMENT            = var.environment
-          LOG_JSON                      = "true"
+          PROXY_DEFAULT_PROVIDER          = "openai"
+          SCHEDULER_ENABLED               = "true"
+          CORS_ORIGINS                    = var.cors_origins
+          AUTH0_DOMAIN                    = var.auth0_domain
+          AUTH0_AUDIENCE                  = var.auth0_audience
+          SENTRY_ENVIRONMENT              = var.environment
+          LOG_JSON                        = "true"
         }
 
         # Pulled from Secrets Manager at start, never rendered into Terraform state
@@ -66,13 +61,6 @@ resource "aws_apprunner_service" "api" {
     cpu               = var.app_cpu
     memory            = var.app_memory
     instance_role_arn = aws_iam_role.apprunner_instance.arn
-  }
-
-  network_configuration {
-    egress_configuration {
-      egress_type       = "VPC"
-      vpc_connector_arn = aws_apprunner_vpc_connector.main.arn
-    }
   }
 
   health_check_configuration {
