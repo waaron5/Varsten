@@ -40,13 +40,76 @@ provisioned automatically.
 
 ## The container
 
-`backend/Dockerfile` is already production-shaped: it installs deps with `uv`,
-runs `alembic upgrade head` on boot (`docker-entrypoint.sh`), then serves uvicorn
-on `:8000`. No changes needed for staging.
+`backend/Dockerfile` is already production-shaped: it installs deps with `uv` and
+serves uvicorn on `:8000`. It does **not** migrate on boot — `docker-entrypoint.sh`
+is a thin pass-through, so replicas start in parallel without racing
+`alembic upgrade head`. Migrations are a decoupled release step (see the deployment
+lifecycle below). The same image runs them as a one-off command:
+`docker run --rm -e DATABASE_URL=... <image> alembic upgrade head`.
 
-> Multi-instance note: the entrypoint runs migrations on every boot, fine for a
-> single instance. Before scaling past one task, move `alembic upgrade head` to a
-> one-off release step so two booting replicas don't race the migration.
+## Horizontal scaling (`app_max_instances > 1`)
+
+The single-instance constraints are handled in code; the Terraform default
+(`app_max_instances = 4`) is now safe. What each instance needs:
+
+- **Scheduler (drift / batch / cache-purge / alert sweeps).** Each job takes a
+  per-job Postgres advisory lock for the duration of a tick, so only one instance
+  runs a given sweep at a time. Enabled by `SCHEDULER_ADVISORY_LOCK_ENABLED=true`
+  (set automatically in `app.tf`). Leadership fails over automatically when an
+  instance dies — the lock drops with its connection. No external coordinator.
+- **Rate limiter.** Set `RATE_LIMIT_REDIS_URL` (via the `rate_limit_redis_url`
+  Terraform var) to enforce one shared window across instances. Provision a small
+  managed Redis (ElastiCache / Upstash) yourself — it is the one new recurring cost
+  of scaling out. Without it the limiter degrades to per-instance counting, which is
+  fail-open (never blocks traffic), just less precise. The limiter call also fails
+  open if Redis is unreachable.
+- **Database connections.** Each instance holds up to
+  `(DB_POOL_SIZE + DB_MAX_OVERFLOW) * 2` connections (sync + async engines).
+  At the defaults (5 + 5) × 2 = 20 per instance, ×4 instances = 80. Point
+  `DATABASE_URL` at the **pooled endpoint** (Neon pooler / PgBouncer / RDS Proxy) so
+  these multiplex onto far fewer server connections, and keep the per-instance pool
+  bounded with the `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` vars.
+- **Intentionally per-instance (no coordination needed):** the provider-key TTL
+  cache (`app/proxy/keys.py`) and the per-project circuit breaker
+  (`app/proxy/circuit.py`). These are hot-path performance optimisations, not shared
+  state — each instance warms its own key cache, and a breaker that trips on the
+  failures that instance actually observes is correct. Leaving them in-memory avoids
+  a shared-store round-trip on every request.
+- **Schema migrations:** decoupled from boot (see the deployment lifecycle below),
+  so parallel replica starts never race the migration.
+
+## Deployment lifecycle (migrate before promote)
+
+The API image no longer migrates on boot. The schema is brought to head by a
+dedicated release step that runs **before** new instances are promoted, so the
+single booting process owns the migration and replicas never race it. Order:
+
+1. **Build & push** the image to ECR, tagged with the immutable git SHA.
+2. **Migrate**: run `alembic upgrade head` once, using that exact image
+   (`docker run --rm -e DATABASE_URL=... <image> alembic upgrade head`), against the
+   target database. One process, no race.
+3. **Promote**: point App Runner at the new tag (Terraform `image_tag`); it rolls
+   out behind the `/health/ready` check with zero downtime.
+
+`.github/workflows/deploy.yml` wires this as a manual `workflow_dispatch` with
+`build-push → migrate → deploy` jobs (job `needs` enforce the order). The migrate
+job connects to the database directly with the deploy role / `DATABASE_URL` secret.
+
+Pure-AWS / manual equivalent (no GitHub Actions): after pushing the image, run the
+migration as a one-off from CloudShell or any host with the image and DB access —
+`make release-migrate IMAGE=<repo>:<sha> DATABASE_URL=...` (or an `aws ecs run-task`
+/ CodeBuild step that runs the same `alembic upgrade head` command on the image) —
+then bump `image_tag` and `terraform apply`.
+
+**Migration compatibility:** because the old image runs briefly against the new
+schema during rollout, migrations must be backward compatible. Additive changes
+(new nullable column, table, index) are safe. For a destructive change, use
+expand/contract across two releases: release 1 adds the new shape and dual-writes;
+release 2 (after backfill) removes the old shape.
+
+**Rollback:** re-run the deploy with a previous SHA. The schema is forward, so a
+rolled-back (older) image keeps working against the newer additive schema; never
+pair a rollback with a contracting migration.
 
 ## Required environment / secrets
 
@@ -149,10 +212,14 @@ curl https://<service-url>/health           # {"ok": true}
 
 - Move compute to **ECS Fargate** (always-on service, blue/green deploys, finer
   security groups), keeping the same image.
-- Migrations as a release/one-off task, not on container boot.
+- Migrations already run as a decoupled release step, not on container boot (see
+  "Deployment lifecycle" above). The remaining graduation work is moving Terraform
+  to a remote state backend so the promote job can `terraform apply` from CI.
 - RDS Multi-AZ + automated backups + a read replica if Proof queries grow.
-- Put the scheduler on a single leader (or move the two sweep endpoints to
-  EventBridge cron) so replicas don't double-run sweeps — see `app/scheduler.py`.
+- Scheduler overlap across replicas is already handled by the per-job Postgres
+  advisory lock (`SCHEDULER_ADVISORY_LOCK_ENABLED`, see `app/scheduler.py` and the
+  Horizontal scaling section above). Moving the sweeps to EventBridge cron is the
+  next step only if you want the API tier fully free of background work.
 - Promote this runbook to Terraform under `infra/aws/` and validate with
   `terraform plan` against the account.
 ```

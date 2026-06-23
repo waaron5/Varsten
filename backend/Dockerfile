@@ -24,5 +24,9 @@ COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
+# The entrypoint does NOT run migrations (those are a decoupled release step, so
+# replicas never race on boot). It is a thin pass-through, so the same image runs
+# either the API (the default CMD) or, as a one-off release command, the migration:
+#   docker run --rm -e DATABASE_URL=... <image> alembic upgrade head
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

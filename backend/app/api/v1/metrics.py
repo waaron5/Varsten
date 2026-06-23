@@ -11,7 +11,6 @@ from app.api.deps import resolve_project
 from app.db.session import get_db
 from app.models import BatchJob, Project, UsageEvent
 from app.recommendations import ensure_recommendations_fresh
-from app.usage_dimensions import DIMENSION_TO_COLUMN
 from app.schemas.metrics import (
     Breakdown,
     BreakdownRow,
@@ -24,6 +23,7 @@ from app.schemas.metrics import (
     SpendTrend,
     SpendTrendPoint,
 )
+from app.usage_dimensions import DIMENSION_TO_COLUMN
 
 # JSONB numeric extraction: event_metadata->>'saved_usd' cast to Numeric. Rows
 # missing the key extract to NULL, which SUM ignores. saved_usd is written by the

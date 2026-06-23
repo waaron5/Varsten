@@ -20,29 +20,29 @@ def _b(token: str) -> dict:
 
 
 def _event(project: Project, **overrides) -> UsageEvent:
-    base = dict(
-        project_id=project.id,
-        organization_id=project.organization_id,
-        api_key_id=None,
-        source="proxy",
-        provider="openai",
-        model="gpt-4o-mini",
-        operation="chat_completion",
-        request_type="chat_completion",
-        environment="production",
-        input_tokens=10,
-        output_tokens=5,
-        total_tokens=15,
-        cost_usd=Decimal("1.00"),
-        cost_source="catalog",
-        pricing_status="priced",
-        currency="USD",
-        status="success",
-        success=True,
-        event_metadata={},
-        received_at=datetime.now(UTC),
-        occurred_at=datetime.now(UTC),
-    )
+    base = {
+        "project_id": project.id,
+        "organization_id": project.organization_id,
+        "api_key_id": None,
+        "source": "proxy",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "operation": "chat_completion",
+        "request_type": "chat_completion",
+        "environment": "production",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
+        "cost_usd": Decimal("1.00"),
+        "cost_source": "catalog",
+        "pricing_status": "priced",
+        "currency": "USD",
+        "status": "success",
+        "success": True,
+        "event_metadata": {},
+        "received_at": datetime.now(UTC),
+        "occurred_at": datetime.now(UTC),
+    }
     base.update(overrides)
     return UsageEvent(**base)
 

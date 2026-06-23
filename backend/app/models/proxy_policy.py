@@ -40,7 +40,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.levers import ROUTING_LEVERS
+# Re-exported through app.models for callers that do `from app.models import
+# ROUTING_LEVERS`; the redundant `as` alias marks it as an intentional re-export so
+# ruff does not flag it unused (F401).
+from app.levers import ROUTING_LEVERS as ROUTING_LEVERS
 from app.models.base import Base, TimestampMixin
 
 

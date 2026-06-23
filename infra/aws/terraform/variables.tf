@@ -33,15 +33,34 @@ variable "app_memory" {
 }
 
 variable "app_min_instances" {
-  description = "Minimum warm instances. NOTE: the in-process scheduler and rate limiter assume a single instance; keep max=1 until those move to a shared store / external runner (see CLAUDE.md and the runbook)."
+  description = "Minimum warm instances App Runner keeps provisioned."
   type        = number
   default     = 1
 }
 
 variable "app_max_instances" {
-  description = "Maximum instances. Keep at 1 in Phase 1 (single-instance constraint)."
+  description = "Maximum instances App Runner can scale to. Safe above 1 now that the cross-instance constraints are handled: the scheduler takes a Postgres advisory lock per job (SCHEDULER_ADVISORY_LOCK_ENABLED) and the rate limiter uses a shared Redis backend when RATE_LIMIT_REDIS_URL is set. Without Redis the rate limiter degrades to per-instance counting (fail-open, not fatal). Size the database/pooler for (db_pool_size + db_max_overflow) * 2 * app_max_instances connections."
   type        = number
-  default     = 1
+  default     = 4
+}
+
+variable "rate_limit_redis_url" {
+  description = "Redis connection URL for the shared rate limiter (redis://:password@host:6379/0). REQUIRED for globally-correct rate limiting once app_max_instances > 1; leave empty to accept per-instance limiting (each instance enforces its own window, fail-open). Stored as a secret. Provision a small managed Redis (ElastiCache / Upstash) -- this is the one new recurring cost of horizontal scaling."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "db_pool_size" {
+  description = "SQLAlchemy pool_size per engine (sync + async). Per-instance steady-state connections is db_pool_size * 2."
+  type        = number
+  default     = 5
+}
+
+variable "db_max_overflow" {
+  description = "SQLAlchemy max_overflow per engine (burst above pool_size). Per-instance worst case is (db_pool_size + db_max_overflow) * 2 connections; multiply by app_max_instances to size the server/pooler."
+  type        = number
+  default     = 5
 }
 
 variable "database_url" {

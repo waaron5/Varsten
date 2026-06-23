@@ -13,13 +13,14 @@ from decimal import Decimal
 
 import httpx
 
+import app.scheduler as scheduler_mod
 from app.core.config import settings
 from app.models import Project, ProxyPolicy, Recommendation, UsageEvent
 from app.models.batch import STATUS_FINALIZED
 from app.proxy import batch as batch_service
 from app.proxy import drift as drift_mod
 from app.proxy import openai_batch
-from app.scheduler import Scheduler
+from app.scheduler import Scheduler, _acquire_advisory_lock, _lock_key, _release_advisory_lock
 
 INCUMBENT = "gpt-4o"
 CANDIDATE = "gpt-4o-mini"
@@ -216,5 +217,113 @@ def test_loop_runs_job_then_stops(monkeypatch):
         sched._stop.set()
         await task
         assert calls["n"] >= 1
+
+    asyncio.run(run())
+
+
+# --- advisory-lock coordination -------------------------------------------------
+
+
+def test_lock_key_is_deterministic_and_distinct_per_job():
+    assert _lock_key("drift-sweep") == _lock_key("drift-sweep")
+    assert _lock_key("drift-sweep") != _lock_key("batch-poll")
+    # Fits a Postgres signed bigint.
+    assert -(2**63) <= _lock_key("drift-sweep") < 2**63
+
+
+def test_advisory_lock_is_mutually_exclusive(db_session):
+    """Real Postgres advisory lock: a second acquirer cannot take a lock another
+    connection already holds, and it becomes available again after release."""
+    got1, conn1 = _acquire_advisory_lock("drift-sweep")
+    assert got1 is True and conn1 is not None
+    try:
+        got2, conn2 = _acquire_advisory_lock("drift-sweep")
+        assert got2 is False  # held elsewhere -> a second instance must back off
+        if conn2 is not None:
+            _release_advisory_lock("drift-sweep", conn2)
+    finally:
+        _release_advisory_lock("drift-sweep", conn1)
+
+    got3, conn3 = _acquire_advisory_lock("drift-sweep")
+    assert got3 is True  # released -> available again
+    _release_advisory_lock("drift-sweep", conn3)
+
+
+def test_run_guarded_passes_through_when_disabled(monkeypatch):
+    async def run():
+        sched = Scheduler()
+        monkeypatch.setattr(settings, "scheduler_advisory_lock_enabled", False)
+        acquired = {"n": 0}
+        monkeypatch.setattr(
+            scheduler_mod, "_acquire_advisory_lock", lambda name: (acquired.__setitem__("n", 1), (True, object()))[1]
+        )
+        calls = {"n": 0}
+
+        async def job():
+            calls["n"] += 1
+
+        await sched._run_guarded("drift-sweep", job)
+        assert calls["n"] == 1
+        assert acquired["n"] == 0  # the lock path is never touched when disabled
+
+    asyncio.run(run())
+
+
+def test_run_guarded_runs_when_lock_acquired(monkeypatch):
+    async def run():
+        sched = Scheduler()
+        monkeypatch.setattr(settings, "scheduler_advisory_lock_enabled", True)
+        released = {"n": 0}
+        monkeypatch.setattr(scheduler_mod, "_acquire_advisory_lock", lambda name: (True, object()))
+        monkeypatch.setattr(
+            scheduler_mod, "_release_advisory_lock", lambda name, conn: released.__setitem__("n", released["n"] + 1)
+        )
+        calls = {"n": 0}
+
+        async def job():
+            calls["n"] += 1
+
+        await sched._run_guarded("drift-sweep", job)
+        assert calls["n"] == 1
+        assert released["n"] == 1  # lock always released after the tick
+
+    asyncio.run(run())
+
+
+def test_run_guarded_skips_when_lock_unavailable(monkeypatch):
+    async def run():
+        sched = Scheduler()
+        monkeypatch.setattr(settings, "scheduler_advisory_lock_enabled", True)
+        released = {"n": 0}
+        # Lock held by another instance: acquired False but a live connection.
+        monkeypatch.setattr(scheduler_mod, "_acquire_advisory_lock", lambda name: (False, object()))
+        monkeypatch.setattr(
+            scheduler_mod, "_release_advisory_lock", lambda name, conn: released.__setitem__("n", released["n"] + 1)
+        )
+        calls = {"n": 0}
+
+        async def job():
+            calls["n"] += 1
+
+        await sched._run_guarded("drift-sweep", job)
+        assert calls["n"] == 0  # another instance owns this tick
+        assert released["n"] == 1  # the probe connection is still released
+
+    asyncio.run(run())
+
+
+def test_run_guarded_fails_open_on_lock_error(monkeypatch):
+    async def run():
+        sched = Scheduler()
+        monkeypatch.setattr(settings, "scheduler_advisory_lock_enabled", True)
+        # Lock infra error -> (False, None): run the job anyway, never drop a sweep.
+        monkeypatch.setattr(scheduler_mod, "_acquire_advisory_lock", lambda name: (False, None))
+        calls = {"n": 0}
+
+        async def job():
+            calls["n"] += 1
+
+        await sched._run_guarded("drift-sweep", job)
+        assert calls["n"] == 1
 
     asyncio.run(run())

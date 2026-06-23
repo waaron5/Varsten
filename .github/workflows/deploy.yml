@@ -1,0 +1,137 @@
+name: Deploy
+
+# Explicit, manual promotion. Mirrors the infra posture: auto_deployments_enabled
+# = false, immutable per-SHA image tags, Terraform as the source of truth for the
+# running image. The entire point of this workflow is ORDER:
+#
+#   build-push  ->  migrate  ->  promote
+#
+# Migrations run as a one-off job BEFORE any new instance is promoted, so the API
+# containers (which no longer migrate on boot) can start in parallel without racing
+# `alembic upgrade head`. This is what makes app_max_instances > 1 safe.
+#
+# Migrations must be backward compatible with the CURRENTLY running image, because
+# for a brief window the old code runs against the new schema. Additive changes (new
+# nullable column, new table, new index) are safe. For a destructive change use
+# expand/contract across two deploys: deploy 1 adds the new shape and the code that
+# writes both; deploy 2 (after backfill) drops the old shape.
+#
+# Required GitHub configuration (per environment):
+#   secrets.AWS_DEPLOY_ROLE_ARN     - IAM role assumed via OIDC (ECR push + apprunner + the TF state backend)
+#   secrets.DATABASE_URL            - the SAME connection string the service uses (the migration job connects directly)
+#   secrets.SENTRY_DSN              - TF var
+#   secrets.RATE_LIMIT_REDIS_URL    - TF var (optional; empty = per-instance limiter)
+#   vars.CORS_ORIGINS / vars.AUTH0_DOMAIN / vars.AUTH0_AUDIENCE - TF vars
+# Prerequisite: a remote Terraform state backend (e.g. S3) so the promote job can
+# apply from CI. Until that exists, run the promote step locally and use this
+# workflow for build-push + migrate only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      image_tag:
+        description: Image tag to build & deploy (git SHA). Blank = this run's commit SHA.
+        type: string
+        default: ""
+
+permissions:
+  id-token: write # OIDC: assume the deploy role, no long-lived AWS keys in the repo
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: varsten-api
+
+jobs:
+  build-push:
+    name: Build & push image
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      image_tag: ${{ steps.resolve.outputs.tag }}
+      image_uri: ${{ steps.build.outputs.image_uri }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        run: echo "tag=${{ inputs.image_tag != '' && inputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build & push image
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          IMAGE_URI="$REGISTRY/$ECR_REPOSITORY:$TAG"
+          docker build -t "$IMAGE_URI" ./backend
+          docker push "$IMAGE_URI"
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+  migrate:
+    name: Migrate database (before promote)
+    needs: build-push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      # Run migrations using the EXACT image being promoted, so alembic, the
+      # migration scripts, and the dependency set are byte-identical to what will
+      # serve traffic. The thin entrypoint passes `alembic upgrade head` straight
+      # through. This is one process, so there is no migration race.
+      - name: alembic upgrade head
+        env:
+          IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker pull "$IMAGE_URI"
+          docker run --rm -e DATABASE_URL="$DATABASE_URL" "$IMAGE_URI" alembic upgrade head
+
+  deploy:
+    name: Promote on App Runner
+    needs: [build-push, migrate]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      # Promote by pointing App Runner at the migrated image tag. Terraform owns the
+      # image identifier, so apply with the new tag; App Runner then performs a
+      # rolling, health-checked deploy. Rollback is re-running this workflow with a
+      # previous SHA. Requires a configured remote state backend (see header).
+      - name: terraform apply (promote image_tag)
+        working-directory: infra/aws/terraform
+        env:
+          TF_VAR_image_tag: ${{ needs.build-push.outputs.image_tag }}
+          TF_VAR_database_url: ${{ secrets.DATABASE_URL }}
+          TF_VAR_sentry_dsn: ${{ secrets.SENTRY_DSN }}
+          TF_VAR_rate_limit_redis_url: ${{ secrets.RATE_LIMIT_REDIS_URL }}
+          TF_VAR_cors_origins: ${{ vars.CORS_ORIGINS }}
+          TF_VAR_auth0_domain: ${{ vars.AUTH0_DOMAIN }}
+          TF_VAR_auth0_audience: ${{ vars.AUTH0_AUDIENCE }}
+        run: |
+          terraform init
+          terraform workspace select "${{ inputs.environment }}" || terraform workspace new "${{ inputs.environment }}"
+          terraform apply -auto-approve -var="environment=${{ inputs.environment }}"

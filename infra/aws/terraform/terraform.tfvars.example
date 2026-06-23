@@ -25,7 +25,20 @@ auth0_audience = "https://api.varsten.ai"
 # prefer TF_VAR_sentry_dsn in the environment over committing it.
 sentry_dsn = "https://REPLACE@oXXXX.ingest.sentry.io/XXXX"
 
-# Sized for a first customer. Scale up, not out, until the in-process scheduler
-# and rate limiter move to a shared store (keep app_max_instances = 1).
+# Horizontal scaling is supported: the scheduler coordinates via a Postgres
+# advisory lock and the rate limiter uses Redis when a URL is set below. Keep
+# min = 1 (no scale-to-zero; the proxy stays warm); raise max as load needs.
 app_min_instances = 1
-app_max_instances = 1
+app_max_instances = 4
+
+# Shared rate-limiter Redis. REQUIRED for globally-correct limits once
+# app_max_instances > 1; leave empty to accept per-instance limiting (fail-open).
+# Provision the Redis cluster (ElastiCache / Upstash) separately -- this only wires
+# the URL. Sensitive; prefer TF_VAR_rate_limit_redis_url in the environment.
+# rate_limit_redis_url = "redis://:PASSWORD@your-redis-host:6379/0"
+
+# Per-instance DB connection pool sizing. Worst-case connections to Postgres is
+# (db_pool_size + db_max_overflow) * 2 * app_max_instances. Point database_url at a
+# pooled endpoint (Neon pooler / PgBouncer) when scaling out.
+db_pool_size    = 5
+db_max_overflow = 5

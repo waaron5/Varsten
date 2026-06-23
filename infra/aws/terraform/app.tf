@@ -15,6 +15,63 @@ resource "aws_ecr_repository" "api" {
   }
 }
 
+locals {
+  # Redis is wired only when a URL is supplied. Provisioning the Redis cluster
+  # itself (ElastiCache / Upstash) is deliberately left to the operator: it is a
+  # recurring cost, so this config consumes a URL rather than creating the cluster.
+  redis_enabled = var.rate_limit_redis_url != ""
+
+  app_env_vars = merge(
+    {
+      APP_ENV                         = var.environment
+      PROVIDER_KEY_BACKEND            = "secretsmanager"
+      PROVIDER_KEY_AWS_REGION         = var.region
+      PROVIDER_KEY_SECRET_PREFIX      = "varsten"
+      PROVIDER_KEY_SECRET_ENVIRONMENT = var.environment
+      PROXY_DEFAULT_PROVIDER          = "openai"
+      SCHEDULER_ENABLED               = "true"
+      # Multi-instance coordination: each background sweep takes a per-job Postgres
+      # advisory lock, so only one instance runs a given sweep at a time. Required
+      # whenever app_max_instances > 1.
+      SCHEDULER_ADVISORY_LOCK_ENABLED = "true"
+      # Bound the per-instance database connection draw (see infra README).
+      DB_POOL_SIZE       = tostring(var.db_pool_size)
+      DB_MAX_OVERFLOW    = tostring(var.db_max_overflow)
+      CORS_ORIGINS       = var.cors_origins
+      AUTH0_DOMAIN       = var.auth0_domain
+      AUTH0_AUDIENCE     = var.auth0_audience
+      SENTRY_ENVIRONMENT = var.environment
+      LOG_JSON           = "true"
+    },
+    # Shared rate limiter across instances only when Redis is configured; otherwise
+    # the app keeps its in-memory limiter (per-instance, fail-open).
+    local.redis_enabled ? { RATE_LIMIT_BACKEND = "redis" } : {}
+  )
+
+  app_secrets = merge(
+    {
+      DATABASE_URL = aws_secretsmanager_secret.database_url.arn
+      SENTRY_DSN   = aws_secretsmanager_secret.sentry_dsn.arn
+    },
+    local.redis_enabled ? { RATE_LIMIT_REDIS_URL = aws_secretsmanager_secret.rate_limit_redis_url[0].arn } : {}
+  )
+}
+
+# Redis URL for the shared rate limiter, stored as a secret like DATABASE_URL.
+# Created only when a URL is supplied. The instance role's existing
+# varsten/<env>/* read grant (iam.tf) already covers it.
+resource "aws_secretsmanager_secret" "rate_limit_redis_url" {
+  count       = local.redis_enabled ? 1 : 0
+  name        = "varsten/${var.environment}/rate-limit-redis-url"
+  description = "Redis URL for the Varsten shared rate limiter"
+}
+
+resource "aws_secretsmanager_secret_version" "rate_limit_redis_url" {
+  count         = local.redis_enabled ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.rate_limit_redis_url[0].id
+  secret_string = var.rate_limit_redis_url
+}
+
 resource "aws_apprunner_service" "api" {
   service_name = "varsten-${var.environment}"
 
@@ -32,27 +89,20 @@ resource "aws_apprunner_service" "api" {
       image_configuration {
         port = "8000"
 
-        runtime_environment_variables = {
-          APP_ENV                         = var.environment
-          PROVIDER_KEY_BACKEND            = "secretsmanager"
-          PROVIDER_KEY_AWS_REGION         = var.region
-          PROVIDER_KEY_SECRET_PREFIX      = "varsten"
-          PROVIDER_KEY_SECRET_ENVIRONMENT = var.environment
-          PROXY_DEFAULT_PROVIDER          = "openai"
-          SCHEDULER_ENABLED               = "true"
-          CORS_ORIGINS                    = var.cors_origins
-          AUTH0_DOMAIN                    = var.auth0_domain
-          AUTH0_AUDIENCE                  = var.auth0_audience
-          SENTRY_ENVIRONMENT              = var.environment
-          LOG_JSON                        = "true"
-        }
+        # Built in locals so the Redis rate-limiter settings can be added
+        # conditionally on var.rate_limit_redis_url. Note on horizontal scaling:
+        # the provider-key TTL cache (app/proxy/keys.py) and the per-project circuit
+        # breaker (app/proxy/circuit.py) are INTENTIONALLY per-instance in-memory
+        # stores. They are performance optimisations, not shared state: each instance
+        # warms its own provider-key cache, and a per-instance breaker that trips on
+        # that instance's own observed upstream failures is correct and avoids a
+        # shared-store round-trip on the hot path. They need no coordination when
+        # app_max_instances > 1.
+        runtime_environment_variables = local.app_env_vars
 
         # Pulled from Secrets Manager at start, never rendered into Terraform state
         # as plaintext beyond the secret resources themselves.
-        runtime_environment_secrets = {
-          DATABASE_URL = aws_secretsmanager_secret.database_url.arn
-          SENTRY_DSN   = aws_secretsmanager_secret.sentry_dsn.arn
-        }
+        runtime_environment_secrets = local.app_secrets
       }
     }
   }

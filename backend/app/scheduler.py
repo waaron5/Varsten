@@ -11,21 +11,79 @@ all projects on an interval so production does not depend on an external cron.
 
 Dependency-free: a cancellable asyncio loop per job, each tick on a fresh DB
 session and wrapped so one failure never kills the loop. Off by default
-(scheduler_enabled); production turns it on. With more than one app instance, run
-it on a single leader or move to external cron so sweeps do not overlap.
+(scheduler_enabled); production turns it on.
+
+Multi-instance safety: with app_max_instances > 1, every instance would otherwise
+run every sweep, overlapping the work. Set scheduler_advisory_lock_enabled=true and
+each job tick takes a per-job Postgres advisory lock (pg_try_advisory_lock) for the
+duration of that tick; an instance that cannot take the lock skips the tick, so a
+given sweep never runs concurrently. The lock is session-scoped on a dedicated
+connection and released (or dropped when the instance dies), so leadership fails
+over automatically with no external coordinator. Lock acquisition fails open: if
+the lock infrastructure errors, the job still runs (the sweeps are idempotent, and
+silently dropping a safety sweep is worse than running it twice).
 """
 
 import asyncio
+import hashlib
+from typing import Any
+
+from sqlalchemy import text
 
 from app import alerts as alerts_mod
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.proxy import batch as batch_service
 from app.proxy import cache as cache_mod
 from app.proxy import drift as drift_mod
 
 logger = get_logger("varsten.scheduler")
+
+# Namespaced so our advisory keys never collide with any other use of Postgres
+# advisory locks in the same database.
+_ADVISORY_NAMESPACE = "varsten.scheduler:"
+
+
+def _lock_key(name: str) -> int:
+    """A deterministic signed 64-bit key for a job's advisory lock.
+
+    Postgres advisory locks take a bigint; derive one from the job name so every
+    instance computes the same key for the same job (and distinct jobs get distinct
+    keys, letting different instances run different sweeps while never doubling up on
+    the same one)."""
+    digest = hashlib.blake2b((_ADVISORY_NAMESPACE + name).encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
+
+
+def _acquire_advisory_lock(name: str) -> tuple[bool, Any]:
+    """Try to take the per-job advisory lock on a dedicated connection.
+
+    Returns (acquired, connection). The connection is held open while the job runs
+    so the session-scoped lock persists for the whole tick. On any error returns
+    (False, None) so the caller can fail open."""
+    try:
+        conn = engine.connect()
+    except Exception:
+        logger.exception("advisory lock connection failed; running without lock", extra={"job": name})
+        return False, None
+    try:
+        acquired = bool(conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _lock_key(name)}).scalar())
+        return acquired, conn
+    except Exception:
+        logger.exception("advisory lock acquisition failed; running without lock", extra={"job": name})
+        conn.close()
+        return False, None
+
+
+def _release_advisory_lock(name: str, conn: Any) -> None:
+    """Release the per-job lock and close its connection. Best-effort."""
+    try:
+        conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _lock_key(name)})
+    except Exception:
+        logger.exception("advisory unlock failed", extra={"job": name})
+    finally:
+        conn.close()
 
 
 class Scheduler:
@@ -65,7 +123,28 @@ class Scheduler:
                 break  # stop signalled
             except TimeoutError:
                 pass
+            await self._run_guarded(name, fn)
+
+    async def _run_guarded(self, name: str, fn) -> None:
+        """Run this tick under the per-job advisory lock when multi-instance
+        coordination is enabled; otherwise run it directly. An instance that cannot
+        take the lock skips the tick (another instance is running it). A lock
+        infrastructure error fails open and runs the job anyway."""
+        if not settings.scheduler_advisory_lock_enabled:
             await self._run_safe(name, fn)
+            return
+        acquired, conn = await asyncio.to_thread(_acquire_advisory_lock, name)
+        if conn is None:
+            # Fail open: lock infra is unavailable, so run rather than drop a sweep.
+            await self._run_safe(name, fn)
+            return
+        try:
+            if not acquired:
+                logger.debug("advisory lock held by another instance; skipping tick", extra={"job": name})
+                return
+            await self._run_safe(name, fn)
+        finally:
+            await asyncio.to_thread(_release_advisory_lock, name, conn)
 
     async def _run_safe(self, name: str, fn) -> None:
         try:

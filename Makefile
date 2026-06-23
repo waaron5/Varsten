@@ -1,4 +1,4 @@
-.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code backend-sdk-smoke
+.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate release-migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code backend-sdk-smoke
 
 # Bring up the full local stack (Postgres + API + frontend). The API container
 # applies migrations on boot. First run builds the API image.
@@ -28,9 +28,18 @@ demo-seed:
 seed-demo-tenant:
 	cd backend && .venv/bin/python -m scripts.seed_demo_tenant --yes $(ARGS)
 
-# Apply database migrations.
+# Apply database migrations (local dev DB).
 migrate:
 	cd backend && .venv/bin/alembic upgrade head
+
+# Release migration: run `alembic upgrade head` inside a built image against a
+# target database, the manual / pure-AWS equivalent of the deploy workflow's
+# migrate job. Run this BEFORE promoting the matching image. Usage:
+#   make release-migrate IMAGE=<ecr-repo>:<sha> DATABASE_URL=postgresql+psycopg://...
+release-migrate:
+	@test -n "$(IMAGE)" || (echo "set IMAGE=<repo>:<tag>" && exit 1)
+	@test -n "$(DATABASE_URL)" || (echo "set DATABASE_URL=..." && exit 1)
+	docker run --rm -e DATABASE_URL="$(DATABASE_URL)" "$(IMAGE)" alembic upgrade head
 
 # Run the backend test suite.
 test:

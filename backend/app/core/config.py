@@ -7,6 +7,20 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str
+    # SQLAlchemy connection pool sizing, per engine (there are two: sync + async).
+    # Worst-case connections held by one app instance is
+    # (db_pool_size + db_max_overflow) * 2. Multiply by app_max_instances to size
+    # the database / pooler. When running more than one instance, point DATABASE_URL
+    # at a pooled endpoint (Neon pooler / PgBouncer / RDS Proxy) so these per-instance
+    # pools multiplex onto far fewer server connections (see infra/aws/README.md).
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    # Recycle a pooled connection after this many seconds, so connections severed by
+    # the managed Postgres / pooler idle timeout are replaced instead of erroring.
+    db_pool_recycle_seconds: int = 1800
+    # Check a connection's liveness before handing it out (cheap), so a stale pooled
+    # connection never surfaces as a request error after a failover or pooler reset.
+    db_pool_pre_ping: bool = True
     # Origins allowed to call the API from a browser (the Next.js dev/prod app).
     cors_origins: list[str] = ["http://localhost:3000"]
     # Auth0 tenant for validating dashboard access tokens. Empty until configured;
@@ -122,6 +136,17 @@ class Settings(BaseSettings):
     # with more than one app instance, move this to a shared store. Generous by
     # default; fail-open if the limiter itself errors.
     rate_limit_enabled: bool = True
+    # Rate-limit backend: "memory" (per-process, dev / single-instance default) or
+    # "redis" (one shared window across instances). Move to "redis" before raising
+    # app_max_instances above 1, or each instance limits independently.
+    rate_limit_backend: str = "memory"
+    # Redis URL for rate_limit_backend="redis", e.g. redis://:password@host:6379/0.
+    # Empty falls back to the in-memory limiter with a warning.
+    rate_limit_redis_url: str = ""
+    # Socket timeout (seconds) for the limiter's Redis calls. The limiter runs on
+    # the proxy hot path, so a slow or unreachable Redis must fail open fast and
+    # never stall a request; keep this small.
+    rate_limit_redis_timeout_seconds: float = 0.1
     # Per Varsten API key, on the inline proxy (the public, abuse-exposed surface).
     proxy_rate_limit_per_minute: int = 600
     # Per user, on the provider-connect endpoint (cheap to abuse against providers).
@@ -226,6 +251,11 @@ class Settings(BaseSettings):
     # production sets SCHEDULER_ENABLED=true. With more than one app instance, run
     # this on a single leader (or move to external cron) so sweeps do not overlap.
     scheduler_enabled: bool = False
+    # Per-job Postgres advisory lock around each sweep so only one instance runs a
+    # given job at a time. Off by default (single-instance/dev); set true whenever
+    # app_max_instances > 1, or every instance runs every sweep. Fails open: a lock
+    # error runs the job rather than dropping a safety sweep.
+    scheduler_advisory_lock_enabled: bool = False
     # How often the quality-drift safety sweep runs across all projects.
     drift_sweep_interval_seconds: int = 300
     # How often the batch poller syncs in-flight batch jobs across all projects.

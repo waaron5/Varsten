@@ -20,8 +20,19 @@ from app.core.config import settings
 
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    """The process-wide sync engine, created on first use."""
-    return create_engine(settings.database_url, echo=False, future=True)
+    """The process-wide sync engine, created on first use.
+
+    Pool sizing is explicit and config-driven so the per-instance connection draw is
+    bounded and predictable when scaling horizontally (see Settings.db_pool_size)."""
+    return create_engine(
+        settings.database_url,
+        echo=False,
+        future=True,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_recycle=settings.db_pool_recycle_seconds,
+        pool_pre_ping=settings.db_pool_pre_ping,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -33,8 +44,17 @@ def get_session_factory() -> "sessionmaker[Session]":
 def get_async_engine() -> AsyncEngine:
     """The process-wide async engine, created on first use. The psycopg3 driver is
     both sync and async, so the same DATABASE_URL (postgresql+psycopg://...) drives
-    it with no URL change."""
-    return create_async_engine(settings.database_url, echo=False)
+    it with no URL change. Shares the same config-driven pool sizing as the sync
+    engine; the two pools are independent, so a single instance can hold up to
+    (db_pool_size + db_max_overflow) connections in each."""
+    return create_async_engine(
+        settings.database_url,
+        echo=False,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_recycle=settings.db_pool_recycle_seconds,
+        pool_pre_ping=settings.db_pool_pre_ping,
+    )
 
 
 @lru_cache(maxsize=1)
