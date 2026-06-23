@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     provider_key_secret_prefix: str = "varsten"
     provider_key_secret_environment: str = "development"
     provider_key_aws_region: str = ""
+    # Optional local development fallback for self-serve key storage. Production
+    # still requires Secrets Manager; when provider_key_backend="localdb", provider
+    # keys are encrypted with this Fernet/base-secret value and stored on the
+    # provider_connections row.
+    provider_key_local_encryption_key: str = ""
     # Master switch for the proxy cache (exact-hash lookup + store). This is the
     # Day One lever: byte-identical repeats serve from the store at $0 with zero
     # added latency (no embedding call). Turn this off to disable caching entirely.
@@ -121,6 +126,10 @@ class Settings(BaseSettings):
     proxy_rate_limit_per_minute: int = 600
     # Per user, on the provider-connect endpoint (cheap to abuse against providers).
     connect_rate_limit_per_minute: int = 20
+    # Trial/quota soft paywall. Exceeding either limit never blocks traffic; it
+    # downshifts the proxy into observe-only mode and surfaces warning headers/UI.
+    free_monthly_request_limit: int = 100_000
+    free_trial_days: int = 14
     # Global kill switch. When true, every project's traffic bypasses all Varsten
     # optimization and forwards straight to OpenAI (still metered). The operator's
     # emergency lever; a per-project switch lives on the project row.

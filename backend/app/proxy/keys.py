@@ -6,6 +6,8 @@ process-local TTL cache so cached tenant lookups stay sub-millisecond. The legac
 OpenAI env map remains as the dev/test fallback and rollback path.
 """
 
+import base64
+import hashlib
 import json
 import threading
 import uuid
@@ -15,15 +17,27 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 from cachetools import TTLCache
+from cryptography.fernet import Fernet, InvalidToken
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.db.session import SessionLocal
 
 logger = get_logger("varsten.proxy.keys")
 
 
 class ProviderKeyStoreUnsupported(RuntimeError):
     """Raised when the configured key backend cannot write provider keys."""
+
+    code = "provider_key_storage_unavailable"
+
+    def __init__(self, message: str, *, backend: str | None = None) -> None:
+        super().__init__(message)
+        self.backend = backend
+
+    def detail(self) -> dict[str, str | None]:
+        return {"code": self.code, "message": str(self), "backend": self.backend}
 
 
 def _provider(provider: str) -> str:
@@ -101,10 +115,116 @@ class EnvProviderKeyResolver:
         return None
 
     def store(self, project_id: uuid.UUID, provider: str, api_key: str) -> str:
-        raise ProviderKeyStoreUnsupported("provider key writes require provider_key_backend='secretsmanager'")
+        raise ProviderKeyStoreUnsupported(
+            "Provider key storage is not configured in this environment. A Varsten operator must finish setup manually.",
+            backend="env",
+        )
 
     def delete(self, project_id: uuid.UUID, provider: str) -> None:
-        raise ProviderKeyStoreUnsupported("provider key deletes require provider_key_backend='secretsmanager'")
+        raise ProviderKeyStoreUnsupported(
+            "Provider key storage is not configured in this environment. A Varsten operator must finish setup manually.",
+            backend="env",
+        )
+
+
+class LocalDBProviderKeyResolver:
+    """Local/dev encrypted database resolver.
+
+    This keeps the self-serve path usable outside AWS without teaching production to
+    accept plaintext env-vaulted writes. The ciphertext is stored as the
+    provider_connection secret_ref and read through the same hot-path TTL cache.
+    """
+
+    PREFIX = "localdb:v1:"
+
+    def _fernet(self) -> Fernet:
+        raw = settings.provider_key_local_encryption_key.strip()
+        if not raw:
+            raise ProviderKeyStoreUnsupported(
+                "Local provider key storage requires PROVIDER_KEY_LOCAL_ENCRYPTION_KEY.",
+                backend="localdb",
+            )
+        try:
+            key = raw.encode("utf-8")
+            if len(key) == 44:
+                return Fernet(key)
+        except Exception:
+            pass
+        digest = hashlib.sha256(raw.encode("utf-8")).digest()
+        return Fernet(base64.urlsafe_b64encode(digest))
+
+    def _encrypt_ref(self, api_key: str) -> str:
+        token = self._fernet().encrypt(api_key.encode("utf-8")).decode("utf-8")
+        return f"{self.PREFIX}{token}"
+
+    def _decrypt_ref(self, ref: str) -> str | None:
+        if not ref.startswith(self.PREFIX):
+            return None
+        token = ref[len(self.PREFIX) :].encode("utf-8")
+        try:
+            return self._fernet().decrypt(token).decode("utf-8")
+        except (InvalidToken, ProviderKeyStoreUnsupported):
+            logger.warning("local provider key decrypt failed")
+            return None
+
+    def get(self, project_id: uuid.UUID, provider: str) -> str | None:
+        from app.models import ProviderConnection
+
+        db = SessionLocal()
+        try:
+            connection = db.scalar(
+                select(ProviderConnection).where(
+                    ProviderConnection.project_id == project_id,
+                    ProviderConnection.provider == _provider(provider),
+                )
+            )
+            if connection is None or not connection.secret_ref:
+                return None
+            return self._decrypt_ref(connection.secret_ref)
+        finally:
+            db.close()
+
+    def store(self, project_id: uuid.UUID, provider: str, api_key: str) -> str:
+        from app.models import ProviderConnection
+
+        provider_name = _provider(provider)
+        secret_ref = self._encrypt_ref(api_key)
+        db = SessionLocal()
+        try:
+            connection = db.scalar(
+                select(ProviderConnection).where(
+                    ProviderConnection.project_id == project_id,
+                    ProviderConnection.provider == provider_name,
+                )
+            )
+            if connection is not None:
+                connection.secret_ref = secret_ref
+                connection.connection_method = "local_db_encrypted"
+            db.commit()
+        finally:
+            db.close()
+        clear_provider_key_cache(project_id, provider_name)
+        return secret_ref
+
+    def delete(self, project_id: uuid.UUID, provider: str) -> None:
+        from app.models import ProviderConnection
+
+        provider_name = _provider(provider)
+        db = SessionLocal()
+        try:
+            connection = db.scalar(
+                select(ProviderConnection).where(
+                    ProviderConnection.project_id == project_id,
+                    ProviderConnection.provider == provider_name,
+                )
+            )
+            if connection is not None:
+                connection.secret_ref = None
+                connection.connection_method = "local_db_encrypted"
+            db.commit()
+        finally:
+            db.close()
+        clear_provider_key_cache(project_id, provider_name)
 
 
 class SecretsManagerProviderKeyResolver:
@@ -190,6 +310,8 @@ def _resolver():
     backend = settings.provider_key_backend.strip().lower()
     if backend == "secretsmanager":
         return SecretsManagerProviderKeyResolver()
+    if backend in {"localdb", "local_db", "database"}:
+        return LocalDBProviderKeyResolver()
     if backend == "env":
         return EnvProviderKeyResolver()
     logger.warning("unknown provider key backend; using env", extra={"backend": settings.provider_key_backend})

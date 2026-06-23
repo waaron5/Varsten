@@ -1,42 +1,44 @@
+@import "./tokens.css";
+
 /* Varsten marketing design system.
    Visual language follows the product dashboard (warm paper canvas, brand green,
    small radii, muted chart palette, subtle warm shadows). Typography is the
    deliberate marketing split: DM Sans + Space Mono (see BRAND_STYLE_GUIDE.md). */
 
 :root {
-  --brand: #0e9e6e;
-  --brand-press: #0b8059;
-  --brand-deep: #06523a;
-  --brand-soft: rgba(14, 158, 110, 0.1);
-  --brand-line: rgba(14, 158, 110, 0.24);
+  --brand: var(--v-color-brand);
+  --brand-press: var(--v-color-brand-press);
+  --brand-deep: var(--v-color-brand-deep);
+  --brand-soft: var(--v-color-brand-soft);
+  --brand-line: var(--v-color-brand-line);
 
   /* Warm paper neutrals, aligned to the dashboard. */
-  --cream: #faf8f0;
-  --cream-2: #f3efe4;
-  --surface: #ffffff;
-  --surface-2: #f7f5f0;
-  --ink: #1a1714;
-  --ink-2: #6a6459;
-  --ink-3: #938c80;
-  --ink-faint: #b4aca0;
+  --cream: var(--v-color-paper-warm);
+  --cream-2: var(--v-color-paper-muted);
+  --surface: var(--v-color-surface);
+  --surface-2: var(--v-color-surface-raised);
+  --ink: var(--v-color-ink);
+  --ink-2: var(--v-color-ink-muted);
+  --ink-3: var(--v-color-ink-subtle);
+  --ink-faint: var(--v-color-ink-faint);
   --ink-70: rgba(26, 23, 20, 0.7);
   --ink-55: rgba(26, 23, 20, 0.55);
 
-  --line: #e5e1d8;
-  --line-strong: #d4cfc3;
+  --line: var(--v-color-border);
+  --line-strong: var(--v-color-border-strong);
 
-  --warn: #B8663E;
-  --warn-press: #985236;
-  --warn-deep: #7A3F2E;
-  --warn-line: #E3B18F;
-  --warn-soft: #F5E2D5;
-  --warn-faint: #FBF3EF;
+  --warn: var(--v-color-warning);
+  --warn-press: var(--v-color-warning-press);
+  --warn-deep: var(--v-color-warning-deep);
+  --warn-line: var(--v-color-warning-line);
+  --warn-soft: var(--v-color-warning-soft);
+  --warn-faint: var(--v-color-warning-faint);
 
-  --confidence: #8A6F86;
-  --confidence-strong: #655060;
-  --confidence-line: #DCCFDB;
-  --confidence-soft: #F4EFF4;
-  --confidence-faint: #FBF8FB;
+  --confidence: var(--v-color-confidence);
+  --confidence-strong: var(--v-color-confidence-strong);
+  --confidence-line: var(--v-color-confidence-line);
+  --confidence-soft: var(--v-color-confidence-soft);
+  --confidence-faint: var(--v-color-confidence-faint);
 
   /* Dark surfaces for the inverted sections (problem, solution, ledger, footer). */
   --dark: #1a1714;
@@ -48,26 +50,26 @@
   --on-dark-3: rgba(250, 248, 240, 0.4);
 
   /* Dashboard chart palette (source of truth: frontend/app/globals.css). */
-  --chart-spend: #d8d5cb;
+  --chart-spend: var(--v-color-chart-spend);
   --chart-savings: var(--brand);
 
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-pill: 999px;
+  --radius: var(--v-radius);
+  --radius-sm: var(--v-radius-sm);
+  --radius-md: var(--v-radius-lg);
+  --radius-lg: var(--v-radius-xl);
+  --radius-pill: var(--v-radius-pill);
 
-  --font-sans: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: var(--font-space-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: var(--v-font-sans);
+  --font-mono: var(--v-font-mono);
 
-  --shadow-sm: 0 1px 2px rgba(40, 33, 24, 0.04), 0 5px 14px rgba(40, 33, 24, 0.05);
-  --shadow-card: 0 1px 2px rgba(40, 33, 24, 0.05), 0 18px 48px rgba(40, 33, 24, 0.1);
-  --shadow-green: 0 12px 30px rgba(14, 158, 110, 0.22);
+  --shadow-sm: var(--v-shadow-sm);
+  --shadow-card: var(--v-shadow-card);
+  --shadow-green: var(--v-shadow-brand);
   /* Product replicas sit on a deeper, layered elevation so the live UI reads as
      foreground vs the flat content cards around it. */
   --shadow-float: 0 2px 4px rgba(40, 33, 24, 0.05), 0 12px 26px rgba(40, 33, 24, 0.09), 0 34px 64px rgba(40, 33, 24, 0.13);
   --shadow-float-dark: 0 0 0 1px rgba(250, 248, 240, 0.07), 0 4px 12px rgba(0, 0, 0, 0.22), 0 30px 64px rgba(0, 0, 0, 0.44);
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease: var(--v-ease);
   --button-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --button-hover-transition: 280ms;
   --button-press-transition: 80ms;

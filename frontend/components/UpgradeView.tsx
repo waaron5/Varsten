@@ -24,10 +24,24 @@ export function UpgradeView() {
 }
 
 function UpgradeBody() {
-  const { isPerformance, planTier } = useEntitlements();
+  const { isPerformance, observeOnly, observeOnlyReason, planTier, quota, trial } = useEntitlements();
+  const quotaUsed = quota ? `${quota.monthly_requests.toLocaleString()} / ${quota.monthly_request_limit.toLocaleString()}` : "—";
+  const trialEnds = trial?.trial_ends_at ? new Date(trial.trial_ends_at).toLocaleDateString() : "—";
+  const paywallActive = observeOnly && planTier === "performance";
 
   return (
     <div className="view" style={{ maxWidth: 720 }}>
+      {paywallActive && (
+        <div className="card" style={{ borderColor: "var(--warn-line)", background: "var(--warn-faint)", marginBottom: 12 }}>
+          <div className="card-head">
+            <h3>Optimization paused</h3>
+            <div className="right"><span className="pill neutral">Observe-only</span></div>
+          </div>
+          <div className="es" style={{ padding: "0 12px 12px" }}>
+            Your live traffic is still flowing through Varsten, but behavior-changing levers are paused because {observeOnlyReason === "monthly_request_limit_exceeded" ? "the trial request limit has been reached" : "the trial window has ended"}.
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="card-head">
           <h3>{isPerformance ? "You're on Performance" : "Upgrade to Performance"}</h3>
@@ -63,6 +77,24 @@ function UpgradeBody() {
               </div>
             </>
           )}
+          <div className="card" style={{ boxShadow: "none", margin: "16px 0 0" }}>
+            <div className="card-head">
+              <h3>Trial usage</h3>
+              <div className="right">
+                <span className={`pill ${paywallActive ? "neutral" : "green"}`}>
+                  {paywallActive ? "Paused" : "Available"}
+                </span>
+              </div>
+            </div>
+            <table className="tbl">
+              <tbody>
+                <tr><td className="muted">Monthly observed requests</td><td>{quotaUsed}</td></tr>
+                <tr><td className="muted">Requests remaining</td><td>{quota?.requests_remaining?.toLocaleString() ?? "—"}</td></tr>
+                <tr><td className="muted">Trial ends</td><td>{trialEnds}</td></tr>
+                <tr><td className="muted">Mode</td><td>{observeOnly ? "Observe-only" : "Performance optimization"}</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

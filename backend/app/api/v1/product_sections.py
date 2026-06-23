@@ -324,6 +324,10 @@ def _provider_connection_payload(connection: ProviderConnection) -> dict:
     }
 
 
+def _connection_method_for_secret(secret_ref: str) -> str:
+    return "local_db_encrypted" if secret_ref.startswith("localdb:") else "secrets_manager"
+
+
 def _provider_connection_record(
     db: Session,
     project: Project,
@@ -1759,6 +1763,10 @@ def upsert_admin_connection(
     try:
         secret_ref = store_provider_key_for_project(project.id, provider_name, payload.api_key)
     except ProviderKeyStoreUnsupported as exc:
+        connection = _provider_connection_record(db, project, provider_name)
+        connection.status = "manual_setup_required"
+        connection.last_error = str(exc)
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -1775,7 +1783,7 @@ def upsert_admin_connection(
 
     now = datetime.now(UTC)
     connection = _provider_connection_record(db, project, provider_name)
-    connection.connection_method = "secrets_manager"
+    connection.connection_method = _connection_method_for_secret(secret_ref)
     connection.status = "connected"
     connection.secret_ref = secret_ref
     connection.last_sync_at = now

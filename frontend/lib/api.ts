@@ -50,24 +50,39 @@ import type {
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 const REQUEST_TIMEOUT_MS = 15000;
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code: string | null;
+  detail: unknown;
+  constructor(status: number, message: string, detail?: unknown, code: string | null = null) {
     super(message);
     this.status = status;
+    this.code = code;
+    this.detail = detail;
   }
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
+    let code: string | null = null;
+    let rawDetail: unknown = null;
     try {
       const body = await res.json();
-      detail = body.detail ?? detail;
+      rawDetail = body.detail ?? body;
+      if (typeof body.detail === "string") {
+        detail = body.detail;
+      } else if (body.detail && typeof body.detail === "object") {
+        const obj = body.detail as { message?: unknown; code?: unknown };
+        detail = typeof obj.message === "string" ? obj.message : JSON.stringify(body.detail);
+        code = typeof obj.code === "string" ? obj.code : null;
+      } else if (typeof body.message === "string") {
+        detail = body.message;
+      }
     } catch {
       // non-JSON error body; keep statusText
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, rawDetail, code);
   }
   return res.json() as Promise<T>;
 }
@@ -393,6 +408,17 @@ export const api = {
         body: JSON.stringify({ api_key: apiKey }),
       },
     ),
+
+  connectProjectProvider: (
+    token: string,
+    projectId: string,
+    provider: string,
+    apiKey: string,
+  ) =>
+    request<ProviderConnection>(`/projects/${projectId}/connections`, token, {
+      method: "POST",
+      body: JSON.stringify({ provider, api_key: apiKey }),
+    }),
 
   disconnectProviderConnection: (
     token: string,

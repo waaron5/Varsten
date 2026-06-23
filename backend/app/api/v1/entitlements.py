@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import resolve_project
-from app.auth.entitlements import is_performance
+from app.auth.entitlements import entitlement_state_for_project
 from app.db.session import get_db
 from app.models import Project
 
@@ -21,10 +21,21 @@ def entitlements(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    performance = is_performance(db, project)
+    entitlement = entitlement_state_for_project(db, project)
+    performance = entitlement.plan_tier == "performance" and not entitlement.observe_only
     return {
-        "plan_tier": "performance" if performance else "free",
-        "observe_only": not performance,
+        "plan_tier": entitlement.plan_tier,
+        "observe_only": entitlement.observe_only,
+        "observe_only_reason": entitlement.reason,
+        "quota": {
+            "monthly_requests": entitlement.monthly_requests,
+            "monthly_request_limit": entitlement.monthly_request_limit,
+            "requests_remaining": entitlement.requests_remaining,
+        },
+        "trial": {
+            "trial_ends_at": entitlement.trial_ends_at,
+            "trial_expired": entitlement.trial_expired,
+        },
         "features": {
             # Behaviour-changing levers, gated to Performance (matches the backend
             # enforcement points exactly).

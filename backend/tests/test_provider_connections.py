@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import select
 
 from app.api.v1 import product_sections
+from app.api.v1 import projects as project_routes
 from app.models import ProviderConnection
 from app.proxy.keys import ProviderKeyStoreUnsupported
 
@@ -13,6 +14,10 @@ def _bearer(token: str) -> dict[str, str]:
 
 def _admin_connection_path(project_id: str, provider: str) -> str:
     return f"/v1/admin/connections/{provider}?project_id={project_id}"
+
+
+def _project_connection_path(project_id: str) -> str:
+    return f"/v1/projects/{project_id}/connections"
 
 
 def test_admin_provider_connection_upsert_vaults_key_without_returning_secret(
@@ -56,6 +61,59 @@ def test_admin_provider_connection_upsert_vaults_key_without_returning_secret(
     assert connection is not None
     assert connection.secret_ref == f"varsten/test/provider-keys/{ws['project_id']}/anthropic"
     assert connection.last_error is None
+
+
+def test_project_provider_connection_endpoint_vaults_key_without_returning_secret(
+    client,
+    provision,
+    monkeypatch,
+):
+    ws = provision(sub="auth0|project-provider-owner", email="project-provider-owner@example.com")
+    calls: list[tuple[str, str, str]] = []
+
+    def store_key(project_id: uuid.UUID, provider: str, api_key: str) -> str:
+        calls.append((str(project_id), provider, api_key))
+        return f"varsten/test/provider-keys/{project_id}/{provider}"
+
+    monkeypatch.setattr(project_routes, "store_provider_key_for_project", store_key)
+
+    res = client.post(
+        _project_connection_path(ws["project_id"]),
+        headers=_bearer(ws["token"]),
+        json={"provider": "gemini", "api_key": "AIza-test"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["provider"] == "gemini"
+    assert body["status"] == "connected"
+    assert body["key_vaulted"] is True
+    assert "api_key" not in body
+    assert "secret_ref" not in body
+    assert calls == [(ws["project_id"], "gemini", "AIza-test")]
+
+
+def test_project_provider_connection_reports_manual_setup_capability(
+    client,
+    provision,
+    monkeypatch,
+):
+    ws = provision(sub="auth0|project-provider-manual", email="project-provider-manual@example.com")
+
+    def reject_store(project_id: uuid.UUID, provider: str, api_key: str) -> str:
+        raise ProviderKeyStoreUnsupported("Manual setup required.", backend="env")
+
+    monkeypatch.setattr(project_routes, "store_provider_key_for_project", reject_store)
+
+    res = client.post(
+        _project_connection_path(ws["project_id"]),
+        headers=_bearer(ws["token"]),
+        json={"provider": "openai", "api_key": "sk-test"},
+    )
+
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "provider_key_storage_unavailable"
+    assert res.json()["detail"]["backend"] == "env"
 
 
 def test_admin_provider_connection_rejects_unsupported_provider(client, provision, monkeypatch):

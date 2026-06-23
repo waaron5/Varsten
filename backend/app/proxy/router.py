@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ApiKeyContext, require_api_key_context_async
-from app.auth.entitlements import observe_only_async
+from app.auth.entitlements import EntitlementState, entitlement_state_async
 from app.core import ratelimit
 from app.core.config import settings
 from app.core.logging import get_logger, request_id_ctx
@@ -93,17 +93,44 @@ def _rate_limited(api_key_id) -> JSONResponse | None:
     )
 
 
-async def _resolve_observe_only(db: AsyncSession, organization_id) -> bool:
-    """Whether the org is observe-only, for the hot path. Fail-open is OBSERVE-ONLY,
-    never Performance: if the plan can't be resolved we still serve the request, but
-    we do NOT switch on any behaviour-changing lever. The traffic succeeds; the
-    optimization does not. observe_only_async already guards itself; this is a
-    second backstop so a future bug can never silently grant Performance behaviour."""
+async def _resolve_entitlement_state(db: AsyncSession, organization_id) -> EntitlementState:
     try:
-        return await observe_only_async(db, organization_id)
+        state = await entitlement_state_async(db, organization_id)
+        legacy_observe_only = await observe_only_async(db, organization_id)
+        if legacy_observe_only != state.observe_only:
+            return state._replace(observe_only=legacy_observe_only)
+        return state
     except Exception:
-        logger.exception("plan tier lookup failed; treating as observe-only")
-        return True
+        logger.exception("entitlement lookup failed; treating as observe-only")
+        return EntitlementState(
+            plan_tier="free",
+            observe_only=True,
+            reason="entitlement_lookup_failed",
+            monthly_requests=0,
+            monthly_request_limit=settings.free_monthly_request_limit,
+            requests_remaining=None,
+            trial_ends_at=None,
+            trial_expired=False,
+        )
+
+
+async def observe_only_async(db: AsyncSession, organization_id) -> bool:
+    return (await entitlement_state_async(db, organization_id)).observe_only
+
+
+def _entitlement_headers(state: EntitlementState) -> dict[str, str]:
+    headers = {
+        "X-Varsten-Observe-Only": "true" if state.observe_only else "false",
+        "X-Varsten-Monthly-Requests": str(state.monthly_requests),
+        "X-Varsten-Monthly-Request-Limit": str(state.monthly_request_limit),
+    }
+    if state.reason:
+        headers["X-Varsten-Observe-Only-Reason"] = state.reason
+    if state.requests_remaining is not None:
+        headers["X-Varsten-Requests-Remaining"] = str(state.requests_remaining)
+    if state.trial_ends_at is not None:
+        headers["X-Varsten-Trial-Ends-At"] = state.trial_ends_at.isoformat()
+    return headers
 
 
 def _bypass_reason(project: Project) -> str:
@@ -234,7 +261,8 @@ async def _openai_dialect_completions(
     # Observe-only (Free): meter and record, but never change behaviour — no cache
     # serve/store, no routing, no trim. Distinct from the kill-switch bypass.
     # Fail-open: treats the org as observe-only if the tier can't be resolved.
-    observe_only = await _resolve_observe_only(db, project.organization_id)
+    entitlement = await _resolve_entitlement_state(db, project.organization_id)
+    observe_only = entitlement.observe_only
     optimize_enabled = not bypass and not observe_only
     cache_key = cache.compute_cache_key(body)
 
@@ -306,6 +334,7 @@ async def _openai_dialect_completions(
         # Correlation id so the client can later attach outcome feedback to this
         # exact request (POST /v1/feedback).
         "X-Varsten-Request-Id": request_id,
+        **_entitlement_headers(entitlement),
     }
     if opt.routed_from:
         headers["X-Varsten-Routed"] = _routed_header(
@@ -637,10 +666,16 @@ async def _native_provider_passthrough(
     bypass = _is_bypassed(project)
     # Free is observe-only: no cross-provider routing. Native is passthrough anyway,
     # so observe-only and the default behaviour coincide except for routing.
-    observe_only = await _resolve_observe_only(db, project.organization_id)
+    entitlement = await _resolve_entitlement_state(db, project.organization_id)
+    observe_only = entitlement.observe_only
     mode = "bypass" if bypass else "observe"
     request_id = _request_id(request)
-    response_headers = {"X-Varsten-Mode": mode, "X-Varsten-Cache": "bypass", "X-Varsten-Request-Id": request_id}
+    response_headers = {
+        "X-Varsten-Mode": mode,
+        "X-Varsten-Cache": "bypass",
+        "X-Varsten-Request-Id": request_id,
+        **_entitlement_headers(entitlement),
+    }
     draft = DecisionDraft(
         request_id=request_id,
         client_dialect=parsed.dialect.value,

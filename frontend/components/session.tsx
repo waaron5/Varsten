@@ -223,15 +223,18 @@ function sessionStatus({
   bootstrapped,
   error,
   isLoading,
+  seeded,
   userReady,
 }: {
   authTimedOut: boolean;
   bootstrapped: boolean;
   error: string | null;
   isLoading: boolean;
+  seeded: boolean;
   userReady: boolean;
 }): Status {
   if (authTimedOut) return "error";
+  if (seeded && !error) return "ready";
   if (isLoading || (userReady && !bootstrapped)) return "loading";
   if (!userReady) return "anonymous";
   return error ? "error" : "ready";
@@ -255,7 +258,7 @@ export function SessionProvider({
   const [activeProjectId, setActive] = useState<string | null>(initialActiveProjectId);
   const [bootstrapped, setBootstrapped] = useState(seeded);
   const [error, setError] = useState<string | null>(null);
-  const [loadingLabel, setLoadingLabel] = useState<string | null>("Checking session");
+  const [loadingLabel, setLoadingLabel] = useState<string | null>(seeded ? null : "Checking session");
   const authTimedOut = useAuthLoadingTimeout(isLoading);
 
   const getToken = useCallback(() => getAccessTokenWithTimeout(), []);
@@ -337,7 +340,7 @@ export function SessionProvider({
     };
   }, [seeded, user, profile]);
 
-  const status = sessionStatus({ authTimedOut, bootstrapped, error, isLoading, userReady: Boolean(user) });
+  const status = sessionStatus({ authTimedOut, bootstrapped, error, isLoading, seeded, userReady: Boolean(user) });
   const visibleError = authTimedOut
     ? "Authentication is taking too long to load. Try signing out and signing in again."
     : error;

@@ -4,6 +4,7 @@ import { QueryClient, dehydrate } from "@tanstack/react-query";
 
 type QuerySpec = {
   key: readonly unknown[];
+  data?: unknown;
   load: (token: string, projectId: string | undefined) => Promise<unknown>;
 };
 
@@ -21,12 +22,17 @@ export async function prefetchProjectQueries(
 ) {
   const queryClient = new QueryClient();
   await Promise.all(
-    specs.map((spec) =>
-      queryClient.prefetchQuery({
-        queryKey: ["projectResource", projectId, ...spec.key],
+    specs.map((spec) => {
+      const queryKey = ["projectResource", projectId, ...spec.key];
+      if (spec.data !== undefined) {
+        queryClient.setQueryData(queryKey, spec.data);
+        return Promise.resolve();
+      }
+      return queryClient.prefetchQuery({
+        queryKey,
         queryFn: () => spec.load(token, projectId),
-      }),
-    ),
+      });
+    }),
   );
   return dehydrate(queryClient);
 }

@@ -22,13 +22,20 @@ interface DashboardData {
 
 const Ctx = createContext<DashboardData | null>(null);
 
-export function DashboardProvider({ children }: { children: ReactNode }) {
+export function DashboardProvider({
+  children,
+  initialMonthSnapshot = null,
+}: {
+  children: ReactNode;
+  initialMonthSnapshot?: DashboardSnapshot | null;
+}) {
   // Period is owned by the top-navbar control (DashboardChrome); the page reacts to
   // it. Including it in the query key re-fetches the snapshot on a period switch.
   const { period } = useDashboardChrome();
   const snapshot = useProjectResource<DashboardSnapshot>(
     ["dashboardSnapshot", period],
     (token, projectId) => api.dashboardSnapshot(token, projectId, { period }),
+    period === "month" ? initialMonthSnapshot : null,
   );
 
   const value: DashboardData = {

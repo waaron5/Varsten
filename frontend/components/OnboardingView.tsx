@@ -6,7 +6,7 @@ import { RequireSession } from "@/components/RequireSession";
 import { NoticeCard } from "@/components/viewPrimitives";
 import { useProjectResource } from "@/components/useProjectResource";
 import { useSession } from "@/components/session";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import type { ApiKeyCreated, OnboardingStatus } from "@/lib/types";
 
 // The public proxy base customers point their SDK at (distinct from the dashboard
@@ -14,6 +14,37 @@ import type { ApiKeyCreated, OnboardingStatus } from "@/lib/types";
 const PROXY_BASE = "https://api.varsten.ai/v1";
 const SETUP_CALL_HREF = "mailto:mail@varsten.ai?subject=Varsten%20setup%20call";
 const DOCS_HREF = "https://varsten.ai/docs";
+type ProviderId = "openai" | "anthropic" | "gemini";
+
+const PROVIDERS: {
+  id: ProviderId;
+  name: string;
+  description: string;
+  placeholder: string;
+  endpoint: string;
+}[] = [
+  {
+    id: "openai",
+    name: "OpenAI",
+    description: "OpenAI-compatible chat completions and tool calls.",
+    placeholder: "sk-...",
+    endpoint: `${PROXY_BASE}/chat/completions`,
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    description: "Native Messages, count_tokens, streaming, and batches.",
+    placeholder: "sk-ant-...",
+    endpoint: `${PROXY_BASE}/messages`,
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    description: "Gemini native v1beta and OpenAI-compatible chat routes.",
+    placeholder: "AIza...",
+    endpoint: `${PROXY_BASE}/v1beta/models/{model}:generateContent`,
+  },
+];
 
 const CODE_STYLE: React.CSSProperties = {
   background: "var(--surface-2)",
@@ -202,62 +233,106 @@ function ApiKeyStep({ status }: { status: OnboardingStatus }) {
 
 function ProviderStep({ status, onChanged }: { status: OnboardingStatus; onChanged: () => void }) {
   const { activeProjectId, getToken } = useSession();
-  const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const openai = status.provider_connections.find((c) => c.provider === "openai");
-  const connected = openai?.status === "connected";
+  const [keys, setKeys] = useState<Record<ProviderId, string>>({ openai: "", anthropic: "", gemini: "" });
+  const [busy, setBusy] = useState<ProviderId | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<ProviderId, string>>>({});
+  const [manualSetup, setManualSetup] = useState<{ provider: string; message: string } | null>(null);
+  const connectionByProvider = new Map(status.provider_connections.map((c) => [c.provider, c]));
 
-  const connect = async () => {
-    if (!activeProjectId || !key.trim()) return;
-    setBusy(true);
-    setErr(null);
+  const connect = async (provider: ProviderId) => {
+    const apiKey = keys[provider].trim();
+    if (!activeProjectId || !apiKey) return;
+    setBusy(provider);
+    setErrors((current) => ({ ...current, [provider]: undefined }));
     try {
-      await api.upsertProviderConnection(await getToken(), activeProjectId, "openai", key.trim());
-      setKey("");
+      await api.connectProjectProvider(await getToken(), activeProjectId, provider, apiKey);
+      setKeys((current) => ({ ...current, [provider]: "" }));
       onChanged();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      if (e instanceof ApiError && (e.status === 409 || e.code === "provider_key_storage_unavailable")) {
+        setManualSetup({ provider, message });
+      } else {
+        setErrors((current) => ({ ...current, [provider]: message }));
+      }
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   return (
-    <StepCard n={2} title="Connect your OpenAI key" done={connected}>
+    <StepCard n={2} title="Connect your provider key" done={status.has_provider_connection}>
       <div className="es">
-        Varsten forwards your requests to OpenAI using this key. It is stored encrypted and never
-        shown back to you. We only ever return status — never your key.
+        Choose the provider your app already uses. Varsten validates the key, stores it through the configured vault, and only returns connection status.
       </div>
-      {connected ? (
-        <div className="es" style={{ color: "var(--pos, #1a7f37)", marginTop: 8 }}>
-          OpenAI connected{openai?.last_verified_at ? ` · verified ${new Date(openai.last_verified_at).toLocaleString()}` : ""}.
-        </div>
-      ) : (
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <input
-            className="input"
-            type="password"
-            placeholder="sk-…"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button className="btn primary" disabled={busy || !key.trim()} onClick={() => void connect()}>
-            {busy ? "Connecting…" : "Connect"}
-          </button>
-        </div>
-      )}
-      {err && (
-        <div className="es" style={{ color: "var(--neg)", marginTop: 8 }}>
-          {err}
-          <div style={{ marginTop: 6 }}>
-            If provider key storage is not yet available in your environment, <a href={SETUP_CALL_HREF}>book a setup call</a> and we&apos;ll finish the connection with you.
+      <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+        {PROVIDERS.map((provider) => {
+          const connection = connectionByProvider.get(provider.id);
+          const connected = connection?.status === "connected";
+          const error = errors[provider.id] ?? connection?.last_error;
+          const value = keys[provider.id];
+          return (
+            <div className="card" key={provider.id} style={{ boxShadow: "none", margin: 0 }}>
+              <div className="card-head">
+                <h3>{provider.name}</h3>
+                <div className="right">
+                  <span className={`pill ${connected ? "green" : "neutral"}`}>
+                    {connected ? "Connected" : connection?.status === "manual_setup_required" ? "Manual setup" : "Not connected"}
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: "0 12px 12px" }}>
+                <div className="es">{provider.description}</div>
+                <div className="es mono" style={{ marginTop: 6 }}>{provider.endpoint}</div>
+                {connected ? (
+                  <div className="es" style={{ color: "var(--pos)", marginTop: 8 }}>
+                    Verified{connection?.last_verified_at ? ` ${new Date(connection.last_verified_at).toLocaleString()}` : ""}.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder={provider.placeholder}
+                      value={value}
+                      onChange={(e) => setKeys((current) => ({ ...current, [provider.id]: e.target.value }))}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className="btn primary"
+                      disabled={busy !== null || !value.trim()}
+                      onClick={() => void connect(provider.id)}
+                    >
+                      {busy === provider.id ? "Connecting…" : "Connect"}
+                    </button>
+                  </div>
+                )}
+                {error && !connected && (
+                  <div className="es" style={{ color: "var(--neg)", marginTop: 8 }}>{error}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {manualSetup && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setManualSetup(null)}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Manual provider setup" onClick={(e) => e.stopPropagation()}>
+            <div className="card-head">
+              <h3>Manual setup required</h3>
+              <button className="btn" onClick={() => setManualSetup(null)}>Close</button>
+            </div>
+            <div style={{ padding: "0 12px 12px" }}>
+              <div className="es">
+                This environment cannot store {manualSetup.provider} keys from the dashboard yet. Your traffic is not affected; a Varsten operator needs to finish vault setup.
+              </div>
+              <div className="es" style={{ color: "var(--text-2)", marginTop: 8 }}>{manualSetup.message}</div>
+              <div className="empty-actions" style={{ justifyContent: "flex-start", marginTop: 12 }}>
+                <a className="btn primary" href={SETUP_CALL_HREF}>Book setup call</a>
+              </div>
+            </div>
           </div>
         </div>
-      )}
-      {openai?.last_error && !err && (
-        <div className="es" style={{ color: "var(--neg)", marginTop: 8 }}>Last error: {openai.last_error}</div>
       )}
     </StepCard>
   );
@@ -289,10 +364,24 @@ const SNIPPET_METADATA = `const response = await fetch("${PROXY_BASE}/chat/compl
   })
 });`;
 
+const PROVIDER_SNIPPETS = [
+  { label: "OpenAI", value: `baseURL: "${PROXY_BASE}"` },
+  { label: "Anthropic", value: `baseURL: "${PROXY_BASE}"` },
+  { label: "Gemini", value: `baseURL: "${PROXY_BASE}/v1beta"` },
+];
+
 function IntegrateStep() {
   return (
     <StepCard n={3} title="Point your code at Varsten" done={false}>
-      <div className="es">Swap your OpenAI base URL for Varsten and use your Varsten key. That&apos;s the whole integration.</div>
+      <div className="es">Swap your provider base URL for Varsten and use your Varsten key. Your provider key stays in the Varsten vault.</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginTop: 8 }}>
+        {PROVIDER_SNIPPETS.map((snippet) => (
+          <div className="card" key={snippet.label} style={{ boxShadow: "none", margin: 0, padding: 12 }}>
+            <div className="es" style={{ fontWeight: 700 }}>{snippet.label}</div>
+            <div className="es mono" style={{ marginTop: 4 }}>{snippet.value}</div>
+          </div>
+        ))}
+      </div>
       <pre style={CODE_STYLE}>{SNIPPET_TS}</pre>
       <CopyButton value={SNIPPET_TS} label="Copy snippet" />
       <div className="es" style={{ marginTop: 12 }}>
@@ -301,10 +390,6 @@ function IntegrateStep() {
       </div>
       <pre style={CODE_STYLE}>{SNIPPET_METADATA}</pre>
       <CopyButton value={SNIPPET_METADATA} label="Copy with metadata" />
-      <div className="es" style={{ marginTop: 8 }}>
-        Anthropic and Gemini are supported via the same proxy. Other SDKs: use the OpenAI-compatible
-        endpoint above, or <a href={SETUP_CALL_HREF}>contact us</a>.
-      </div>
     </StepCard>
   );
 }

@@ -531,12 +531,6 @@ function Problem() {
             ))}
           </div>
         </div>
-        <div className="lp-problem-callout">
-          <span>
-            Most teams answer these with spreadsheets, gut feel, and a quarterly scramble.{" "}
-            <span className="accent">That&apos;s not a strategy. It&apos;s exposure.</span>
-          </span>
-        </div>
       </div>
     </section>
   );
@@ -567,13 +561,6 @@ function Solution() {
             </div>
           ))}
         </div>
-        <a className="lp-solution-jump" href="#how-it-works" data-scroll-duration="950">
-          <span>See how it works</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 5v14" />
-            <path d="m19 12-7 7-7-7" />
-          </svg>
-        </a>
       </div>
     </section>
   );

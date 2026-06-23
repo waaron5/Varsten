@@ -18,6 +18,9 @@ interface EntitlementsValue {
   isPerformance: boolean;
   // observeOnly is only asserted once we know the plan (false while unknown).
   observeOnly: boolean;
+  observeOnlyReason: string | null;
+  quota: Entitlements["quota"] | null;
+  trial: Entitlements["trial"] | null;
   canApplyRecommendations: boolean;
   canEnableRouting: boolean;
   canEnableCaching: boolean;
@@ -53,6 +56,9 @@ function entitlementsValue(data: Entitlements | null, loading: boolean): Entitle
     planTier,
     isPerformance: planTier === "performance",
     observeOnly: data?.observe_only === true,
+    observeOnlyReason: data?.observe_only_reason ?? null,
+    quota: data?.quota ?? null,
+    trial: data?.trial ?? null,
     canApplyRecommendations: features.apply_recommendations,
     canEnableRouting: features.enable_routing,
     canEnableCaching: features.enable_caching,

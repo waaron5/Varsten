@@ -16,9 +16,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import resolve_project
+from app.auth.entitlements import entitlement_state_for_project
 from app.db.session import get_db
 from app.models import (
-    PLAN_PERFORMANCE,
     ApiKey,
     Organization,
     Project,
@@ -83,7 +83,7 @@ def onboarding_status(
     db: Session = Depends(get_db),
 ) -> dict:
     org = db.get(Organization, project.organization_id)
-    plan_tier = org.plan_tier if org else "free"
+    entitlement = entitlement_state_for_project(db, project)
 
     active_keys = (
         db.scalar(
@@ -115,8 +115,8 @@ def onboarding_status(
     return {
         "project_id": str(project.id),
         "project_name": project.name,
-        "plan_tier": plan_tier,
-        "observe_only": plan_tier != PLAN_PERFORMANCE,
+        "plan_tier": entitlement.plan_tier,
+        "observe_only": entitlement.observe_only,
         "onboarding_completed_at": org.onboarding_completed_at if org else None,
         "has_project": True,
         "has_api_key": active_keys > 0,

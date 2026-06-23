@@ -793,6 +793,16 @@ export interface OnboardingStatus {
 export interface Entitlements {
   plan_tier: string;
   observe_only: boolean;
+  observe_only_reason: string | null;
+  quota: {
+    monthly_requests: number;
+    monthly_request_limit: number;
+    requests_remaining: number | null;
+  };
+  trial: {
+    trial_ends_at: string | null;
+    trial_expired: boolean;
+  };
   features: {
     apply_recommendations: boolean;
     enable_levers: boolean;
