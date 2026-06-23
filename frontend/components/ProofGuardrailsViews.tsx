@@ -324,7 +324,7 @@ function EvalCaptureCard({
         </label>
         <p className="eval-note">
           Off by default. When on, a sampled, redaction-eligible copy of real prompts and their
-          answers is stored (TTL&apos;d, capped per route) so a cheaper-model swap can be proven safe
+          answers is stored (TTL&apos;d, capped per route) so a model-downshift swap can be proven safe
           on real traffic before it is applied. Golden sets below are the strongest signal and never expire.
         </p>
         {error ? <p className="form-error">{error}</p> : null}

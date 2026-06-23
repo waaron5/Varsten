@@ -29,7 +29,7 @@ Two rules hold across every lever:
 | **Batching** | auto | **Direct measured** (contractual discount on identical tokens) | **customer self-serve** (non-urgent jobs) | Async `/v1/batches` mirror; staged objects TTL'd + purged. Arithmetic savings, no holdback needed. |
 | **Token trim** | auto | Estimated until eval-proven | **founder-approved pilot** | Needs eval proof that output is unchanged before autonomous use. |
 | **Smart routing** | approve | **Holdback measured** (concurrent A/B with CI) once it has signal; estimated below threshold | **founder-approved pilot** | Approve-mode by default. Auto requires a passing shadow eval + holdback signal. Cross-provider routing is audited. |
-| **Cheaper model** | approve | **Replay measured** (eval cost delta) / holdback | **founder-approved pilot** | Highest quality risk. Eval-gated; human approves. |
+| **Model downshift** | approve | **Replay measured** (eval cost delta) / holdback | **founder-approved pilot** | Highest quality risk. Eval-gated; human approves. |
 | **Semantic (vector) cache** | **off** (`SEMANTIC_CACHE_ENABLED=false`) | n/a | **observe / keep off** | Disabled by default: it adds an embedding round-trip on the miss path and risks false-positive matches on near-identical tool-call JSON. Enable only with an in-process embedding model and a tuned per-route threshold. |
 
 ## Why only two levers are autonomous
@@ -46,14 +46,14 @@ verified savings (see `FAILURE_MODES.md` and the Proof page).
 ## Defaults map to risk, by design
 
 `auto` defaults (exact cache, batching, token trim) are the low-risk, objective
-levers; `approve` defaults (smart routing, cheaper model) are the medium-risk
+levers; `approve` defaults (smart routing, model downshift) are the medium-risk
 ones. Auto is the stronger and scarier sell, so it is earned lever by lever as the
 eval and holdback evidence accumulates — never switched on wholesale.
 
 ## What it takes to promote a lever
 
 - **trim → autonomous:** an eval gate that proves output equivalence on the route.
-- **routing / cheaper model → self-serve or autonomous:** a passing shadow eval on
+- **routing / model downshift → self-serve or autonomous:** a passing shadow eval on
   the customer's real traffic **and** a live holdback with enough signal to report
   measured savings with a confidence interval, plus auto-rollback on objective
   drift.

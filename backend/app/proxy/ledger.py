@@ -37,7 +37,7 @@ async def _cost_and_base_metadata(
     """Actual cost of the call and the base ledger metadata for it.
 
     Three cases: a cache hit (provider bypassed, $0 actual, retail avoided), a
-    cheaper-model route (the direct method -- actual is the candidate's cost, the
+    model-downshift route (the direct method -- actual is the candidate's cost, the
     incumbent's cost for the same tokens is the naive baseline), or a plain miss.
     """
     if cache_hit:
@@ -48,7 +48,7 @@ async def _cost_and_base_metadata(
             "saved_usd": str(used_cost) if used_cost is not None else None,
         }
 
-    # Routed to a cheaper model/provider. The truthiness check also narrows
+    # Routed to a lower-cost model/provider. The truthiness check also narrows
     # naive_model to a concrete str for the priced baseline call below.
     if naive_model and (naive_model != model or (naive_provider is not None and naive_provider != provider)):
         naive_cost, _, _, _ = await price_usage_event(
@@ -117,12 +117,16 @@ def _augment_metadata(
 
 
 def _context_fields(ctx: RequestContext | None) -> dict[str, Any]:
-    """First-class UsageEvent business dimensions from the request context. Absent
-    context preserves the prior defaults (feature="proxy", environment=production)."""
+    """First-class UsageEvent business dimensions from the request context.
+
+    `feature` is a pure business dimension now: it stays NULL unless the client
+    supplies it, so it never doubles as a "came through the proxy" marker (the
+    `source` column does that). Absent context still defaults environment to
+    production, the right assumption for inline gateway traffic."""
     if ctx is None:
-        return {"feature": "proxy", "environment": "production"}
+        return {"environment": "production"}
     return {
-        "feature": ctx.feature or "proxy",
+        "feature": ctx.feature,
         "workflow": ctx.workflow,
         "customer_id": ctx.customer_id,
         "external_user_id": ctx.external_user_id,
@@ -196,6 +200,7 @@ async def record_proxy_usage(
         project_id=project.id,
         organization_id=project.organization_id,
         api_key_id=api_key_id,
+        source="proxy",
         provider=provider,
         model=model,
         operation="chat_completion",
@@ -253,11 +258,11 @@ def record_batch_usage(
         project_id=project.id,
         organization_id=project.organization_id,
         api_key_id=api_key_id,
+        source="proxy",
         provider="openai",
         model=model,
         operation="batch",
         request_type="batch",
-        feature="proxy",
         environment="production",
         input_tokens=input_tokens,
         output_tokens=output_tokens,

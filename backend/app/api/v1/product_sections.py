@@ -1,10 +1,12 @@
+import csv
+import io
 import secrets
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -23,10 +25,10 @@ from app.eval.gate import (
     is_gated,
     latest_run,
 )
+from app.levers import LEVER_DEFAULT_AUTOMATION, LEVER_DISPLAY_ORDER, LEVER_LABELS, ROUTING_LEVERS
 from app.models import (
     ACTION_PROVIDER_KEY_CONNECTED,
     ACTION_PROVIDER_KEY_DISCONNECTED,
-    ROUTING_LEVERS,
     AlertDelivery,
     AlertRule,
     ApiKey,
@@ -47,6 +49,7 @@ from app.models import (
     UsageEvent,
     User,
 )
+from app.periods import Period, resolve_period
 from app.proxy.budget_enforcement import clear_budget_cache
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.execution import activate_execution, deactivate_execution
@@ -55,19 +58,30 @@ from app.proxy.keys import ProviderKeyStoreUnsupported, delete_provider_key_for_
 from app.proxy.provider_validation import validate_provider_key
 from app.proxy.trim import LEVER as TRIM_LEVER
 from app.recommendations import ensure_recommendations_fresh
-from app.savings import FEE_PERCENT, compute_savings_summary, record_applied_savings
+from app.savings import (
+    compute_savings_summary,
+    compute_savings_with_deltas,
+    measured_savings_series,
+    org_fee_percent,
+    record_applied_savings,
+)
+from app.schemas.dashboard import (
+    DashboardDrivers,
+    DashboardKpi,
+    DashboardLever,
+    DashboardSnapshot,
+    DriverRow,
+    KpiDeltaOut,
+    ProofTrust,
+    SavingsTrendBucket,
+    TrendStats,
+)
 from app.schemas.eval import EvalRunSummary
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
 
 router = APIRouter(tags=["product-sections"])
 
-LEVERS = (
-    ("smart_routing", "approve"),
-    ("semantic_cache", "auto"),
-    ("token_trim", "auto"),
-    ("cheaper_model", "approve"),
-    ("batching", "auto"),
-)
+LEVERS = LEVER_DEFAULT_AUTOMATION
 VALID_LEVERS = {lever for lever, _ in LEVERS}
 VALID_PROVIDER_CONNECTIONS = {"openai", "anthropic", "gemini"}
 
@@ -514,6 +528,323 @@ def dashboard(
     }
 
 
+# --- Consolidated dashboard snapshot ------------------------------------------
+#
+# One authoritative, period-scoped payload. Every panel below is computed from
+# the same PeriodWindow and the same savings core, so the gross KPI, the lever
+# footer, and the chart total reconcile by construction (see app/savings.py).
+
+_SNAPSHOT_LEVER_ORDER = LEVER_DISPLAY_ORDER
+_LEVER_LABELS = LEVER_LABELS
+# key -> (label, detail template, tone). {fee} is filled with the org rate.
+_KPI_META: dict[str, tuple[str, str, str | None]] = {
+    "net_saved": (
+        "Net Realized Savings",
+        "Verified savings retained after Varsten's {fee}% performance fee.",
+        "brand",
+    ),
+    "gross_saved": ("Gross Savings", "Total cost eliminated before the performance fee is applied.", None),
+    "without_varsten": ("Baseline Cost", "Projected spend at provider list pricing, without Varsten.", None),
+    "actual_spend": ("Actual Spend", "Amount paid directly to providers this period.", None),
+}
+_PERIOD_LABELS: dict[str, str] = {
+    "month": "Month to date · vs last month",
+    "quarter": "Quarter to date · vs last quarter",
+    "year": "Year to date · vs last year",
+}
+_RATIO = Decimal("0.0001")
+
+
+def _share(part: Decimal | None, whole: Decimal | None) -> Decimal | None:
+    if part is None or whole is None or Decimal(whole) == 0:
+        return None
+    return (Decimal(part) / Decimal(whole)).quantize(_RATIO)
+
+
+def _confidence_label(score: Decimal | None) -> str:
+    if score is None or score < Decimal("0.6"):
+        return "Building confidence"
+    if score >= Decimal("0.8"):
+        return "High confidence"
+    return "Medium confidence"
+
+
+def _confidence_note(score: Decimal | None) -> str:
+    if score is None or score < Decimal("0.6"):
+        return "Increase pricing coverage and metadata tagging to improve your trust score."
+    if score >= Decimal("0.8"):
+        return "Numbers are suitable for board-level reporting and finance decisions."
+    return "Suitable for internal reporting. Improve pricing coverage and tagging for board-ready numbers."
+
+
+def _measurement_method_label(has_direct: bool, has_holdback: bool) -> str:
+    if has_direct and has_holdback:
+        return "Direct + A/B"
+    if has_direct:
+        return "Direct ledger"
+    if has_holdback:
+        return "A/B holdback"
+    return "Not yet active"
+
+
+def _window_drivers(db: Session, project: Project, window, column) -> list[tuple[str | None, Decimal]]:
+    spend = func.coalesce(func.sum(UsageEvent.cost_usd), 0)
+    rows = db.execute(
+        select(column.label("key"), spend.label("spend"))
+        .where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.received_at >= window.start,
+            UsageEvent.received_at < window.end,
+        )
+        .group_by(column)
+        .order_by(spend.desc())
+        .limit(6)
+    ).all()
+    return [(row.key, Decimal(row.spend)) for row in rows]
+
+
+def _window_trust(db: Session, project: Project, window) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+    """Trust score, pricing coverage, and team/feature attribution over the window.
+    Attribution mirrors the Proof panel's existing combination so the dashboard and
+    Proof never disagree."""
+    row = db.execute(
+        select(
+            func.count().label("requests"),
+            func.count().filter(UsageEvent.pricing_status == "priced").label("priced"),
+            func.count().filter(UsageEvent.pricing_status != "priced").label("unpriced"),
+            func.count().filter(UsageEvent.team.is_not(None)).label("team_tagged"),
+            func.count().filter(UsageEvent.feature.is_not(None)).label("feature_tagged"),
+        ).where(
+            UsageEvent.project_id == project.id,
+            UsageEvent.received_at >= window.start,
+            UsageEvent.received_at < window.end,
+        )
+    ).one()
+    requests = row.requests
+    if not requests:
+        return None, None, None
+    score = (Decimal(row.priced) / Decimal(requests)).quantize(_RATIO)
+    priced_total = row.priced + row.unpriced
+    coverage = (Decimal(row.priced) / Decimal(priced_total)).quantize(_RATIO) if priced_total else None
+    team = Decimal(row.team_tagged) / Decimal(requests)
+    feature = Decimal(row.feature_tagged) / Decimal(requests)
+    attribution = (Decimal(1) - (Decimal(1) - team) * (Decimal(1) - feature)).quantize(_RATIO)
+    return score, coverage, attribution
+
+
+def _build_dashboard_snapshot(db: Session, project: Project, period: Period) -> DashboardSnapshot:
+    """Build the whole dashboard from one PeriodWindow: KPIs (with same-window
+    deltas), the reconciling lever breakdown, the savings chart, spend drivers, and
+    proof-trust. Shared by the JSON snapshot and the CSV export so the two can never
+    report different numbers."""
+    ensure_recommendations_fresh(db, project)
+    lever_configs = {config.lever: config for config in _ensure_lever_configs(db, project)}
+    window = resolve_period(datetime.now(UTC), period)
+
+    result = compute_savings_with_deltas(db, project, window)
+    current = result["current"]
+    gross = current["gross_savings_usd"]
+    fee_pct = int((Decimal(current["fee_percent"]) * 100).to_integral_value())
+
+    kpis = [
+        DashboardKpi(
+            key=key,
+            label=label,
+            detail=detail.format(fee=fee_pct),
+            value=result["kpis"][key]["current"],
+            delta=KpiDeltaOut(**result["kpis"][key]),
+            tone=tone,
+        )
+        for key, (label, detail, tone) in _KPI_META.items()
+    ]
+
+    series = measured_savings_series(db, project, window)
+    buckets = [SavingsTrendBucket(**row) for row in series]
+    n = len(series)
+    total_opt = sum((row["optimized_usd"] for row in series), Decimal("0"))
+    total_saved = sum((row["saved_usd"] for row in series), Decimal("0"))
+    total_baseline = sum((row["baseline_usd"] for row in series), Decimal("0"))
+    trend_stats = TrendStats(
+        avg_spend_per_bucket_usd=(total_opt / n).quantize(Decimal("0.01")) if n else None,
+        avg_saved_per_bucket_usd=(total_saved / n).quantize(Decimal("0.01")) if n else None,
+        effective_savings_rate=(total_saved / total_baseline).quantize(_RATIO) if total_baseline > 0 else None,
+    )
+
+    by_lever = current["by_lever"]
+    source = current["by_lever_source"]
+    levers = []
+    for lever in _SNAPSHOT_LEVER_ORDER:
+        config = lever_configs.get(lever)
+        enabled = bool(config.enabled) if config else False
+        value = by_lever.get(lever)
+        levers.append(
+            DashboardLever(
+                lever=lever,
+                label=_LEVER_LABELS[lever],
+                enabled=enabled,
+                status="Active" if enabled else "Off",
+                value_usd=value,
+                share=_share(value, gross),
+                source=source if value is not None else "",
+            )
+        )
+
+    actual_total = current["actual_spend_usd"]
+
+    def _driver_rows(column) -> list[DriverRow]:
+        return [
+            DriverRow(key=key, label=key if key else "Untagged", spend_usd=spend, share=_share(spend, actual_total))
+            for key, spend in _window_drivers(db, project, window, column)
+        ]
+
+    drivers = DashboardDrivers(
+        actual_total_usd=actual_total,
+        team=_driver_rows(UsageEvent.team),
+        feature=_driver_rows(UsageEvent.feature),
+    )
+
+    score, coverage, attribution = _window_trust(db, project, window)
+    # Verified-savings provenance: the ledger-measured portion of the reported gross,
+    # plus which measurement methods are live. All from the same window computation.
+    direct_measured = Decimal(current["direct_measured_usd"])
+    has_holdback = bool(current["holdback_has_signal"])
+    holdback_measured = Decimal(current["holdback_measured_usd"])
+    has_direct = direct_measured > 0
+    verified_raw = direct_measured + (holdback_measured if has_holdback else Decimal("0"))
+    if gross is not None and gross > 0:
+        verified = min(verified_raw, gross)
+        measured_share = (verified / gross).quantize(_RATIO)
+    else:
+        verified = None
+        measured_share = None
+    proof_trust = ProofTrust(
+        score=score,
+        confidence_label=_confidence_label(score),
+        confidence_note=_confidence_note(score),
+        pricing_coverage=coverage,
+        attribution_share=attribution,
+        verified_savings_usd=verified,
+        claimed_savings_usd=gross,
+        measured_share=measured_share,
+        measurement_method_label=_measurement_method_label(has_direct, has_holdback),
+        has_direct_ledger=has_direct,
+        has_ab_holdback=has_holdback,
+    )
+
+    return DashboardSnapshot(
+        period=window.period,
+        granularity=window.granularity,
+        period_start=window.start,
+        period_end=window.end,
+        label=_PERIOD_LABELS[period],
+        mode=current["mode"],
+        fee_percent=current["fee_percent"],
+        gross_savings_usd=gross,
+        # Top-level auditable measured savings (ledger facts). verified_raw is the
+        # unclamped direct + holdback(when signal) total -- the same basis billing
+        # uses -- so the UI headline never inherits the estimate-derived gross.
+        verified_savings_usd=verified_raw if (has_direct or has_holdback) else None,
+        direct_measured_usd=direct_measured if has_direct else None,
+        holdback_measured_usd=holdback_measured if has_holdback else None,
+        holdback_has_signal=has_holdback,
+        kpis=kpis,
+        savings_trend=buckets,
+        trend_stats=trend_stats,
+        levers=levers,
+        drivers=drivers,
+        proof_trust=proof_trust,
+    )
+
+
+@router.get("/dashboard/snapshot", response_model=DashboardSnapshot)
+def dashboard_snapshot(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+    period: Period = Query(default="month"),
+) -> DashboardSnapshot:
+    """The whole dashboard in one tenant-scoped, period-scoped read."""
+    return _build_dashboard_snapshot(db, project, period)
+
+
+def _csv_num(value: Decimal | None) -> str:
+    """A money/ratio cell: the plain value, or empty for a null (never a fake 0)."""
+    return "" if value is None else str(value)
+
+
+def _snapshot_to_csv(snapshot: DashboardSnapshot) -> str:
+    """Serialize the snapshot to a sectioned CSV. Built from the same object the
+    JSON endpoint returns, so the export is exactly the on-screen numbers -- an
+    audit trail, not a re-derivation."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    writer.writerow(["Varsten dashboard export"])
+    writer.writerow(["period", snapshot.period])
+    writer.writerow(["window_start", snapshot.period_start.isoformat()])
+    writer.writerow(["window_end", snapshot.period_end.isoformat()])
+    writer.writerow(["mode", snapshot.mode])
+    writer.writerow(["fee_percent", _csv_num(snapshot.fee_percent)])
+    writer.writerow([])
+
+    writer.writerow(["KPIs"])
+    writer.writerow(["key", "label", "value_usd", "previous_usd", "delta_pct"])
+    for kpi in snapshot.kpis:
+        writer.writerow(
+            [kpi.key, kpi.label, _csv_num(kpi.value), _csv_num(kpi.delta.previous), _csv_num(kpi.delta.delta_pct)]
+        )
+    writer.writerow([])
+
+    writer.writerow(["Verified savings (measured)"])
+    writer.writerow(["metric", "value_usd"])
+    writer.writerow(["verified_savings", _csv_num(snapshot.verified_savings_usd)])
+    writer.writerow(["direct_measured", _csv_num(snapshot.direct_measured_usd)])
+    writer.writerow(["holdback_measured", _csv_num(snapshot.holdback_measured_usd)])
+    writer.writerow(["holdback_has_signal", "true" if snapshot.holdback_has_signal else "false"])
+    writer.writerow([])
+
+    writer.writerow(["Savings by lever"])
+    writer.writerow(["lever", "status", "value_usd", "share", "source"])
+    for lever in snapshot.levers:
+        writer.writerow(
+            [lever.lever, lever.status, _csv_num(lever.value_usd), _csv_num(lever.share), lever.source]
+        )
+    writer.writerow(["gross_total", "", _csv_num(snapshot.gross_savings_usd), "", ""])
+    writer.writerow([])
+
+    writer.writerow(["Spend drivers"])
+    writer.writerow(["dimension", "key", "spend_usd", "share"])
+    for dimension, rows in (("team", snapshot.drivers.team), ("feature", snapshot.drivers.feature)):
+        for row in rows:
+            writer.writerow([dimension, row.label, _csv_num(row.spend_usd), _csv_num(row.share)])
+    writer.writerow([])
+
+    writer.writerow(["Savings trend"])
+    writer.writerow(["date", "optimized_usd", "saved_usd", "baseline_usd"])
+    for bucket in snapshot.savings_trend:
+        writer.writerow(
+            [bucket.date.isoformat(), _csv_num(bucket.optimized_usd), _csv_num(bucket.saved_usd), _csv_num(bucket.baseline_usd)]
+        )
+
+    return buffer.getvalue()
+
+
+@router.get("/dashboard/export")
+def dashboard_export(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+    period: Period = Query(default="month"),
+) -> Response:
+    """Download the dashboard as CSV. Same computation as the snapshot, scoped to
+    the caller's project, so the file is the authoritative on-screen figures."""
+    snapshot = _build_dashboard_snapshot(db, project, period)
+    filename = f"varsten-dashboard-{snapshot.period}-{snapshot.period_end:%Y%m%d}.csv"
+    return Response(
+        content=_snapshot_to_csv(snapshot),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _engine_recommendation_out(db: Session, rec: Recommendation) -> RecommendationOut:
     """Recommendation plus its eval-gate state, so the Engine card can show the
     verdict and decide between Evaluate and Apply without another request."""
@@ -610,7 +941,7 @@ def engine_routes(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    """Active cheaper-model routes the proxy is executing now, each with its live
+    """Active model-downshift routes the proxy is executing now, each with its live
     holdback A/B: the control vs treatment arm costs and the rigorous measured
     savings with a confidence interval. The operational view that proves the
     engine is actually saving money, measured not modelled."""
@@ -989,7 +1320,7 @@ def proof_savings(
     summary = compute_savings_summary(db, project)
     performance = is_performance(db, project)
     open_opportunity = summary["estimated_opportunity_usd"]
-    open_opportunity_fee = open_opportunity * FEE_PERCENT
+    open_opportunity_fee = open_opportunity * org_fee_percent(project)
     open_opportunity_net = open_opportunity - open_opportunity_fee
     payload = {
         "plan_tier": "performance" if performance else "free",
@@ -1585,10 +1916,15 @@ def admin_team(
 
 @router.get("/admin/billing-security")
 def admin_billing_security(project: Project = Depends(resolve_project)) -> dict:
+    org = project.organization
+    # Expose the org's real gain-share config (the same column billing.py invoices
+    # on), as a human percentage for display. Never a hard-coded rate.
+    fee_percent = (Decimal(org.gain_share_percent) * 100).quantize(Decimal("0.01"))
     return {
         "plan": "verified_savings_v1",
         "pricing_model": "percentage_of_verified_savings_with_floor",
-        "verified_savings_fee_percent": None,
+        "verified_savings_fee_percent": fee_percent,
+        "monthly_fee_floor_usd": Decimal(org.monthly_fee_floor_usd),
         "security_posture": {
             "deployment_mode": "metadata_mode",
             "content_storage": "not_collected_in_metadata_mode",

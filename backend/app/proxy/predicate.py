@@ -1,6 +1,6 @@
 """Smart-routing eligibility: a deterministic per-request predicate.
 
-Smart routing sends an individual request to the cheaper candidate only when
+Smart routing sends an individual request to the lower-cost candidate only when
 cheap, structural request signals say it is within the candidate's reach;
 otherwise it stays on the incumbent. This runs on the hot path, so it must be
 pure and fast: NO model call, NO LLM judge, just inspection of the request body.

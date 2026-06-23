@@ -4,17 +4,15 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect } from "react";
 
+import { LEVER_LABELS as SAVINGS_LEVER_LABELS } from "@/lib/levers";
+
 export type TabLink = {
   href: string;
   label: string;
 };
 
 const LEVER_LABELS: Record<string, string> = {
-  token_trim: "Token trim",
-  semantic_cache: "Semantic cache",
-  batching: "Batching",
-  cheaper_model: "Cheaper model",
-  smart_routing: "Smart routing",
+  ...SAVINGS_LEVER_LABELS,
   prompt_cache: "Prompt cache",
 };
 

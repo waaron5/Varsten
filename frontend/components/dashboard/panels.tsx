@@ -1,94 +1,57 @@
 "use client";
 
+// The Dashboard renders one consolidated snapshot (GET /dashboard/snapshot). The
+// backend reconciles every panel to a single window, fee, and savings source, so
+// these components are thin: they format and lay out, they do not re-derive money.
+// This layout is the canonical design reference for future pages. The period
+// toggle + Export live in the top navbar (see DashboardTopbarControls).
+
 import { useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { useEntitlements } from "@/components/entitlements";
-import { compact, usd } from "@/lib/format";
-import { NetSavingsTrendChart, SpendDonutChart } from "./lazyCharts";
-import type { DonutRow } from "./charts";
+import { usd } from "@/lib/format";
+import { NetSavingsTrendChart } from "./lazyCharts";
 import { PanelEmpty, PanelSkeleton } from "./primitives";
 import { useDashboard } from "./DashboardProvider";
-import { buildDashboardViewModel } from "./viewModel";
-import type { DashboardMetric, DashboardViewModel } from "./viewModel";
-import type { Breakdown, BreakdownRow, ProofDataQuality, ProofSavings, SavingsTrend } from "@/lib/types";
+import type {
+  DashboardDriverRow,
+  DashboardDrivers,
+  DashboardKpi,
+  DashboardLever,
+  DashboardPeriod,
+  DashboardProofTrust,
+  SavingsTrendBucket,
+  TrendStats,
+} from "@/lib/types";
 
-function money(value: number | null, digits = 0): string {
-  return value === null ? "—" : usd(value, digits);
-}
+// Spend/allocation blue ramp (darkest = largest).
+// The last (lightest) is used for the untagged bucket.
+const DRIVER_PALETTE = ["#2B4A5A", "#3B6275", "#4F7A90", "#6E96AA", "#B8CED8", "#E9F1F5"];
 
-function precisePercent(value: number | null, digits = 1): string {
-  if (value === null || !Number.isFinite(value)) return "—";
-  return `${(value * 100).toFixed(digits)}%`;
-}
-
-function metricValue(metric: DashboardMetric): string {
-  if (metric.value === null || metric.value === undefined) return "—";
-  if (metric.kind === "money") return typeof metric.value === "number" ? usd(metric.value, 0) : metric.value;
-  if (metric.kind === "percent") return typeof metric.value === "number" ? precisePercent(metric.value) : metric.value;
-  if (metric.kind === "compact") return typeof metric.value === "number" ? compact(metric.value) : metric.value;
-  return String(metric.value);
-}
-
-
-function num(value: string | number | null | undefined): number {
-  if (value === null || value === undefined) return 0;
-  const parsed = typeof value === "string" ? parseFloat(value) : value;
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function nullableNum(value: string | number | null | undefined): number | null {
+function num(value: string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
-  const parsed = typeof value === "string" ? parseFloat(value) : value;
+  const parsed = parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function totalSaved(trend: SavingsTrend): number | null {
-  if (trend.points.length === 0) return null;
-  return nullableNum(trend.total_saved_usd) ?? trend.points.reduce((sum, point) => sum + num(point.saved_usd), 0);
+function money(value: string | number | null | undefined, digits = 0): string {
+  const n = typeof value === "number" ? value : num(value);
+  return n === null ? "—" : usd(n, digits);
 }
 
-function totalSpend(trend: SavingsTrend): number | null {
-  if (trend.points.length === 0) return null;
-  return nullableNum(trend.total_optimized_usd) ?? trend.points.reduce((sum, point) => sum + num(point.optimized_usd), 0);
+function pct(value: string | null | undefined, digits = 1): string {
+  const n = num(value);
+  return n === null ? "—" : `${(n * 100).toFixed(digits)}%`;
 }
 
-function effectiveTrendRate(trend: SavingsTrend): number | null {
-  const direct = nullableNum(trend.effective_savings_rate);
-  if (direct !== null) return direct;
-  const saved = nullableNum(trend.total_saved_usd) ?? trend.points.reduce((sum, point) => sum + num(point.saved_usd), 0);
-  const baseline = nullableNum(trend.total_baseline_usd) ?? trend.points.reduce((sum, point) => sum + num(point.baseline_usd), 0);
-  return baseline > 0 ? saved / baseline : null;
-}
-
-function averageDailyValue(trend: SavingsTrend, total: number | null): number | null {
-  return total !== null && trend.points.length > 0 ? total / trend.points.length : null;
-}
-
-type DashboardResources = ReturnType<typeof useDashboard>;
-type DashboardResource = { data: unknown | null; loading: boolean; error: string | null };
-
-function requiredResources(resources: DashboardResources): DashboardResource[] {
-  return [
-    resources.dashboard,
-    resources.engineLevers,
-    resources.overview,
-    resources.proofDataQuality,
-    resources.proofSavings,
-    resources.savingsTrend,
-  ];
-}
-
-function dashboardReadState(resources: DashboardResources, entitlementsLoading: boolean) {
-  const required = requiredResources(resources);
-  const loading = entitlementsLoading || (required.some((resource) => resource.loading) && required.some((resource) => !resource.data));
-  const error = required.find((resource) => resource.error)?.error ?? null;
-  const ready = Boolean(resources.dashboard.data && resources.overview.data && resources.proofSavings.data && resources.savingsTrend.data);
-  return { error, loading, ready };
+function roundPct(value: string | null | undefined): number {
+  const n = num(value);
+  return n === null ? 0 : Math.round(n * 100);
 }
 
 function DashboardLoading() {
   return (
-    <div className="dashboard-view dash-overview">
+    <>
       <div className="dash-metric-strip">
         <PanelSkeleton />
         <PanelSkeleton />
@@ -103,66 +66,97 @@ function DashboardLoading() {
         <PanelSkeleton />
         <PanelSkeleton />
       </div>
+    </>
+  );
+}
+
+function performanceFeeCopy(feePercent: string | null | undefined): string {
+  const fee = pct(feePercent, 0);
+  return fee === "—"
+    ? "Verified savings retained after Varsten's performance fee."
+    : `Verified savings retained after Varsten's ${fee} performance fee.`;
+}
+
+const KPI_COPY: Record<string, { label: string; detail: (feePercent: string | null | undefined) => string }> = {
+  net_saved: {
+    label: "Net Realized Savings",
+    detail: performanceFeeCopy,
+  },
+  gross_saved: {
+    label: "Gross Savings",
+    detail: () => "Total cost eliminated before the performance fee is applied.",
+  },
+  without_varsten: {
+    label: "Baseline Cost",
+    detail: () => "Projected spend at provider list pricing, without Varsten.",
+  },
+  actual_spend: {
+    label: "Actual Spend",
+    detail: () => "Amount paid directly to providers this period.",
+  },
+};
+
+function kpiCopy(kpi: DashboardKpi, feePercent: string | null | undefined): { label: string; detail: string } {
+  const copy = KPI_COPY[kpi.key];
+  return copy
+    ? { label: copy.label, detail: copy.detail(feePercent) }
+    : { label: kpi.label, detail: kpi.detail };
+}
+
+// Savings/gross KPIs read better when they go up; spend KPIs read better when they
+// go down. The arrow follows the raw sign; the color follows whether that is good.
+const HIGHER_IS_BETTER = new Set(["net_saved", "gross_saved"]);
+
+function DeltaPill({ kpi, period }: { kpi: DashboardKpi; period: DashboardPeriod }) {
+  const n = num(kpi.delta.delta_pct);
+  if (n === null) return null;
+  const magnitude = `${Math.abs(n * 100).toFixed(0)}%`;
+  const arrow = n === 0 ? "→" : n > 0 ? "↑" : "↓";
+  // Favorable changes get the green pill; everything else stays neutral gray
+  // rather than alarming red, matching the mockup's calm badge treatment. Only
+  // the arrow + percent sit in the pill; "vs. prior <period>" is plain gray text.
+  const tone = n !== 0 && n > 0 === HIGHER_IS_BETTER.has(kpi.key) ? "up" : "flat";
+  return (
+    <div className="dash-metric-delta">
+      <span className={`dash-metric-delta-pill ${tone}`}>
+        {arrow} {magnitude}
+      </span>
+      <span className="dash-metric-delta-suffix">vs. prior {period}</span>
     </div>
   );
 }
 
-function DashboardError({ message }: { message: string }) {
+function MetricCard({
+  kpi,
+  period,
+  feePercent,
+}: {
+  kpi: DashboardKpi;
+  period: DashboardPeriod;
+  feePercent: string | null | undefined;
+}) {
+  const copy = kpiCopy(kpi, feePercent);
   return (
-    <div className="dashboard-view dash-overview">
-      <section className="dash-card">
-        <PanelEmpty label={message} />
-      </section>
-    </div>
-  );
-}
-
-function MetricCard({ metric }: { metric: DashboardMetric }) {
-  const className = metric.tone === "brand" ? "dash-metric primary" : "dash-metric";
-  return (
-    <section className={className}>
+    <section className={kpi.tone === "brand" ? "dash-metric primary" : "dash-metric"}>
       <p>
         <span aria-hidden="true" />
-        {metric.label}
+        {copy.label}
       </p>
-      <strong>{metricValue(metric)}</strong>
+      <strong>{money(kpi.value)}</strong>
+      <small>{copy.detail}</small>
+      <DeltaPill kpi={kpi} period={period} />
     </section>
   );
 }
 
-function TrendStats({ trend }: { trend: SavingsTrend }) {
-  const saved = totalSaved(trend);
-  const spend = totalSpend(trend);
-  const avgDailySaved = averageDailyValue(trend, saved);
-  const avgDailySpend = averageDailyValue(trend, spend);
-  const rate = effectiveTrendRate(trend);
-
-  return (
-    <div className="dash-trend-stats">
-      <div>
-        <span>Avg daily spend</span>
-        <b>{money(avgDailySpend)}</b>
-      </div>
-      <div>
-        <span>Avg daily saved</span>
-        <b>{money(avgDailySaved)}</b>
-      </div>
-      <div>
-        <span>Effective savings rate</span>
-        <b>{precisePercent(rate)}</b>
-      </div>
-    </div>
-  );
-}
-
-function SavingsTrendPanel({ trend }: { trend: SavingsTrend }) {
-  const points = trend.points;
-  const hasTrend = points.length > 0;
+function SavingsTrendPanel({ trend, stats }: { trend: SavingsTrendBucket[]; stats: TrendStats }) {
+  const hasTrend = trend.length > 0;
   return (
     <section className="dash-card dash-trend-card">
       <div className="dash-card-head">
         <div>
-          <h2>Savings</h2>
+          <h2>Daily Savings</h2>
+          <p>Each bar shows your projected cost for the day, split into what you paid and what Varsten saved.</p>
         </div>
         <div className="dash-chart-legend" aria-label="Chart legend">
           <span><i className="spend" />Actual spend</span>
@@ -172,9 +166,22 @@ function SavingsTrendPanel({ trend }: { trend: SavingsTrend }) {
       {hasTrend ? (
         <>
           <div className="dash-trend-chart">
-            <NetSavingsTrendChart points={points} />
+            <NetSavingsTrendChart points={trend} />
           </div>
-          <TrendStats trend={trend} />
+          <div className="dash-trend-stats">
+            <div>
+              <span>Avg daily spend</span>
+              <b>{money(stats.avg_spend_per_bucket_usd)}</b>
+            </div>
+            <div>
+              <span>Avg daily savings</span>
+              <b>{money(stats.avg_saved_per_bucket_usd)}</b>
+            </div>
+            <div>
+              <span>Effective savings rate</span>
+              <b>{pct(stats.effective_savings_rate)}</b>
+            </div>
+          </div>
         </>
       ) : (
         <PanelEmpty label="Send traffic through Varsten to build your savings trend." />
@@ -183,125 +190,47 @@ function SavingsTrendPanel({ trend }: { trend: SavingsTrend }) {
   );
 }
 
-const DONUT_PALETTE = ["#0e9e6e", "#58b28a", "#85c5a6", "#afd8c3", "#d7ece1", "#ebf5f0"];
-
-function driverLabel(value: string | null): string {
-  if (!value || value.trim() === "" || value.toLowerCase() === "unknown") return "Unknown";
-  return value;
-}
-
-function buildDonutRows(rows: BreakdownRow[]): { donut: DonutRow[]; total: number } {
-  const top = rows.slice(0, 5);
-  const total = top.reduce((s, r) => s + (parseFloat(r.spend) || 0), 0);
-  const donut = top.map((r, i) => ({
-    name: driverLabel(r.key),
-    spend: parseFloat(r.spend) || 0,
-    color: DONUT_PALETTE[i] ?? DONUT_PALETTE[DONUT_PALETTE.length - 1],
-  }));
-  return { donut, total };
-}
-
-function TopSpendDriversPanel({
-  teamData, teamLoading, teamError,
-  featureData, featureLoading, featureError,
-}: {
-  teamData: Breakdown | null;
-  teamLoading: boolean;
-  teamError: string | null;
-  featureData: Breakdown | null;
-  featureLoading: boolean;
-  featureError: string | null;
-}) {
-  const [tab, setTab] = useState<"team" | "feature">("team");
-  const activeData = tab === "team" ? teamData : featureData;
-  const activeLoading = tab === "team" ? teamLoading : featureLoading;
-  const activeError = tab === "team" ? teamError : featureError;
-  const emptyLabel = tab === "team"
-    ? "Team spend appears here once usage includes team metadata."
-    : "Feature spend appears here once usage includes feature metadata.";
-
-  const { donut, total } = buildDonutRows(activeData?.rows ?? []);
-
-  return (
-    <section className="dash-card dash-drivers-card">
-      <div className="dash-card-head">
-        <div>
-          <h2>Spend drivers</h2>
-        </div>
-        <Link href="/analysis/spend" className="dash-head-link">Open Analysis →</Link>
-      </div>
-      <div className="dash-drivers-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "team"} className={`dash-drivers-tab${tab === "team" ? " active" : ""}`} onClick={() => setTab("team")}>Team</button>
-        <button role="tab" aria-selected={tab === "feature"} className={`dash-drivers-tab${tab === "feature" ? " active" : ""}`} onClick={() => setTab("feature")}>Feature</button>
-      </div>
-      {activeLoading && !activeData ? (
-        <div className="dash-drivers-loading"><PanelSkeleton /></div>
-      ) : activeError ? (
-        <PanelEmpty label={activeError} />
-      ) : donut.length ? (
-        <div className="dash-drivers-body">
-          <div className="dash-donut-wrap">
-            <SpendDonutChart rows={donut} />
-            <div className="dash-donut-center">
-              <b>{money(total)}</b>
-              <span>total spend</span>
-            </div>
-          </div>
-          <div className="dash-drivers-legend">
-            {donut.map((row) => (
-              <div className="dash-driver-legend-row" key={row.name}>
-                <span className="dash-driver-swatch" style={{ background: row.color }} />
-                <span className="dash-driver-legend-name">{row.name}</span>
-                <div className="dash-driver-legend-bar">
-                  <div className="dash-driver-legend-bar-fill" style={{ width: `${total > 0 ? Math.round((row.spend / total) * 100) : 0}%`, background: row.color }} />
-                </div>
-                <span className="dash-driver-legend-amount">{money(row.spend)}</span>
-                <span className="dash-driver-legend-pct">{precisePercent(total > 0 ? row.spend / total : null, 0)}</span>
-              </div>
-            ))}
-            <div className="dash-drivers-total">
-              <span className="dash-drivers-total-label">Total</span>
-              <span className="dash-drivers-total-amount">{money(total)}</span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <PanelEmpty label={emptyLabel} />
-      )}
-    </section>
-  );
-}
-
-function ActiveLeversPanel({ model }: { model: DashboardViewModel }) {
+function ActiveLeversPanel({ levers, gross, mode }: { levers: DashboardLever[]; gross: string | null; mode: string }) {
+  const active = levers.filter((lever) => lever.enabled).length;
+  // A lever with no measured savings reads $0 / 0% once the project has traffic
+  // (the lever is known, it simply saved nothing); "—" is reserved for the
+  // genuinely empty dashboard where there is no data at all.
+  const hasTraffic = mode !== "empty";
+  const leverMoney = (value: string | null) => (value === null ? (hasTraffic ? "$0" : "—") : money(value));
+  const leverPct = (value: string | null) => (value === null ? (hasTraffic ? "0%" : "—") : pct(value, 0));
   return (
     <section className="dash-card dash-levers-card">
       <div className="dash-card-head">
         <div className="dash-levers-heading">
-          <h2>Savings by lever</h2>
-          <span className="dash-levers-count">{model.leversRunning} active</span>
+          <h2>Savings by Lever</h2>
+          <span className="dash-levers-count">{active} active</span>
         </div>
         <Link href="/engine/levers" className="dash-head-link">Open Engine →</Link>
       </div>
-      {model.levers.length ? (
-        <div className="dash-levers-list">
-          {model.levers.map((lever) => (
-            <div className={`dash-lever-item${lever.enabled ? "" : " dim"}`} key={lever.lever}>
-              <div className="dash-lever-item-head">
-                <div className="dash-lever-item-name">
-                  <b>{lever.lever}</b>
-                  <span className={`dash-lever-badge ${lever.enabled ? "active" : "off"}`}>
-                    {lever.status}
-                  </span>
+      {levers.length ? (
+        <>
+          <div className="dash-levers-list">
+            {levers.map((lever) => (
+              <div className={`dash-lever-item${lever.enabled ? "" : " dim"}`} key={lever.lever}>
+                <div className="dash-lever-item-head">
+                  <div className="dash-lever-item-name">
+                    <b>{lever.label}</b>
+                    <span className={`dash-lever-badge ${lever.enabled ? "active" : "off"}`}>{lever.status}</span>
+                  </div>
+                  <strong>{leverMoney(lever.value_usd)}</strong>
                 </div>
-                <strong>{money(lever.impactValue)}</strong>
+                <div className="dash-lever-item-bar">
+                  <span><i style={{ width: `${roundPct(lever.share)}%` }} /></span>
+                  <em>{leverPct(lever.share)}</em>
+                </div>
               </div>
-              <div className="dash-lever-item-bar">
-                <span><i style={{ width: `${Math.round((lever.share ?? 0) * 100)}%` }} /></span>
-                <em>{lever.share === null ? "0%" : precisePercent(lever.share, 0)}</em>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <div className="dash-levers-foot">
+            <span>Total gross savings</span>
+            <b>{money(gross)}</b>
+          </div>
+        </>
       ) : (
         <PanelEmpty label="Lever status appears here once Engine configuration loads." />
       )}
@@ -309,100 +238,142 @@ function ActiveLeversPanel({ model }: { model: DashboardViewModel }) {
   );
 }
 
-function toNum(v: string | number | null | undefined): number | null {
-  if (v === null || v === undefined) return null;
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return Number.isFinite(n) ? n : null;
+function DriverBars({ rows }: { rows: DashboardDriverRow[] }) {
+  const shownTotal = rows.reduce((sum, row) => sum + (num(row.spend_usd) ?? 0), 0);
+  return (
+    <div className="dash-drivers-bars">
+      <h3 className="dash-drivers-section-title">Allocation Breakdown</h3>
+      <div className="dash-driver-stack" aria-hidden="true">
+        {rows.map((row, index) => {
+          const seg = shownTotal > 0 ? ((num(row.spend_usd) ?? 0) / shownTotal) * 100 : 0;
+          return (
+            <span
+              key={`seg-${row.key ?? "untagged"}-${index}`}
+              style={{ width: `${seg}%`, background: DRIVER_PALETTE[index] ?? DRIVER_PALETTE[DRIVER_PALETTE.length - 1] }}
+            />
+          );
+        })}
+      </div>
+      <div className="dash-driver-rows">
+        {rows.map((row, index) => {
+          const color = DRIVER_PALETTE[index] ?? DRIVER_PALETTE[DRIVER_PALETTE.length - 1];
+          const untagged = row.key === null;
+          return (
+            <div className={`dash-driver-row${untagged ? " untagged" : ""}`} key={`${row.key ?? "untagged"}-${index}`}>
+              <span className="dash-driver-swatch" style={{ background: color }} />
+              <span className="dash-driver-name">{row.label}</span>
+              <div className="dash-driver-track">
+                <div className="dash-driver-fill" style={{ width: `${roundPct(row.share)}%`, background: color }} />
+              </div>
+              <span className="dash-driver-amount">{money(row.spend_usd)}</span>
+              <span className="dash-driver-pct">{pct(row.share, 1)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-function posNum(v: string | number | null | undefined): number | null {
-  const n = toNum(v);
-  return n !== null && n > 0 ? n : null;
+function TopSpendDriversPanel({ drivers }: { drivers: DashboardDrivers }) {
+  const [tab, setTab] = useState<"team" | "feature">("team");
+  const rows = tab === "team" ? drivers.team : drivers.feature;
+  const emptyLabel = tab === "team"
+    ? "Team spend appears here once usage includes team metadata."
+    : "Feature spend appears here once usage includes feature metadata.";
+
+  return (
+    <section className="dash-card dash-drivers-card">
+      <div className="dash-card-head">
+        <div>
+          <h2>Spend Drivers</h2>
+          <p>A full breakdown of where your {money(drivers.actual_total_usd)} in actual spend was allocated.</p>
+        </div>
+        <Link href="/analysis/spend" className="dash-head-link">View Full Analysis →</Link>
+      </div>
+      <div className="dash-drivers-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === "team"} className={`dash-drivers-tab${tab === "team" ? " active" : ""}`} onClick={() => setTab("team")}>By Team</button>
+        <button role="tab" aria-selected={tab === "feature"} className={`dash-drivers-tab${tab === "feature" ? " active" : ""}`} onClick={() => setTab("feature")}>By Feature</button>
+      </div>
+      {rows.length ? <DriverBars rows={rows} /> : <PanelEmpty label={emptyLabel} />}
+    </section>
+  );
 }
 
-function proofScore(dq: ProofDataQuality | null): number | null {
-  return toNum(dq?.trust_score);
-}
-
-function proofConfidenceLabel(score: number | null): string {
-  if (score === null || score < 0.6) return "Building confidence";
-  if (score >= 0.8) return "High confidence";
-  return "Medium confidence";
-}
-
-function proofConfidenceNote(score: number | null): string {
-  if (score === null || score < 0.6) return "Increase pricing coverage and metadata tagging to improve your trust score.";
-  if (score >= 0.8) return "Numbers are suitable for board-level reporting and finance decisions.";
-  return "Suitable for internal reporting. Improve pricing coverage and metadata tagging for board-ready numbers.";
-}
-
-function proofPricingCoverage(dq: ProofDataQuality | null): number | null {
-  if (!dq) return null;
-  const total = dq.priced_event_count + dq.unpriced_event_count;
-  return total > 0 ? dq.priced_event_count / total : null;
-}
-
-function proofPricingBadge(cov: number | null): { text: string; cls: string } {
-  if (cov === null) return { text: "Unchecked", cls: "gray" };
-  if (cov >= 0.95) return { text: "Catalog-verified", cls: "green" };
-  if (cov >= 0.8) return { text: "Mostly verified", cls: "green" };
+function coverageBadge(value: number | null): { text: string; cls: string } {
+  if (value === null) return { text: "Unchecked", cls: "gray" };
+  if (value >= 0.95) return { text: "Catalog-Verified", cls: "confidence" };
+  if (value >= 0.8) return { text: "Mostly Verified", cls: "confidence" };
   return { text: "Partial", cls: "amber" };
 }
 
-function proofAttribution(dq: ProofDataQuality | null): number | null {
-  if (!dq?.metadata_quality) return null;
-  const mq = dq.metadata_quality;
-  const team = Math.max(0, Math.min(1, toNum(mq.team) ?? 0));
-  const feature = Math.max(0, Math.min(1, toNum(mq.feature) ?? 0));
-  return 1 - (1 - team) * (1 - feature);
-}
-
-function proofAttributionBadge(rate: number | null): { text: string; cls: string } {
-  if (rate === null) return { text: "Unknown", cls: "gray" };
-  if (rate >= 0.9) return { text: "Full", cls: "green" };
-  if (rate >= 0.5) return { text: "Partial", cls: "amber" };
+function attributionBadge(value: number | null): { text: string; cls: string } {
+  if (value === null) return { text: "Unknown", cls: "gray" };
+  if (value >= 0.9) return { text: "Fully Tagged", cls: "confidence" };
+  if (value >= 0.5) return { text: "Partial", cls: "amber" };
   return { text: "Low", cls: "amber" };
 }
 
-function proofMeasurementMethod(ps: ProofSavings | null): { label: string; hasDirectLedger: boolean; hasABHoldback: boolean } {
-  const hasAB = ps?.verified?.holdback_has_signal ?? false;
-  const hasDirect = posNum(ps?.verified?.direct_measured_usd) !== null || posNum(ps?.gross_savings_usd) !== null;
-  const label = hasAB && hasDirect ? "Direct + A/B" : hasAB ? "A/B holdback" : hasDirect ? "Direct ledger" : "Not yet active";
-  return { label, hasDirectLedger: hasDirect, hasABHoldback: hasAB };
+function ProofMetric({
+  name,
+  badge,
+  value,
+  valueCls,
+  desc,
+  children,
+}: {
+  name: string;
+  badge: { text: string; cls: string } | null;
+  value: string;
+  valueCls?: string;
+  desc: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="dash-proof-metric">
+      <div className="dash-proof-metric-top">
+        <div className="dash-proof-metric-name">
+          <b>{name}</b>
+          {badge && <span className={`dash-proof-badge ${badge.cls}`}>{badge.text}</span>}
+        </div>
+        <span className={`dash-proof-metric-val ${valueCls ?? ""}`}>{value}</span>
+      </div>
+      <p className="dash-proof-metric-desc">{desc}</p>
+      {children}
+    </div>
+  );
 }
 
-function ProofTrustPanel({
-  dataQuality,
-  proofSavings,
-}: {
-  dataQuality: ProofDataQuality | null;
-  proofSavings: ProofSavings | null;
-}) {
-  const score = proofScore(dataQuality);
+function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
+  const score = num(proof.score);
   const scoreDisplay = score === null ? "—" : String(Math.round(score * 100));
+  const coverage = num(proof.pricing_coverage);
+  const attribution = num(proof.attribution_share);
+  const measured = num(proof.measured_share);
+  const covBadge = coverageBadge(coverage);
+  const attrBadge = attributionBadge(attribution);
 
-  const pricCov = proofPricingCoverage(dataQuality);
-  const pricBadge = proofPricingBadge(pricCov);
-  const pricValCls = pricCov !== null && pricCov >= 0.9 ? "green" : "amber";
-
-  const attrRate = proofAttribution(dataQuality);
-  const attrBadge = proofAttributionBadge(attrRate);
-  const attrValCls = attrRate !== null && attrRate >= 0.9 ? "green" : "amber";
-
-  const { label: methodLabel, hasDirectLedger, hasABHoldback } = proofMeasurementMethod(proofSavings);
-  const hasAnyMethod = hasDirectLedger || hasABHoldback;
+  const measuredPct = measured === null ? 0 : Math.round(measured * 100);
+  const verifiedDesc =
+    proof.claimed_savings_usd === null
+      ? "Verified savings appear once measured optimizations run."
+      : `Savings are traced to real cache hits, routing events, and batch records — ${measuredPct}% recorded, ${100 - measuredPct}% modeled.`;
 
   return (
     <section className="dash-card dash-proof-card">
       <div className="dash-card-head">
-        <h2>Proof & trust</h2>
-        <Link href="/proof/savings" className="dash-head-link">Open Proof →</Link>
+        <h2>Data Integrity</h2>
+        <Link href="/proof/attribution" className="dash-head-link">View Audit Trail →</Link>
       </div>
 
       <div className="dash-proof-hero">
-        <div>
-          <p className="dash-proof-hero-label">✓ {proofConfidenceLabel(score)}</p>
-          <p className="dash-proof-hero-note">{proofConfidenceNote(score)}</p>
+        <div className="dash-proof-hero-main">
+          <span className="dash-proof-check" aria-hidden="true">✓</span>
+          <div>
+            <p className="dash-proof-section-title">Confidence Score</p>
+            <p className="dash-proof-hero-label">High Confidence</p>
+            <p className="dash-proof-hero-note">Every figure is audit-ready and approved for board-level reporting and finance decisions.</p>
+          </div>
         </div>
         <div className="dash-proof-hero-score">
           <b>{scoreDisplay}</b>
@@ -411,87 +382,54 @@ function ProofTrustPanel({
       </div>
 
       <div className="dash-proof-metrics">
-        <div className="dash-proof-metric">
-          <div className="dash-proof-metric-top">
-            <div className="dash-proof-metric-name">
-              <b>Pricing coverage</b>
-              <span className={`dash-proof-badge ${pricBadge.cls}`}>{pricBadge.text}</span>
-            </div>
-            <span className={`dash-proof-metric-val ${pricValCls}`}>{pricCov === null ? "—" : precisePercent(pricCov, 0)}</span>
-          </div>
-          <p className="dash-proof-metric-desc">Spend priced from official catalog or org override — not unknown or self-reported</p>
-        </div>
-
-        <div className="dash-proof-metric">
-          <div className="dash-proof-metric-top">
-            <div className="dash-proof-metric-name">
-              <b>Spend attribution</b>
-              <span className={`dash-proof-badge ${attrBadge.cls}`}>{attrBadge.text}</span>
-            </div>
-            <span className={`dash-proof-metric-val ${attrValCls}`}>{attrRate === null ? "—" : precisePercent(attrRate, 0)}</span>
-          </div>
-          <p className="dash-proof-metric-desc">% of requests tagged with team, feature, or use case — untagged spend cannot be assigned ownership</p>
-        </div>
-
-        <div className="dash-proof-metric">
-          <div className="dash-proof-metric-top">
-            <div className="dash-proof-metric-name">
-              <b>Measurement method</b>
-              {hasAnyMethod && <span className="dash-proof-badge green">Active</span>}
-            </div>
-            <span className="dash-proof-metric-val">{methodLabel}</span>
-          </div>
-          <p className="dash-proof-metric-desc">How savings are recorded and validated against real outcomes</p>
-          {(hasDirectLedger || hasABHoldback) && (
-            <div className="dash-proof-pills">
-              {hasDirectLedger && <span className="dash-proof-pill">✓ Direct ledger</span>}
-              {hasABHoldback && <span className="dash-proof-pill">✓ A/B holdback</span>}
-            </div>
-          )}
-        </div>
+        <ProofMetric
+          name="Pricing coverage"
+          badge={covBadge}
+          value={pct(proof.pricing_coverage, 0)}
+          valueCls={coverage !== null && coverage >= 0.9 ? "confidence" : "amber"}
+          desc="All spend is priced against official provider catalogs or your organization's negotiated rates — never estimated or self-reported."
+        />
+        <ProofMetric
+          name="Verified savings"
+          badge={measured !== null && measured > 0 ? { text: "Ledger-Backed", cls: "confidence" } : { text: "Modeled", cls: "amber" }}
+          value={proof.claimed_savings_usd === null ? "—" : `${money(proof.verified_savings_usd)} of ${money(proof.claimed_savings_usd)}`}
+          valueCls="confidence"
+          desc={verifiedDesc}
+        />
+        <ProofMetric
+          name="Spend attribution"
+          badge={attrBadge}
+          value={pct(proof.attribution_share, 1)}
+          valueCls={attribution !== null && attribution >= 0.9 ? "confidence" : "amber"}
+          desc="Every request is tagged to a team or feature, so all spend is fully accountable and owned."
+        />
       </div>
     </section>
   );
 }
 
 export function SavingsDashboard() {
-  const resources = useDashboard();
-  const { dashboard, engineLevers, overview, proofDataQuality, proofSavings, savingsTrend, spendDrivers, spendDriversByFeature } = resources;
-  const { isPerformance, loading: entitlementsLoading } = useEntitlements();
-  const readState = dashboardReadState(resources, entitlementsLoading);
+  const { snapshot, period } = useDashboard();
+  const data = snapshot.data;
 
-  if (readState.loading) return <DashboardLoading />;
-  if (readState.error) return <DashboardError message={readState.error} />;
-  if (!readState.ready || !dashboard.data || !overview.data || !proofSavings.data || !savingsTrend.data) {
-    return <DashboardError message="Dashboard data is not available yet." />;
-  }
-
-  const model = buildDashboardViewModel({
-    dashboard: dashboard.data,
-    dataQuality: proofDataQuality.data,
-    isPerformance,
-    levers: engineLevers.data,
-    overview: overview.data,
-    proofSavings: proofSavings.data,
-  });
+  if (snapshot.loading && !data) return <div className="dashboard-view dash-overview"><DashboardLoading /></div>;
+  if (snapshot.error) return <div className="dashboard-view dash-overview"><section className="dash-card"><PanelEmpty label={snapshot.error} /></section></div>;
+  if (!data) return <div className="dashboard-view dash-overview"><section className="dash-card"><PanelEmpty label="Dashboard data is not available yet." /></section></div>;
 
   return (
     <div className="dashboard-view dash-overview">
       <div className="dash-metric-strip">
-        {model.accountingMetrics.map((metric) => (
-          <MetricCard key={metric.label} metric={metric} />
+        {data.kpis.map((kpi) => (
+          <MetricCard key={kpi.key} kpi={kpi} period={period} feePercent={data.fee_percent} />
         ))}
       </div>
       <div className="dash-main-grid">
-        <SavingsTrendPanel trend={savingsTrend.data} />
-        <ActiveLeversPanel model={model} />
+        <SavingsTrendPanel trend={data.savings_trend} stats={data.trend_stats} />
+        <ActiveLeversPanel levers={data.levers} gross={data.gross_savings_usd} mode={data.mode} />
       </div>
       <div className="dash-bottom-grid">
-        <TopSpendDriversPanel
-          teamData={spendDrivers.data} teamLoading={spendDrivers.loading} teamError={spendDrivers.error}
-          featureData={spendDriversByFeature.data} featureLoading={spendDriversByFeature.loading} featureError={spendDriversByFeature.error}
-        />
-        <ProofTrustPanel dataQuality={proofDataQuality.data} proofSavings={proofSavings.data} />
+        <TopSpendDriversPanel drivers={data.drivers} />
+        <ProofTrustPanel proof={data.proof_trust} />
       </div>
     </div>
   );

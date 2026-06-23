@@ -11,10 +11,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   LabelList,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -22,7 +19,7 @@ import {
 } from "recharts";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { compact, usd } from "@/lib/format";
-import type { SavingsTrendPoint } from "@/lib/types";
+import type { SavingsTrendBucket } from "@/lib/types";
 
 const AXIS = { fontSize: 11, fontFamily: "var(--font-mono)", fill: "var(--text-3)" } as const;
 const DEBOUNCE = 150;
@@ -145,7 +142,7 @@ interface SavingsCapturedDatum {
   counterfactual: number;
 }
 
-function toSavingsCaptured(points: SavingsTrendPoint[]): SavingsCapturedDatum[] {
+function toSavingsCaptured(points: SavingsTrendBucket[]): SavingsCapturedDatum[] {
   return [...points]
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((point) => ({
@@ -233,7 +230,7 @@ function SavingsCapturedTooltip({
       </div>
       <div className="chart-tip-row">
         <span className="chart-tip-dot savings-spend" />
-        <span className="chart-tip-name">Would have paid</span>
+        <span className="chart-tip-name">Projected cost</span>
         <span className="chart-tip-value">{usd(point.counterfactual)}</span>
       </div>
     </div>
@@ -243,7 +240,7 @@ function SavingsCapturedTooltip({
 export function NetSavingsTrendChart({
   points,
 }: {
-  points: SavingsTrendPoint[];
+  points: SavingsTrendBucket[];
 }) {
   const series = useMemo(() => toSavingsCaptured(points), [points]);
   const isCompact = useMediaQuery(MOBILE_CHART_QUERY);
@@ -295,35 +292,5 @@ export function NetSavingsTrendChart({
         </Bar>
       </BarChart>
     </ChartFrame>
-  );
-}
-
-export interface DonutRow {
-  name: string;
-  spend: number;
-  color: string;
-}
-
-export function SpendDonutChart({ rows }: { rows: DonutRow[] }) {
-  const data = rows.map((r) => ({ name: r.name, value: r.spend }));
-  return (
-    <PieChart width={180} height={180}>
-      <Pie
-        data={data}
-        cx={90}
-        cy={90}
-        innerRadius={50}
-        outerRadius={82}
-        dataKey="value"
-        isAnimationActive={false}
-        paddingAngle={2}
-        startAngle={90}
-        endAngle={-270}
-      >
-        {rows.map((r) => (
-          <Cell key={r.name} fill={r.color} />
-        ))}
-      </Pie>
-    </PieChart>
   );
 }

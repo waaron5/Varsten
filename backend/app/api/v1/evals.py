@@ -1,7 +1,7 @@
 """Eval / replay harness control-plane API.
 
 - POST /v1/recommendations/{id}/evaluate   open + run a shadow eval for a
-  cheaper-model recommendation (runs off the request path, in a BackgroundTask).
+  model-downshift recommendation (runs off the request path, in a BackgroundTask).
 - GET  /v1/evals                            list runs for a project
 - GET  /v1/evals/{run_id}                   run detail with the per-sample audit
 - POST /v1/evals/golden                     upload customer golden samples
@@ -60,7 +60,7 @@ def _assert_member(user: User, organization_id: uuid.UUID, db: Session) -> None:
 
 
 def _candidate_model(db: Session, recommendation: Recommendation) -> str | None:
-    """The cheaper substitute for the recommendation's incumbent model, from the
+    """The lower-cost substitute for the recommendation's incumbent model, from the
     catalog. This is the model the shadow eval tests."""
     if not recommendation.related_model:
         return None
@@ -113,7 +113,7 @@ def evaluate_recommendation(
     if not candidate:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="no catalog cheaper-substitute found for this route's model",
+            detail="no catalog lower-cost substitute found for this route's model",
         )
     project = db.get(Project, recommendation.project_id)
     key = provider_key_for_project(project.id, "openai") if project else None

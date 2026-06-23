@@ -5,9 +5,9 @@ Revises: a7b8c9d0e1f2
 Create Date: 2026-06-05 10:00:00.000000
 
 One generic execution-policy table backs every lever the data plane runs on the
-hot path, replacing the cheaper-model-only proxy_routing_rules. Existing routing
+hot path, replacing the model-downshift-only proxy_routing_rules. Existing routing
 rules are migrated in: target_key = incumbent model, params = {candidate_model},
-lever taken from the sourcing recommendation (default cheaper_model).
+lever taken from the sourcing recommendation (default model_downshift).
 """
 from typing import Sequence, Union
 
@@ -45,7 +45,7 @@ def upgrade() -> None:
     op.create_index("ix_policies_project_lever_enabled", "proxy_policies", ["project_id", "lever", "enabled"])
     op.create_index("ix_policies_project_enabled", "proxy_policies", ["project_id", "enabled"])
 
-    # Migrate existing cheaper-model / smart-routing rules into the unified table.
+    # Migrate existing model-downshift / smart-routing rules into the unified table.
     op.execute(
         """
         INSERT INTO proxy_policies (
@@ -55,7 +55,7 @@ def upgrade() -> None:
         )
         SELECT
             r.id, r.organization_id, r.project_id,
-            COALESCE(rec.lever, 'cheaper_model'),
+            COALESCE(rec.lever, 'model_downshift'),
             'model', r.incumbent_model,
             r.enabled, r.holdback_percent,
             jsonb_build_object('candidate_model', r.candidate_model),
@@ -102,7 +102,7 @@ def downgrade() -> None:
             enabled, holdback_percent, source_recommendation_id, activated_at,
             created_at, updated_at
         FROM proxy_policies
-        WHERE lever IN ('cheaper_model', 'smart_routing')
+        WHERE lever IN ('model_downshift', 'smart_routing')
         """
     )
     op.drop_index("ix_policies_project_enabled", table_name="proxy_policies")

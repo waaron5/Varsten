@@ -44,16 +44,16 @@ def _cache_saving(db, pid, oid, saved):
 
 def test_compute_fee_percent_floor_and_net_guarantee():
     # Plain percentage.
-    b = billing.compute_fee(Decimal("100"), Decimal("0.20"), Decimal("0"))
-    assert b.fee_usd == Decimal("20.00") and b.net_savings_usd == Decimal("80.00")
+    b = billing.compute_fee(Decimal("100"), Decimal("0.25"), Decimal("0"))
+    assert b.fee_usd == Decimal("25.00") and b.net_savings_usd == Decimal("75.00")
     # Floor lifts a small fee...
-    b = billing.compute_fee(Decimal("40"), Decimal("0.20"), Decimal("15"))
+    b = billing.compute_fee(Decimal("40"), Decimal("0.25"), Decimal("15"))
     assert b.fee_usd == Decimal("15.00")
     # ...but the floor is capped at the savings, so net is never negative.
-    b = billing.compute_fee(Decimal("5"), Decimal("0.20"), Decimal("50"))
+    b = billing.compute_fee(Decimal("5"), Decimal("0.25"), Decimal("50"))
     assert b.fee_usd == Decimal("5.00") and b.net_savings_usd == Decimal("0.00")
     # No savings, no fee.
-    b = billing.compute_fee(Decimal("0"), Decimal("0.20"), Decimal("0"))
+    b = billing.compute_fee(Decimal("0"), Decimal("0.25"), Decimal("0"))
     assert b.fee_usd == Decimal("0.00") and b.net_savings_usd == Decimal("0.00")
 
 
@@ -66,9 +66,9 @@ def test_generate_invoice_from_verified_savings_only(client, db_session, provisi
     now = datetime.now(UTC)
     invoice = billing.generate_invoice(db_session, org, month_start(now), month_end(now))
     assert invoice.verified_savings_usd == Decimal("100.00")
-    assert invoice.gain_share_percent == Decimal("0.2000")  # snapshot of org default
-    assert invoice.fee_usd == Decimal("20.00")
-    assert invoice.net_savings_usd == Decimal("80.00")
+    assert invoice.gain_share_percent == Decimal("0.2500")  # snapshot of org default
+    assert invoice.fee_usd == Decimal("25.00")
+    assert invoice.net_savings_usd == Decimal("75.00")
     assert invoice.status == "draft"
 
 
@@ -105,7 +105,7 @@ def test_admin_billing_preview_and_history(client, db_session, provision):
     ).json()
     assert body["pricing_model"] == "percentage_of_verified_savings_with_floor"
     assert Decimal(str(body["current_period"]["verified_savings_usd"])) == Decimal("100.00")
-    assert Decimal(str(body["current_period"]["fee_usd"])) == Decimal("20.00")
+    assert Decimal(str(body["current_period"]["fee_usd"])) == Decimal("25.00")
 
     # Generate an invoice directly, then it shows in history.
     org = db_session.get(Organization, oid)
@@ -115,7 +115,7 @@ def test_admin_billing_preview_and_history(client, db_session, provision):
         "/v1/admin/billing/invoices", headers=auth_headers(p["token"]), params={"project_id": p["project_id"]}
     ).json()
     assert len(history) == 1
-    assert Decimal(str(history[0]["fee_usd"])) == Decimal("20.00")
+    assert Decimal(str(history[0]["fee_usd"])) == Decimal("25.00")
 
 
 def test_operator_sets_billing_config(client, db_session, monkeypatch):

@@ -12,6 +12,7 @@ from app.db.session import AsyncSessionLocal, get_db
 from app.models import Project, UsageEvent
 from app.pricing import price_usage_event
 from app.schemas import UsageEventCreate, UsageEventOut, UsageEventPage
+from app.usage_dimensions import DIMENSION_TO_COLUMN
 
 router = APIRouter(tags=["usage-events"])
 
@@ -141,26 +142,24 @@ def list_usage_events(
     offset: int = Query(default=0, ge=0),
 ) -> UsageEventPage:
     stmt = select(UsageEvent).where(UsageEvent.project_id == project.id)
-    if provider is not None:
-        stmt = stmt.where(UsageEvent.provider == provider)
-    if model is not None:
-        stmt = stmt.where(UsageEvent.model == model)
-    if workflow is not None:
-        stmt = stmt.where(UsageEvent.feature == workflow)
-    if external_user_id is not None:
-        stmt = stmt.where(UsageEvent.user_id == external_user_id)
-    if feature is not None:
-        stmt = stmt.where(UsageEvent.feature == feature)
-    if customer_id is not None:
-        stmt = stmt.where(UsageEvent.customer_id == customer_id)
-    if user_id is not None:
-        stmt = stmt.where(UsageEvent.user_id == user_id)
-    if team is not None:
-        stmt = stmt.where(UsageEvent.team == team)
-    if environment is not None:
-        stmt = stmt.where(UsageEvent.environment == environment)
-    if request_type is not None:
-        stmt = stmt.where(UsageEvent.request_type == request_type)
+    # Every dimension filter resolves through the one canonical map so a public
+    # name can never be wired to the wrong column. workflow -> workflow and
+    # external_user_id -> external_user_id, distinct from feature and user_id.
+    dimension_filters = {
+        "provider": provider,
+        "model": model,
+        "workflow": workflow,
+        "external_user_id": external_user_id,
+        "feature": feature,
+        "customer_id": customer_id,
+        "user_id": user_id,
+        "team": team,
+        "environment": environment,
+        "request_type": request_type,
+    }
+    for name, value in dimension_filters.items():
+        if value is not None:
+            stmt = stmt.where(DIMENSION_TO_COLUMN[name] == value)
     if start is not None:
         stmt = stmt.where(UsageEvent.received_at >= start)
     if end is not None:

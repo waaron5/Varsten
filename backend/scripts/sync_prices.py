@@ -162,7 +162,7 @@ def sync(db: Session, raw: dict) -> dict[str, int]:
             price_inserts += 1
 
     # Layer curated tier + cheaper-substitute judgment onto the freshly synced
-    # catalog so the cheaper-model lever has candidates in production, not just
+    # catalog so the model-downshift lever has candidates in production, not just
     # in the demo seed.
     curation_updates = apply_curation(db)
 

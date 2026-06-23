@@ -51,14 +51,14 @@ The engine is the heart of the product. It cuts spend through five levers. Every
 - **Smart routing** sends each request to the cheapest model that clears the quality bar for that route. Routing is decided per request from a policy, not set once globally.
 - **Semantic cache** reuses an answer when a new request is semantically close to one already served, removing an entire model call on a hit.
 - **Token trim** compresses prompts and context before the call without changing the output, cutting input tokens on every request to a route.
-- **Cheaper model** systematically moves whole workloads down to a cheaper tier wherever evals show quality holds.
+- **Model downshift** systematically moves whole workloads down to a lower-cost tier wherever evals show quality holds.
 - **Batching** routes non-urgent jobs through batch endpoints to capture bulk pricing in exchange for a controlled delay.
 
 The engine continuously analyzes traffic, identifies which levers apply to which routes, estimates the savings and the risk of each, and either applies the cut or surfaces it for approval. The savings each lever produces are measured, attributed, and shown in Proof.
 
 ### Autonomy: auto versus approve
 
-For each lever the customer decides whether the engine acts on its own or waits for a human. Low-risk, objectively-measurable levers default to auto: semantic cache, batching, and token trim. Medium-risk levers default to approve: smart routing and cheaper-model downgrades. Every auto-applied cut still passes all guardrails before going live, and any cut that fails a quality gate is rolled back automatically and surfaced in the decision queue. Auto is the stronger experience and the one a customer earns into lever by lever as trust builds.
+For each lever the customer decides whether the engine acts on its own or waits for a human. Low-risk, objectively-measurable levers default to auto: semantic cache, batching, and token trim. Medium-risk levers default to approve: smart routing and model-downshift downgrades. Every auto-applied cut still passes all guardrails before going live, and any cut that fails a quality gate is rolled back automatically and surfaced in the decision queue. Auto is the stronger experience and the one a customer earns into lever by lever as trust builds.
 
 ## The app, section by section
 
@@ -98,7 +98,7 @@ Deliberately demoted to a supporting section. It feeds decisions rather than bei
 
 - **Spend** breaks down drivers by team, feature, and provider.
 - **Customers** shows per-customer revenue against AI cost and flags negative-margin customers. For an AI-native business this is the most valuable page in Analysis and the sharpest wedge in the whole product.
-- **Models** shows cost, volume, and average cost per request by model, with cheaper-swap opportunities the engine has flagged.
+- **Models** shows cost, volume, and average cost per request by model, with model-downshift opportunities the engine has flagged.
 
 ### Admin
 
@@ -112,7 +112,7 @@ Setup, access, and the commercial relationship. Three tabs.
 
 A serious technical buyer will not adopt an inline cost tool on faith. These are the questions that decide the sale, and the product is designed so the answers are real, not marketing. Two architectural commitments do most of the work: a concurrent randomized holdback, and a thin in-VPC data plane split from the control plane.
 
-### "Can you cut to cheaper models without degrading quality, and will your evals catch regressions on my workloads?"
+### "Can you cut to lower-cost models without degrading quality, and will your evals catch regressions on my workloads?"
 
 Quality is a measurement loop, never a generic promise. Before a routing or downgrade change goes live on a route, Varsten replays a sample of that customer's own recent traffic through both the incumbent and the candidate and compares them on that route's real distribution, not on a public benchmark. Objective tasks are scored with objective signals such as classification accuracy and structured-output validity. Subjective generation is scored with pairwise judging calibrated against a customer-labeled seed set, and against the customer's own golden sets where they provide them. Implicit signals like retries, thumbs-down, and human escalation feed in too. Varsten only auto-applies where the signal is objective and trustworthy. For open-ended generation, where automatic judgment is too noisy to bet on, the change defaults to approve-mode with a human in the loop. The eval and replay harness is the real engineering of the product. Routing is a configuration change. Knowing the change is safe on traffic nobody has seen before is the actual work.
 
@@ -122,7 +122,7 @@ Varsten measures savings against a live randomized control, not a modeled counte
 
 ### "What does sitting in my request path do to latency?"
 
-The only work Varsten does in the hot path is a policy lookup and a cache lookup, both sub-millisecond to low single-digit milliseconds. Everything expensive, including judging, evaluation, and the savings math, runs asynchronously off the path. Varsten never puts a model call or an LLM judge inline. The data plane can run as a sidecar or service inside the customer's own environment so the added hop is local rather than a round trip across the internet. A cache hit removes an entire model call and improves end-to-end latency. Because a cheaper model can be slower, latency is treated as a first-class guardrail with a per-route budget, and a cut that saves money but breaks the latency budget is rejected the same way a quality regression is.
+The only work Varsten does in the hot path is a policy lookup and a cache lookup, both sub-millisecond to low single-digit milliseconds. Everything expensive, including judging, evaluation, and the savings math, runs asynchronously off the path. Varsten never puts a model call or an LLM judge inline. The data plane can run as a sidecar or service inside the customer's own environment so the added hop is local rather than a round trip across the internet. A cache hit removes an entire model call and improves end-to-end latency. Because a lower-cost model can be slower, latency is treated as a first-class guardrail with a per-route budget, and a cut that saves money but breaks the latency budget is rejected the same way a quality regression is.
 
 ### "What happens when Varsten is down?"
 

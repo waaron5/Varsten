@@ -21,6 +21,7 @@ from app.db.session import AsyncSessionLocal
 from app.eval import scoring
 from app.eval.failure_registry import record_failure
 from app.eval.openai_ops import judge_pairwise, replay_candidate
+from app.levers import LEVER_MODEL_DOWNSHIFT
 from app.models import EvalRun, EvalSampleResult, Project, Recommendation, ReplaySample
 from app.models.eval import (
     RUN_COMPLETED,
@@ -288,13 +289,13 @@ def _measured_cost_delta(db: Session, run: EvalRun, cost_deltas: list[Decimal]) 
 def create_run_for_recommendation(
     db: Session, project: Project, recommendation: Recommendation, candidate_model: str
 ) -> EvalRun:
-    """Open a pending eval run for a cheaper-model recommendation. route_key and
+    """Open a pending eval run for a model-downshift recommendation. route_key and
     incumbent_model come from the recommendation's target model."""
     run = EvalRun(
         organization_id=project.organization_id,
         project_id=project.id,
         recommendation_id=recommendation.id,
-        lever=recommendation.lever or "cheaper_model",
+        lever=recommendation.lever or LEVER_MODEL_DOWNSHIFT,
         route_key=recommendation.related_model or recommendation.target_key or "",
         incumbent_model=recommendation.related_model or "",
         candidate_model=candidate_model,

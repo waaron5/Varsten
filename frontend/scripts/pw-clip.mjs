@@ -1,0 +1,11 @@
+import { chromium } from "playwright";
+const FILE = "file:///Users/aaronwood/dev/Varsten/marketing/public/dashboard-UI.html";
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1440, height: 1700 }, deviceScaleFactor: 2 });
+const p = await ctx.newPage();
+await p.goto(FILE, { waitUntil: "networkidle" });
+await p.waitForTimeout(4000);
+await p.evaluate(() => { const e = document.getElementById("__bundler_loading"); if (e) e.remove(); });
+await p.screenshot({ path: "playwright/screenshots/mock-pills.png", clip: { x: 250, y: 195, width: 1170, height: 60 } });
+console.log("ok");
+await b.close();

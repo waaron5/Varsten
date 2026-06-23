@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     circuit_breaker_reset_seconds: float = 30.0
 
     # --- Eval / replay harness (Track B) ---
-    # The shadow-evaluation loop that proves a cheaper-model swap is safe on a
+    # The shadow-evaluation loop that proves a model-downshift swap is safe on a
     # route's real traffic BEFORE it can be applied. Everything here runs async,
     # off the request hot path. Capture is opt-in per project (Project.eval_capture
     # _enabled) and globally gated here so it is off by default.

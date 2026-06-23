@@ -1,6 +1,6 @@
 """Replay capture tap.
 
-Samples a copy of real cache-miss traffic into the replay corpus so cheaper-model
+Samples a copy of real cache-miss traffic into the replay corpus so model-downshift
 swaps can be proven safe on a route's true distribution. This is the only place
 prompt/response content is written outside the semantic cache, so it is gated
 twice: a global setting and the project's opt-in flag, then sampled and bounded.

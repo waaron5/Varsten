@@ -71,7 +71,7 @@ LEVER_MODES = {
     "smart_routing": "approve",
     "semantic_cache": "auto",
     "token_trim": "auto",
-    "cheaper_model": "approve",
+    "model_downshift": "approve",
     "batching": "auto",
 }
 
@@ -848,7 +848,7 @@ def _apply_demo_recommendations(db: Session, project: Project, now: datetime) ->
         if applied >= DEMO_APPLY_LIMIT:
             break
         # One cut per lever and per route/feature, so overlapping levers on the
-        # same traffic (e.g. cheaper-model and routing on one route) are not
+        # same traffic (e.g. model-downshift and routing on one route) are not
         # double-counted in Proof.
         target = rec.related_feature or rec.target_key or str(rec.id)
         if rec.lever in applied_levers or target in applied_targets:

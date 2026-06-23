@@ -1,6 +1,8 @@
 // Mirrors the FastAPI Pydantic response models. Numeric money/token fields that
 // the backend serializes as Decimal arrive as strings; parse at the edge.
 
+import type { LeverName as CanonicalLeverName } from "./levers";
+
 export interface UsageEvent {
   id: string;
   project_id: string;
@@ -105,6 +107,95 @@ export interface SavingsTrend {
   effective_savings_rate: string | null;
 }
 
+// --- Consolidated dashboard snapshot (GET /dashboard/snapshot) ---
+// One authoritative, period-scoped payload the Dashboard renders directly; every
+// panel reconciles to the same window/fee/source server-side. Decimals arrive as
+// strings; null money renders "—" (never a fabricated 0).
+
+export type DashboardPeriod = "month" | "quarter" | "year";
+
+export interface KpiDelta {
+  current: string | null;
+  previous: string | null;
+  delta_pct: string | null; // signed fraction, e.g. "0.18" == +18%
+}
+
+export interface DashboardKpi {
+  key: string; // net_saved | gross_saved | without_varsten | actual_spend
+  label: string;
+  detail: string;
+  value: string | null;
+  delta: KpiDelta;
+  tone: string | null; // "brand" marks the hero tile
+}
+
+export interface SavingsTrendBucket {
+  date: string;
+  optimized_usd: string;
+  saved_usd: string;
+  baseline_usd: string;
+}
+
+export interface TrendStats {
+  avg_spend_per_bucket_usd: string | null;
+  avg_saved_per_bucket_usd: string | null;
+  effective_savings_rate: string | null;
+}
+
+export interface DashboardLever {
+  lever: string;
+  label: string;
+  enabled: boolean;
+  status: string; // "Active" | "Off"
+  value_usd: string | null;
+  share: string | null;
+  source: string; // "measured" | "estimated" | ""
+}
+
+export interface DashboardDriverRow {
+  key: string | null;
+  label: string;
+  spend_usd: string;
+  share: string | null;
+}
+
+export interface DashboardDrivers {
+  actual_total_usd: string | null;
+  team: DashboardDriverRow[];
+  feature: DashboardDriverRow[];
+}
+
+export interface DashboardProofTrust {
+  score: string | null;
+  confidence_label: string;
+  confidence_note: string;
+  pricing_coverage: string | null;
+  attribution_share: string | null;
+  verified_savings_usd: string | null;
+  claimed_savings_usd: string | null;
+  measured_share: string | null;
+  measurement_method_label: string;
+  has_direct_ledger: boolean;
+  has_ab_holdback: boolean;
+}
+
+export interface DashboardSnapshot {
+  period: string;
+  granularity: string;
+  period_start: string;
+  period_end: string;
+  label: string;
+  mode: string; // measured | estimated | spend_only | empty
+  fee_percent: string;
+  gross_savings_usd: string | null;
+  kpis: DashboardKpi[];
+  savings_trend: SavingsTrendBucket[];
+  trend_stats: TrendStats;
+  levers: DashboardLever[];
+  drivers: DashboardDrivers;
+  proof_trust: DashboardProofTrust;
+}
+
 // Dashboard narrative 2: proxy traffic health.
 export interface CacheTrafficPoint {
   date: string;
@@ -201,38 +292,6 @@ export interface ApiKeyCreated extends ApiKeySummary {
   plaintext_key: string;
 }
 
-export interface OperatorProvisionRequest {
-  customer_email: string;
-  full_name: string;
-  company_name: string;
-  organization_name: string;
-  project_name: string;
-  api_key_name: string;
-}
-
-export interface OperatorProvisionResponse {
-  user_id: string;
-  organization_id: string;
-  project_id: string;
-  api_key_id: string;
-  api_key_prefix: string;
-  plaintext_api_key: string;
-}
-
-export interface OperatorValidationSummary {
-  project_id: string;
-  organization_id: string;
-  project_name: string;
-  window_hours: number;
-  window_start: string;
-  window_end: string;
-  request_count: number;
-  p95_latency_ms: number | null;
-  saved_usd: string | number | null;
-  fail_open_status: string;
-  follow_up_draft: string;
-}
-
 export interface UsageEventFilters {
   provider?: string;
   model?: string;
@@ -252,12 +311,7 @@ export interface UsageEventFilters {
 
 export type RecommendationStatus = "open" | "applied" | "dismissed" | "rolled_back";
 
-export type LeverName =
-  | "token_trim"
-  | "semantic_cache"
-  | "batching"
-  | "cheaper_model"
-  | "smart_routing";
+export type LeverName = CanonicalLeverName;
 
 export type AutomationMode = "auto" | "approve";
 

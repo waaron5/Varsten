@@ -1,6 +1,6 @@
 """Apply gate.
 
-A medium-risk, model-swapping lever (cheaper_model, smart_routing) cannot be
+A medium-risk, model-swapping lever (model_downshift, smart_routing) cannot be
 applied until a shadow eval on the route's real traffic has cleared. This is the
 safety contract that turns "estimated" recommendations into "quality-verified"
 ones. The objective, low-risk levers (semantic_cache, token_trim, batching) are
@@ -20,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.levers import ROUTING_LEVERS
 from app.models import EvalRun, Recommendation
 from app.models.eval import (
     RUN_COMPLETED,
@@ -27,7 +28,7 @@ from app.models.eval import (
     VERDICT_SAFE,
 )
 
-GATED_LEVERS = {"cheaper_model", "smart_routing"}
+GATED_LEVERS = set(ROUTING_LEVERS)
 
 
 class EvalGateError(Exception):

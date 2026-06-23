@@ -71,6 +71,6 @@ def test_seed_demo_creates_product_story_data_idempotently(db_session):
         "smart_routing",
         "semantic_cache",
         "token_trim",
-        "cheaper_model",
+        "model_downshift",
         "batching",
     }.issubset(recommendation_levers)

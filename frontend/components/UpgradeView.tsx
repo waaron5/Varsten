@@ -7,7 +7,7 @@ const CONTACT_HREF = "mailto:mail@varsten.ai?subject=Upgrade%20to%20Varsten%20Pe
 
 const PERFORMANCE_INCLUDES = [
   "Apply recommendations one-click, with eval gates and rollback",
-  "Smart routing and cheaper-model substitution",
+  "Smart routing and model-downshift substitution",
   "Response caching and token trimming",
   "Batch routing for non-urgent jobs",
   "Quality guardrails, budget hard caps, and automation",

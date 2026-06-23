@@ -1,15 +1,15 @@
 """Curated model tier and cheaper-substitute mapping.
 
 The public pricing feed carries prices and capability flags but no judgment about
-which model is a coarse tier or a safe cheaper substitute for which. That
+which model is a coarse tier or a safe lower-cost substitute for which. That
 judgment is curated here as reference data (not logic) and applied to
 model_catalog during a sync. Keys are model_key values as they appear in the
 feed; substitutes point to another model_key the engine can price and compare.
 
 Curation is conservative on purpose: a substitute is only listed where the
-cheaper model is a credible drop-in for general workloads on the same provider.
+model downshift is a credible drop-in for general workloads on the same provider.
 The eval/replay gate (later) is what proves a swap is safe per route; this map
-only seeds the candidate so the cheaper-model lever has something to evaluate.
+only seeds the candidate so the model-downshift lever has something to evaluate.
 """
 
 from sqlalchemy import select
@@ -35,7 +35,7 @@ TIERS: dict[str, str] = {
     "gemini/gemini-1.5-flash": "small",
 }
 
-# model_key -> a cheaper substitute model_key, a credible candidate for general
+# model_key -> a lower-cost substitute model_key, a credible candidate for general
 # traffic. Both the key and its substitute are confirmed priced, so the engine
 # can compare them; it only surfaces the swap when it actually costs less.
 SUBSTITUTES: dict[str, str] = {

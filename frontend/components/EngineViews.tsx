@@ -21,6 +21,7 @@ import {
 } from "@/components/viewPrimitives";
 import { api } from "@/lib/api";
 import { compact, relativeTime, usd } from "@/lib/format";
+import { ENGINE_LEVER_ORDER, LEVER_MODEL_DOWNSHIFT } from "@/lib/levers";
 import type {
   ActiveRoute,
   ActiveTrim,
@@ -41,7 +42,7 @@ const ENGINE_TABS = [
   { href: "/engine/automation", label: "Automation" },
 ];
 
-const LEVER_ORDER = ["smart_routing", "semantic_cache", "token_trim", "cheaper_model", "batching"];
+const LEVER_ORDER: readonly string[] = ENGINE_LEVER_ORDER;
 
 type LeverStat = { label: string; value: (item: LeverConfig) => string; emphasis?: boolean };
 
@@ -71,8 +72,8 @@ const LEVER_META: Record<string, {
     iconPath: "M6 6m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M6 18m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M8 7l12 10 M8 17L20 7",
     stats: LEVER_STATS,
   },
-  cheaper_model: {
-    description: "Systematically moves whole workloads down to a cheaper tier where evals allow it.",
+  [LEVER_MODEL_DOWNSHIFT]: {
+    description: "Systematically moves whole workloads down to a lower-cost tier where evals allow it.",
     iconPath: "M4 7l8-4 8 4-8 4-8-4z M4 12l8 4 8-4 M4 17l8 4 8-4",
     stats: LEVER_STATS,
   },
@@ -720,7 +721,7 @@ function ActiveRoutesHeader({
   return (
     <div className="card-head">
       <h3>Active routes</h3>
-      <span className="sub">live cheaper-model swaps, savings measured against a concurrent holdback</span>
+      <span className="sub">live model-downshift swaps, savings measured against a concurrent holdback</span>
       <button className="btn" disabled={busy} onClick={onCheckDrift} type="button">
         {busy ? "Checking…" : "Run drift check"}
       </button>
@@ -856,7 +857,7 @@ function ActiveRoutesCard() {
     }
   };
 
-  // Only meaningful once at least one cheaper-model swap is live; stay quiet otherwise.
+  // Only meaningful once at least one model-downshift swap is live; stay quiet otherwise.
   if (loading || error || !routes || routes.length === 0) {
     return <ActiveRoutesEmpty error={error} routes={routes} />;
   }

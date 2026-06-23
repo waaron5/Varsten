@@ -71,7 +71,7 @@ def _route_policy(project: Project, incumbent: str, candidate_model: str, candid
     return ProxyPolicy(
         organization_id=project.organization_id,
         project_id=project.id,
-        lever="cheaper_model",
+        lever="model_downshift",
         target_type="model",
         target_key=incumbent,
         params={"candidate_model": candidate_model, "candidate_provider": candidate_provider},

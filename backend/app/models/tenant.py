@@ -33,7 +33,7 @@ SUBSCRIPTION_STATUSES = (
 )
 
 # Varsten's default share of verified savings (gain-share). Per-org overridable.
-DEFAULT_GAIN_SHARE_PERCENT = Decimal("0.20")
+DEFAULT_GAIN_SHARE_PERCENT = Decimal("0.25")
 
 
 class Organization(Base, TimestampMixin):
@@ -60,7 +60,12 @@ class Organization(Base, TimestampMixin):
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Gain-share billing config. The fee is this fraction of VERIFIED savings, with
     # a monthly floor; the floor is always capped at the savings so net stays >= 0.
-    gain_share_percent: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, server_default=text("0.2000"))
+    gain_share_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4),
+        nullable=False,
+        default=DEFAULT_GAIN_SHARE_PERCENT,
+        server_default=text("0.2500"),
+    )
     monthly_fee_floor_usd: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, server_default=text("0"))
 
     memberships: Mapped[list["OrgMembership"]] = relationship(

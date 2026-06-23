@@ -305,12 +305,12 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
             <div class="acts"><span class="badge b-low">low risk</span><button class="btn" onclick="applyRec(this)">Apply</button></div>
             <span class="appliedtag"><svg style="width:14px;height:14px" fill="none" stroke="currentColor" stroke-width="2"><use href="#i-ok"/></svg> Applied</span></div>
           <div class="rec"><div class="ic"><svg><use href="#i-layers"/></svg></div>
-            <div class="body"><div class="ttl">Downgrade dev and staging traffic</div><div class="sub">Cheaper model · non-production only · quality delta −2.1%</div></div>
+            <div class="body"><div class="ttl">Downgrade dev and staging traffic</div><div class="sub">Model downshift · non-production only · quality delta −2.1%</div></div>
             <div class="amt"><div class="n">$6.7k</div><div class="u">per month</div></div>
             <div class="acts"><span class="badge b-med">medium risk</span><button class="btn" onclick="applyRec(this)">Apply</button></div>
             <span class="appliedtag"><svg style="width:14px;height:14px" fill="none" stroke="currentColor" stroke-width="2"><use href="#i-ok"/></svg> Applied</span></div>
           <div class="rec"><div class="ic"><svg><use href="#i-route"/></svg></div>
-            <div class="body"><div class="ttl">Route /chat overflow to a second provider</div><div class="sub">Smart routing · cheaper at current volume · quality delta −0.9%</div></div>
+            <div class="body"><div class="ttl">Route /chat overflow to a second provider</div><div class="sub">Smart routing · lower cost at current volume · quality delta −0.9%</div></div>
             <div class="amt"><div class="n">$4.1k</div><div class="u">per month</div></div>
             <div class="acts"><span class="badge b-med">medium risk</span><button class="btn" onclick="applyRec(this)">Apply</button></div>
             <span class="appliedtag"><svg style="width:14px;height:14px" fill="none" stroke="currentColor" stroke-width="2"><use href="#i-ok"/></svg> Applied</span></div>
@@ -333,8 +333,8 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
             <div class="desc">Compresses prompts and context before each call without changing the output.</div>
             <div class="stats"><div><div class="k">Saved this month</div><div class="v" style="color:var(--brand-d)">$28.9k</div></div><div><div class="k">Avg tokens cut</div><div class="v">37%</div></div><div><div class="k">Quality delta</div><div class="v">0.0%</div></div></div></div>
           <div class="lever"><div class="top"><div class="ic" style="width:32px;height:32px;border-radius:8px;background:var(--paper);display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg style="width:17px;height:17px" fill="none" stroke="currentColor" stroke-width="1.8"><use href="#i-layers"/></svg></div>
-            <div style="flex:1"><div class="name">Cheaper model</div></div><span class="badge b-off">paused</span><div class="toggle" onclick="tog(this)"></div></div>
-            <div class="desc">Systematically moves whole workloads down to a cheaper tier where evals allow it.</div>
+            <div style="flex:1"><div class="name">Model downshift</div></div><span class="badge b-off">paused</span><div class="toggle" onclick="tog(this)"></div></div>
+            <div class="desc">Systematically moves whole workloads down to a lower-cost tier where evals allow it.</div>
             <div class="stats"><div><div class="k">Saved this month</div><div class="v" style="color:var(--brand-d)">$22.4k</div></div><div><div class="k">Workloads</div><div class="v">5</div></div><div><div class="k">Quality delta</div><div class="v">−1.8%</div></div></div></div>
           <div class="lever"><div class="top"><div class="ic" style="width:32px;height:32px;border-radius:8px;background:var(--paper);display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg style="width:17px;height:17px" fill="none" stroke="currentColor" stroke-width="1.8"><use href="#i-stack"/></svg></div>
             <div style="flex:1"><div class="name">Batching</div></div><span class="badge b-on">active</span><div class="toggle on" onclick="tog(this)"></div></div>
@@ -353,7 +353,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
               <tr><td>Batching</td><td><span class="badge b-low">low</span></td><td><div class="seg"><button class="on">Auto</button><button onclick="segPick(this)">Approve</button></div></td></tr>
               <tr><td>Token trim</td><td><span class="badge b-low">low</span></td><td><div class="seg"><button class="on">Auto</button><button onclick="segPick(this)">Approve</button></div></td></tr>
               <tr><td>Smart routing</td><td><span class="badge b-med">medium</span></td><td><div class="seg"><button onclick="segPick(this)">Auto</button><button class="on">Approve</button></div></td></tr>
-              <tr><td>Cheaper model</td><td><span class="badge b-med">medium</span></td><td><div class="seg"><button onclick="segPick(this)">Auto</button><button class="on">Approve</button></div></td></tr>
+              <tr><td>Model downshift</td><td><span class="badge b-med">medium</span></td><td><div class="seg"><button onclick="segPick(this)">Auto</button><button class="on">Approve</button></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -463,7 +463,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
               <tr><td>Semantic cache</td><td class="num">$42.6k</td><td class="num">31%</td></tr>
               <tr><td>Smart routing</td><td class="num">$31.2k</td><td class="num">23%</td></tr>
               <tr><td>Token trim</td><td class="num">$28.9k</td><td class="num">21%</td></tr>
-              <tr><td>Cheaper model</td><td class="num">$22.4k</td><td class="num">16%</td></tr>
+              <tr><td>Model downshift</td><td class="num">$22.4k</td><td class="num">16%</td></tr>
               <tr><td>Batching</td><td class="num">$13.3k</td><td class="num">9%</td></tr>
             </tbody>
           </table>
@@ -523,7 +523,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
         </div>
       </div>
       <div class="tabview" id="a-mo">
-        <div class="phead"><h2>Models</h2><p>Cost and volume per model, with cheaper swaps the engine has flagged.</p></div>
+        <div class="phead"><h2>Models</h2><p>Cost and volume per model, with model-downshift opportunities the engine has flagged.</p></div>
         <div class="card">
           <table>
             <thead><tr><th>Model</th><th class="num">Monthly</th><th class="num">Requests</th><th class="num">Avg / req</th><th>Suggestion</th></tr></thead>

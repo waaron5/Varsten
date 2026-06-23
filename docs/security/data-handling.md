@@ -32,7 +32,7 @@ feature you turn on, all time-bounded:
    identical/near-identical later request is served without calling the provider.
    Per-entry `expires_at`; a scheduled purge deletes lapsed entries.
 2. **Replay corpus** — only when the eval harness is enabled *and* the project
-   opts in. Samples a fraction of traffic to prove a cheaper-model swap is safe.
+   opts in. Samples a fraction of traffic to prove a model-downshift swap is safe.
    TTL'd; capped per route.
 3. **Batch staging** — the file you submit to the batch endpoint, in your object
    store, TTL'd in hours.

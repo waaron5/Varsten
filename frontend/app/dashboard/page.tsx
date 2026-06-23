@@ -12,19 +12,9 @@ export default async function DashboardPage() {
   if (!boot?.activeProjectId) return <Dashboard />;
 
   const state = await prefetchProjectQueries(boot.token, boot.activeProjectId, [
-    { key: ["dashboard"], load: api.dashboard },
-    { key: ["engineLevers"], load: api.engineLevers },
-    { key: ["overview"], load: api.overview },
-    { key: ["proofDataQuality"], load: api.proofDataQuality },
-    { key: ["proofSavings"], load: api.proofSavings },
-    { key: ["savingsTrend", "mtd"], load: (t, p) => api.savingsTrend(t, p, { period: "mtd" }) },
     {
-      key: ["breakdown", "team", "mtd", 5],
-      load: (t, p) => api.breakdown(t, p, "team", { period: "mtd", limit: 5 }),
-    },
-    {
-      key: ["breakdown", "feature", "mtd", 5],
-      load: (t, p) => api.breakdown(t, p, "feature", { period: "mtd", limit: 5 }),
+      key: ["dashboardSnapshot", "month"],
+      load: (t, p) => api.dashboardSnapshot(t, p, { period: "month" }),
     },
   ]);
 

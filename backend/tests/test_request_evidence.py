@@ -208,7 +208,11 @@ async def test_no_metadata_preserves_defaults(
     ue = (
         await async_db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == uuid.UUID(p["project_id"])))
     ).one()
-    assert ue.feature == "proxy"
+    # feature is a pure business dimension now: with no client metadata it stays
+    # NULL. Proxy traffic is identified by the source discriminator, not by
+    # overloading feature with the literal "proxy".
+    assert ue.feature is None
+    assert ue.source == "proxy"
     assert ue.environment == "production"
     assert ue.workflow is None
 
@@ -251,7 +255,7 @@ def _add_routing_policy(db, p, *, holdback: str, candidate="gpt-3.5-turbo"):
         ProxyPolicy(
             organization_id=uuid.UUID(p["org_id"]),
             project_id=uuid.UUID(p["project_id"]),
-            lever="cheaper_model",
+            lever="model_downshift",
             target_type="model",
             target_key=CHAT,
             enabled=True,
@@ -299,7 +303,7 @@ async def test_evidence_routed_treatment(async_client, async_provision, async_db
     assert d.decision_type == "experiment_treatment"
     assert d.route_eligible is True
     assert d.optimization_applied is True
-    assert d.lever == "cheaper_model"
+    assert d.lever == "model_downshift"
     assert d.model_counterfactual == CHAT
 
 

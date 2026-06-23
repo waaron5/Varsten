@@ -87,6 +87,12 @@ class UsageEvent(Base):
             text("received_at DESC"),
         ),
         Index(
+            "ix_usage_events_project_source_received_at",
+            "project_id",
+            "source",
+            text("received_at DESC"),
+        ),
+        Index(
             "ix_usage_events_project_pricing_status_received_at",
             "project_id",
             "pricing_status",
@@ -113,6 +119,10 @@ class UsageEvent(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Which path wrote this event: 'proxy' (inline gateway) or 'ingest' (the
+    # metadata ingestion API). A first-class discriminator so proxy analytics never
+    # have to overload a business dimension like `feature` to find proxy traffic.
+    source: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'ingest'"))
     external_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     workflow: Mapped[str | None] = mapped_column(String(255), nullable=True)
     request_type: Mapped[str | None] = mapped_column(String(64), nullable=True)

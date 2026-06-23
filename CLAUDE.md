@@ -38,7 +38,7 @@ This supersedes the older framing in this file and elsewhere that treated the in
 
 - **Single provider: OpenAI only.** Mirror `POST /v1/chat/completions`. Ignore Anthropic and others for now.
 - **Streaming is non-negotiable.** Raw SSE pass-through on day one. Never buffer the full completion before streaming to the client; that inflates their latency by seconds. Capture token/billing metadata asynchronously from the stream without blocking delivery.
-- **One lever: Semantic Cache.** Cache hit serves from the cache store (Postgres now, Redis later) in well under 20ms at $0, bypassing OpenAI. Cache miss pipes the stream straight through. The other four levers (smart routing, cheaper model, token trim, batching) stay completely bypassed behind a hard kill switch.
+- **One lever: Semantic Cache.** Cache hit serves from the cache store (Postgres now, Redis later) in well under 20ms at $0, bypassing OpenAI. Cache miss pipes the stream straight through. The other four levers (smart routing, model downshift, token trim, batching) stay completely bypassed behind a hard kill switch.
 - **Key vaulting is temporary.** The client's OpenAI key is supplied via an encrypted backend env var mapped to their `project_id`. No frontend vault UI in Phase 1.
 - **The ledger is the proof.** The proxy populates the same authoritative `usage_events` ledger (metadata only) and the dashboard shows Naive Retail Cost vs Varsten Optimized Cost. That delta is the gain-share number.
 
@@ -95,7 +95,7 @@ These are the mechanisms the engine uses to cut spend. Everything in the Engine 
 - **Smart routing**: send each request to the cheapest model that clears the quality bar for that route.
 - **Semantic cache**: reuse an answer when a new request is semantically close to one already served.
 - **Token trim**: compress prompts and context before the call without changing the output.
-- **Cheaper model**: systematically move whole workloads to a cheaper tier where evals allow it.
+- **Model downshift**: systematically move whole workloads to a lower-cost tier where evals allow it.
 - **Batching**: route non-urgent jobs through batch endpoints to capture bulk pricing.
 
 ## The two load-bearing architecture decisions
@@ -121,7 +121,7 @@ Separate the data plane (the thin proxy or SDK wrap in the request hot path) fro
 
 - **Fail open, always, and say so loudly.** If the control plane, the cache, or anything else is unreachable, the data plane passes the request straight through to the original provider with the original model. Savings stop. Traffic does not. The worst case is "we stop saving and add about a millisecond," never "we took down prod."
 - **In-VPC keeps content in the customer's boundary.** Run the data plane and the cache inside the customer's own cloud account. Content never leaves their perimeter. Only hashes, token counts, and eval scores flow to the control plane. This converts the truthful answer to "do my prompts leave my boundary" into "no, only counts and scores do," which turns security from a blocker into a selling point.
-- **Latency is a first-class guardrail.** The only work allowed in the hot path is a policy lookup and a cache lookup, both sub-millisecond to low single-digit ms. Anything expensive (judging, eval, baseline math, learning) runs async, off-path. Never put a model call or an LLM judge inline. An in-VPC sidecar deploy makes the network hop localhost, roughly 1ms, instead of a cross-internet 50ms. Because a cheaper model can be slower, treat a latency regression like a quality regression and respect a per-route latency SLO.
+- **Latency is a first-class guardrail.** The only work allowed in the hot path is a policy lookup and a cache lookup, both sub-millisecond to low single-digit ms. Anything expensive (judging, eval, baseline math, learning) runs async, off-path. Never put a model call or an LLM judge inline. An in-VPC sidecar deploy makes the network hop localhost, roughly 1ms, instead of a cross-internet 50ms. Because a lower-cost model can be slower, treat a latency regression like a quality regression and respect a per-route latency SLO.
 - Give the customer a kill switch that bypasses everything in one toggle. Ship the proxy with canary deploys and circuit breakers, because the one real inline risk is a bug in the proxy itself.
 
 ## Quality is a measurement loop, not a promise
@@ -137,7 +137,7 @@ Auto-apply only where the signal is objective and cheap. For open-ended generati
 For each lever, the customer decides whether the engine acts on its own or waits for a human. Defaults:
 
 - **Auto** for low-risk, objective levers: semantic cache, batching, token trim.
-- **Approve** for medium-risk levers: smart routing, cheaper model.
+- **Approve** for medium-risk levers: smart routing, model downshift.
 
 Auto-applied cuts still pass every guardrail before going live, and any cut that fails an eval gate is rolled back automatically and surfaced in the decision queue. Ship both modes with a per-lever toggle. Auto is the stronger sell and the scarier one, so earn it lever by lever as trust builds.
 
@@ -233,7 +233,7 @@ The inline proxy is the product, and Phase 1 (Build 1) is the lean first slice o
 
 **Later phases of the proxy, not Phase 1:**
 - Additional providers (Anthropic, Gemini, Bedrock)
-- The remaining four levers as live execution modules (smart routing, cheaper model, token trim, batching)
+- The remaining four levers as live execution modules (smart routing, model downshift, token trim, batching)
 - Real semantic (vector) similarity matching beyond Phase 1's exact-match cache
 - Provider-key vault UI + KMS, Redis cache, fail-open hardening, circuit breakers, kill switch UX
 - The eval / replay harness and the live randomized holdback that measure quality and savings as a concurrent A/B

@@ -8,7 +8,7 @@ mirrors the existing cache lookup.)
 
 `activate_rule` / `deactivate_rules_for_recommendation` run on the control plane
 when a recommendation is applied or dismissed. They read and write the unified
-`proxy_policies` table; this module owns the routing-lever (cheaper_model,
+`proxy_policies` table; this module owns the routing-lever (model_downshift,
 smart_routing) view of it.
 """
 
@@ -23,12 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.levers import LEVER_MODEL_DOWNSHIFT, LEVER_SMART_ROUTING
 from app.models import ROUTING_LEVERS, Project, ProxyPolicy, Recommendation
 from app.proxy import predicate as predicate_mod
 
 logger = get_logger("varsten.proxy.routing")
 
-SMART_ROUTING = "smart_routing"
+SMART_ROUTING = LEVER_SMART_ROUTING
 
 # Ledger metadata arm tags for the live holdback A/B.
 ARM_CONTROL = "control"
@@ -146,7 +147,7 @@ def activate_rule(
     recommendation. Returns None when the recommendation lacks an incumbent model
     or a candidate to route to."""
     incumbent = recommendation.related_model
-    lever = recommendation.lever if recommendation.lever in ROUTING_LEVERS else "cheaper_model"
+    lever = recommendation.lever if recommendation.lever in ROUTING_LEVERS else LEVER_MODEL_DOWNSHIFT
     if not incumbent or not candidate_model or incumbent == candidate_model:
         return None
     at = now or datetime.now(UTC)
@@ -168,7 +169,7 @@ def activate_rule(
         db.add(policy)
     params = {**(policy.params or {}), "candidate_model": candidate_model}
     # Smart routing gates each request on a deterministic predicate; seed a
-    # conservative default the operator can tune. A plain cheaper-model swap has
+    # conservative default the operator can tune. A plain model-downshift swap has
     # no predicate (every request on the model is routed).
     if lever == SMART_ROUTING and "predicate" not in params:
         params["predicate"] = dict(predicate_mod.DEFAULT_PREDICATE)

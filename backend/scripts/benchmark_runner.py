@@ -84,7 +84,7 @@ CANDIDATE = "gpt-4o-mini"
 def setup_workspace(db, holdback: Decimal) -> Project:
     """Idempotently create the benchmark org/project/key, price the models, and
     activate the levers the proxy will execute: semantic cache (always on), a
-    smart-routing policy (small prompts -> cheaper model) and a token-trim policy
+    smart-routing policy (small prompts -> model downshift) and a token-trim policy
     (large prompts get compressed) on the incumbent model."""
     org = db.scalar(select(Organization).where(Organization.name == BENCH_ORG))
     if org is None:
@@ -242,7 +242,7 @@ def _synthetic_dataset(n: int) -> list[list[dict]]:
     """A representative mix when no real dataset is supplied. Every conversation is
     UNIQUE (random entities/ids), so cache hits come only from the modelled
     --dup-rate, not accidental collisions — keeping the savings split realistic:
-      ~45% short prompts  -> route to the cheaper model
+      ~45% short prompts  -> route to the lower-cost model
       ~55% long multi-turn-> token trim (large context past the window)
     A real ShareGPT file via --dataset is the right input for a marketing number;
     this keeps the tool runnable and the distribution honest when offline."""
@@ -568,7 +568,7 @@ async def run_validation(
         organization_id=project.organization_id,
         project_id=project.id,
         recommendation_id=None,
-        lever="cheaper_model",
+        lever="model_downshift",
         route_key=INCUMBENT,
         incumbent_model=INCUMBENT,
         candidate_model=CANDIDATE,

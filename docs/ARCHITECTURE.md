@@ -196,9 +196,9 @@
   not built yet.)
   - Batching — events flagged batchable in metadata or whose request_type matches batch/background/export/sync; requires the model to
   have batch pricing in the catalog. Savings = run-rate of (current cost − batch-priced cost), computed from the actual batch rates.
-  - Cheaper model — requires model_catalog.cheaper_substitute_key to be set and both models priced. Savings = run-rate of (current − 
-  cheaper). This is empty in the catalog today, so this lever never fires. It is also the highest-dollar recommendation type.
-  - Smart routing — a route already served by ≥ 2 models at different cost-per-request; proposes shifting traffic to the cheaper one.
+  - Model downshift — requires model_catalog.cheaper_substitute_key to be set and both models priced. Savings = run-rate of (current −
+  lower-cost). This is empty in the catalog today, so this lever never fires. It is also the highest-dollar recommendation type.
+  - Smart routing — a route already served by ≥ 2 models at different cost-per-request; proposes shifting traffic to the lower-cost one.
   Savings = (expensive_avg − cheap_avg) × expensive_request_count, run-rated.
 
   Plus four metadata-quality / governance detectors: unpriced usage, budget overrun (forecast > org budget), non-production spend, and

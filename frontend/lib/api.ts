@@ -18,6 +18,8 @@ import type {
   Breakdown,
   BreakdownDimension,
   Dashboard,
+  DashboardPeriod,
+  DashboardSnapshot,
   Entitlements,
   EvalConfig,
   EvalRunSummary,
@@ -27,9 +29,6 @@ import type {
   MetricsOverview,
   MonthlyReport,
   OnboardingStatus,
-  OperatorProvisionRequest,
-  OperatorProvisionResponse,
-  OperatorValidationSummary,
   ProofAttribution,
   ProofDataQuality,
   ProviderConnection,
@@ -224,6 +223,19 @@ export const api = {
 
   dashboard: (token: string, projectId: string | undefined) =>
     request<Dashboard>(readPath("/dashboard", projectId), token),
+
+  dashboardSnapshot: (token: string, projectId: string | undefined, opts: { period: DashboardPeriod }) =>
+    request<DashboardSnapshot>(readPath("/dashboard/snapshot", projectId, { ...opts }), token),
+
+  // Returns the CSV body so the caller can trigger a browser download. Same
+  // authoritative computation as the snapshot, scoped to the caller's project.
+  dashboardExportCsv: async (token: string, projectId: string | undefined, opts: { period: DashboardPeriod }) => {
+    const res = await fetchWithTimeout(`${BASE}/v1${readPath("/dashboard/export", projectId, { ...opts })}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new ApiError(res.status, "Dashboard export failed.");
+    return res.text();
+  },
 
   engineRecommendations: (
     token: string,
@@ -468,16 +480,4 @@ export const api = {
 
   revokeApiKey: (token: string, apiKeyId: string) =>
     request<ApiKeySummary>(`/api-keys/${apiKeyId}`, token, { method: "DELETE" }),
-
-  operatorProvision: (token: string, body: OperatorProvisionRequest) =>
-    request<OperatorProvisionResponse>("/operator/provision", token, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-
-  operatorValidationSummary: (token: string, projectId: string, hours = 24) =>
-    request<OperatorValidationSummary>(
-      `/operator/projects/${projectId}/validation-summary${qs({ hours })}`,
-      token,
-    ),
 };

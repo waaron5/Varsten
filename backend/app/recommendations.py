@@ -7,11 +7,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.levers import LEVER_MODEL_DOWNSHIFT
 from app.models import ModelCatalog, ModelPrice, Project, Recommendation, UsageEvent
 
 OPEN = "open"
 
-# Not all of a route's traffic clears a cheaper model's quality gate, so model
+# Not all of a route's traffic clears a lower-cost model's quality gate, so model
 # swaps and routing only claim savings on an eligible share of traffic. A
 # documented assumption, refined per route by the eval harness later.
 ELIGIBLE_SHARE = Decimal("0.70")
@@ -420,7 +421,7 @@ def _add_batching_recommendation(db: Session, project: Project, start: datetime,
         return
 
 
-def _add_cheaper_model_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
+def _add_model_downshift_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
     rows = db.execute(
         select(
             UsageEvent.provider,
@@ -455,12 +456,12 @@ def _add_cheaper_model_recommendation(db: Session, project: Project, start: date
             db,
             project,
             RecommendationSeed(
-                dedupe_key=f"cheaper_model:{feature}:{row.model}:{catalog.cheaper_substitute_key}:{now:%Y-%m}",
-                type="cheaper_model",
-                lever="cheaper_model",
+                dedupe_key=f"{LEVER_MODEL_DOWNSHIFT}:{feature}:{row.model}:{catalog.cheaper_substitute_key}:{now:%Y-%m}",
+                type=LEVER_MODEL_DOWNSHIFT,
+                lever=LEVER_MODEL_DOWNSHIFT,
                 title=f"Evaluate {catalog.cheaper_substitute_key} for {feature}",
-                description=f"{feature} uses {row.model}. The catalog maps it to cheaper substitute {catalog.cheaper_substitute_key}; replay/eval before applying.",
-                rationale="Catalog tier metadata identifies a cheaper workload-level substitute.",
+                description=f"{feature} uses {row.model}. The catalog maps it to lower-cost substitute {catalog.cheaper_substitute_key}; replay/eval before applying.",
+                rationale="Catalog tier metadata identifies a lower-cost workload-level substitute.",
                 estimated_monthly_savings_usd=_run_rate(savings, now),
                 monthly_request_volume=int(row.requests or 0),
                 risk_level="medium" if row.environment in {"production", "prod"} else "low",
@@ -654,7 +655,7 @@ def refresh_recommendations(db: Session, project: Project) -> None:
     _add_prompt_cache_recommendation(db, project, start, now)
     _add_semantic_cache_recommendation(db, project, start, now)
     _add_batching_recommendation(db, project, start, now)
-    _add_cheaper_model_recommendation(db, project, start, now)
+    _add_model_downshift_recommendation(db, project, start, now)
     _add_smart_routing_recommendation(db, project, start, now)
 
 

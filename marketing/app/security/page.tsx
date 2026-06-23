@@ -18,52 +18,52 @@ export default function SecurityPage() {
     <ContentPage
       eyebrow="Security"
       title="Built for AI traffic that has to keep serving."
-      description="Varsten is designed as an inline proxy with conservative controls around data handling, access, provider routing, and fail-open reliability."
+      description="Varsten is an inline proxy with careful controls around data handling, access, provider routing, and fail-open reliability."
     >
-      <ContentSection eyebrow="Data handling" title="Keep request data scoped to the route purpose.">
+      <ContentSection eyebrow="Data handling" title="Keep request data scoped to the route's purpose.">
         <ContentGrid>
           <ContentCard title="Route-level policy">
             <p>
-              Reuse, retention, routing, and eval behavior should be configured per route so sensitive workloads can use
-              stricter controls than low-risk workloads.
+              Set reuse, retention, routing, and eval behavior per route. That way sensitive workloads can use stricter
+              controls than low-risk ones.
             </p>
           </ContentCard>
           <ContentCard title="Provider-compatible traffic">
             <p>
-              Varsten forwards provider-compatible requests and responses so teams can preserve existing SDKs while
-              adding savings and quality guardrails.
+              Varsten passes through provider-compatible requests and responses. You keep your current SDKs and add
+              savings and quality guardrails on top.
             </p>
           </ContentCard>
           <ContentCard title="Proof records">
             <p>
-              Savings records should include enough attribution to explain the avoided cost, route, model, and quality
+              Each savings record holds enough detail to explain the avoided cost, the route, the model, and the quality
               decision behind a billable optimization.
             </p>
           </ContentCard>
         </ContentGrid>
       </ContentSection>
 
-      <ContentSection eyebrow="Controls" title="Access and reliability controls stay explicit.">
+      <ContentSection eyebrow="Controls" title="Access and reliability controls stay clear.">
         <ul className="lp-content-list">
-          <li>Production traffic should use scoped API keys instead of shared personal credentials.</li>
-          <li>Inline routes should fail open to the original provider when Varsten or an upstream dependency is unavailable.</li>
-          <li>Strict read and total timeouts should prevent a hung upstream from pinning production connections.</li>
-          <li>Administrative access should be limited to people who need billing, routing, eval, or security review access.</li>
+          <li>Use scoped API keys for production traffic instead of shared personal credentials.</li>
+          <li>Set inline routes to fail open to the original provider when Varsten or an upstream service is down.</li>
+          <li>Use strict read and total timeouts so a hung upstream cannot tie up production connections.</li>
+          <li>Limit admin access to people who need billing, routing, eval, or security review.</li>
         </ul>
       </ContentSection>
 
-      <ContentSection eyebrow="Compliance" title="Clear posture, no inflated claims.">
+      <ContentSection eyebrow="Compliance" title="A clear posture, with no inflated claims.">
         <p>
-          Varsten should not claim SOC 2, ISO 27001, HIPAA, or other formal certifications on this page until signed
-          reports or agreements are available. Enterprise security reviews, DPA requests, and deployment requirements can
-          be handled directly with the Varsten team.
+          Varsten does not claim SOC 2, ISO 27001, HIPAA, or other formal certifications on this page until signed
+          reports or agreements are in place. You can handle enterprise security reviews, DPA requests, and deployment
+          requirements directly with the Varsten team.
         </p>
       </ContentSection>
 
       <ContentCallout title="Report a vulnerability or request a security review">
         <p>
-          Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> with a clear description, affected route or
-          endpoint, reproduction steps, and the best way to contact you.
+          Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> with a clear description, the affected route or
+          endpoint, steps to reproduce it, and the best way to reach you.
         </p>
       </ContentCallout>
     </ContentPage>

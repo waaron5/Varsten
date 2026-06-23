@@ -20,7 +20,7 @@ Implement the following core product specs and inner mechanics:
 Refactor our 5 levers from "diagnostic detectors" into "active execution modules" inside the proxy routing path:
 - Semantic Cache: Intercept repeating requests at the proxy layer, returning vector-matched responses in under 15ms at $0 cost, bypassing the LLM provider entirely.
 - Token Trim & Advanced Prompt Caching: Identify high input-to-output context ratios ($\ge 8$). Dynamically restructure prompt layouts at the wire level to maximize provider-level prompt prefix caching (targeting 50-90% input discounts).
-- Smart Routing & Cheaper Model Substitution: Analyze target routes. Automatically downgrade routine tasks (e.g., basic classification) to cheaper tiers (e.g., GPT-4o-mini, Gemini Flash) while preserving frontier models strictly for complex reasoning.
+- Smart Routing & Model Downshift: Analyze target routes. Automatically downgrade routine tasks (e.g., basic classification) to lower-cost tiers (e.g., GPT-4o-mini, Gemini Flash) while preserving frontier models strictly for complex reasoning.
 - Batching: Intercept payloads flagged as non-real-time or background tasks and automatically divert them to providers' async batch endpoints for a flat 50% pricing cut.
 
 4. WRITING THE HIGH-ROI LEDGER

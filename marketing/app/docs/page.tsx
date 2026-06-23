@@ -32,19 +32,19 @@ export default function DocsPage() {
   return (
     <ContentPage
       eyebrow="Docs"
-      title="Start sending AI traffic through Varsten."
-      description="Varsten sits between your app and model providers so you can reuse safe responses, route to better-priced models, and verify savings without rewriting your product."
+      title="Send your AI traffic through Varsten."
+      description="Varsten sits between your app and your model providers. You can reuse safe responses, route to lower-priced models, and confirm your savings. You do not have to rewrite your product to do it."
     >
-      <ContentSection eyebrow="Quickstart" title="Drop in the proxy without changing your provider SDK.">
+      <ContentSection eyebrow="Quickstart" title="Add the proxy without changing your provider SDK.">
         <ContentGrid>
           <ContentCard title="1. Create a Varsten key">
-            <p>Use a Varsten API key for the route you want to observe or optimize.</p>
+            <p>Make a Varsten API key for the route you want to watch or optimize.</p>
           </ContentCard>
           <ContentCard title="2. Change the base URL">
-            <p>Point your existing client at https://proxy.varsten.ai/v1.</p>
+            <p>Point your current client at https://proxy.varsten.ai/v1.</p>
           </ContentCard>
-          <ContentCard title="3. Keep your app behavior">
-            <p>Streaming, tool calls, messages, and provider-compatible responses stay in place.</p>
+          <ContentCard title="3. Keep your app as it is">
+            <p>Streaming, tool calls, messages, and provider-compatible responses all keep working.</p>
           </ContentCard>
         </ContentGrid>
         <ContentCode>{quickstartCode}</ContentCode>
@@ -54,38 +54,39 @@ export default function DocsPage() {
         <ContentGrid>
           <ContentCard title="Response reuse">
             <p>
-              Exact repeat requests can be served from stored responses where reuse is safe for that route. Near-duplicate
-              matching should be enabled only for workloads with clear tolerance rules.
+              When the same request comes in again, Varsten can serve a stored response if reuse is safe for that route.
+              Turn on near-duplicate matching only for workloads that have clear rules about what counts as close enough.
             </p>
           </ContentCard>
           <ContentCard title="Routing and evals">
             <p>
-              Candidate model changes are checked against real traffic and quality gates before they become active. Routes
-              can roll back when quality falls outside tolerance.
+              Before a new model takes over a route, Varsten checks it against real traffic and your quality gates. If
+              quality drops below your limits, the route can roll back.
             </p>
           </ContentCard>
           <ContentCard title="Savings proof">
             <p>
-              Billable savings should be tied to known avoided model cost, batch price differences, or approved routing
-              experiments with an auditable baseline.
+              Billable savings are tied to known avoided model cost, batch price differences, or approved routing tests.
+              Each one has a baseline you can audit.
             </p>
           </ContentCard>
         </ContentGrid>
       </ContentSection>
 
-      <ContentSection eyebrow="Operational defaults" title="Design routes so safety is explicit.">
+      <ContentSection eyebrow="Operational defaults" title="Set up routes so safety is clear.">
         <ul className="lp-content-list">
-          <li>Start with read-only monitoring if you want spend visibility before inline optimization.</li>
-          <li>Use separate routes for workloads with different quality tolerances or retention needs.</li>
-          <li>Keep fail-open behavior enabled for production paths that must continue serving during provider issues.</li>
-          <li>Review the Proof dashboard before moving a recommendation into an automated policy.</li>
+          <li>Begin with read-only monitoring if you want to see spend before you optimize anything inline.</li>
+          <li>Use separate routes for workloads with different quality needs or retention rules.</li>
+          <li>Keep fail-open turned on for production paths that must keep serving during provider problems.</li>
+          <li>Check the Proof dashboard before you turn a recommendation into an automatic policy.</li>
         </ul>
       </ContentSection>
 
       <ContentCallout title="Need help with an integration?">
         <p>
           Send your provider, framework, and first route target to{" "}
-          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>. We can help map the safest first workload.
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>. We can help you pick the safest workload to start
+          with.
         </p>
       </ContentCallout>
     </ContentPage>

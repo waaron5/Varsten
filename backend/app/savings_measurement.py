@@ -24,9 +24,10 @@ from decimal import Decimal
 from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.models import UsageEvent
+from app.levers import LEVER_BATCHING, LEVER_SEMANTIC_CACHE, LEVER_SMART_ROUTING
+from app.models import ProxyPolicy, UsageEvent
+from app.models.proxy_policy import ROUTING_LEVERS
 from app.proxy.experiment import compute_experiment
-from app.proxy.routing import SMART_ROUTING
 
 # --- Strict measurement vocabulary --------------------------------------------
 METHOD_ESTIMATED = "estimated"
@@ -36,10 +37,6 @@ METHOD_REPLAY_MEASURED = "replay_measured"
 
 # Methods whose savings are measured, not modeled. Only these roll into "verified".
 MEASURED_METHODS = frozenset({METHOD_DIRECT_MEASURED, METHOD_HOLDBACK_MEASURED, METHOD_REPLAY_MEASURED})
-
-# Lever names (mirror the recommendation/lever-config vocabulary).
-LEVER_SEMANTIC_CACHE = "semantic_cache"
-LEVER_BATCHING = "batching"
 
 _CENTS = Decimal("0.01")
 _meta = UsageEvent.event_metadata
@@ -71,30 +68,62 @@ def _sum_saved(db: Session, project_id, start: datetime, end: datetime, *conditi
     return Decimal(total or 0)
 
 
-def direct_measured_by_lever(db: Session, project_id, start: datetime, end: datetime) -> dict[str, Decimal]:
+def _routing_lever(db: Session, project_id) -> str:
+    """Which routing lever (``model_downshift`` vs ``smart_routing``) gets credited
+    for routed savings. The ledger marks an event ``routed`` but not which routing
+    lever drove it, so we attribute it to the project's enabled routing policy.
+    Falls back to ``smart_routing`` when no routing policy is enabled."""
+    lever = db.scalar(
+        select(ProxyPolicy.lever)
+        .where(
+            ProxyPolicy.project_id == project_id,
+            ProxyPolicy.enabled.is_(True),
+            ProxyPolicy.lever.in_(ROUTING_LEVERS),
+        )
+        .order_by(ProxyPolicy.activated_at.desc().nulls_last())
+        .limit(1)
+    )
+    return lever or LEVER_SMART_ROUTING
+
+
+def direct_measured_by_lever(
+    db: Session,
+    project_id,
+    start: datetime,
+    end: datetime,
+    *,
+    include_holdback_treatment: bool = False,
+) -> dict[str, Decimal]:
     """Direct measured savings this period, by lever, from the ledger.
 
-    The three buckets are disjoint by construction (a holdback treatment event is
-    tagged ``holdback=true`` and excluded from the direct-routing bucket), so the
-    holdback measurement below never double-counts these.
+    Routed savings are credited to the project's enabled routing lever (see
+    ``_routing_lever``) so the Savings-by-lever breakdown names the lever that
+    actually drove the route, not a hard-coded default.
+
+    ``include_holdback_treatment`` controls how routed *holdback experiment*
+    treatment events are counted:
+
+    - ``False`` (verified-savings / billing): exclude them, so they are measured
+      exactly once by the rigorous A/B (``holdback_measured``) and the two buckets
+      stay disjoint. ``verified = direct + holdback`` never double-counts.
+    - ``True`` (dashboard per-lever + chart): include their real per-event
+      ``saved_usd`` so the routing lever, the daily chart, and the gross total all
+      reflect routing as concrete ledger facts that reconcile exactly. The A/B
+      remains the conservative cross-check shown in Proof.
     """
     cache = _sum_saved(db, project_id, start, end, _meta["cache"].astext == "hit")
     batching = _sum_saved(db, project_id, start, end, _meta["batch"].astext == "true")
-    direct_routing = _sum_saved(
-        db,
-        project_id,
-        start,
-        end,
-        _meta["routed"].astext == "true",
-        func.coalesce(_meta["holdback"].astext, "false") != "true",
-    )
+    routing_conditions = [_meta["routed"].astext == "true"]
+    if not include_holdback_treatment:
+        routing_conditions.append(func.coalesce(_meta["holdback"].astext, "false") != "true")
+    direct_routing = _sum_saved(db, project_id, start, end, *routing_conditions)
     out: dict[str, Decimal] = {}
     if cache:
         out[LEVER_SEMANTIC_CACHE] = cache
     if batching:
         out[LEVER_BATCHING] = batching
     if direct_routing:
-        out[SMART_ROUTING] = direct_routing
+        out[_routing_lever(db, project_id)] = direct_routing
     return out
 
 

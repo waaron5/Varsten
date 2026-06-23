@@ -8,7 +8,7 @@ the request hot path.
 The shape is deliberately generic so the four executable levers share one
 abstraction instead of a table each:
 
-- `cheaper_model` / `smart_routing` (ROUTING_LEVERS): rewrite the upstream model.
+- `model_downshift` / `smart_routing` (ROUTING_LEVERS): rewrite the upstream model.
   `target_key` is the incumbent model. `params["candidate_model"]` is the model
   to route to, with optional `params["candidate_provider"]` for cross-provider
   swaps. `smart_routing` later adds a deterministic per-request predicate in
@@ -40,11 +40,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.levers import ROUTING_LEVERS
 from app.models.base import Base, TimestampMixin
-
-# Levers whose execution rewrites which model answers the request. These are the
-# gated, holdback-measured levers the hot-path router resolves.
-ROUTING_LEVERS = ("cheaper_model", "smart_routing")
 
 
 class ProxyPolicy(Base, TimestampMixin):

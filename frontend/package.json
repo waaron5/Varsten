@@ -7,7 +7,9 @@
     "dev:next": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "pw:login": "node scripts/pw-login.mjs",
+    "pw:shot": "node scripts/pw-shot.mjs"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.22.0",
@@ -23,6 +25,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
+    "playwright": "^1.61.0",
     "typescript": "^5"
   }
 }

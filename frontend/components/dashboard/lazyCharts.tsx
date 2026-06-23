@@ -13,8 +13,3 @@ export const NetSavingsTrendChart = dynamic(() => import("./charts").then((m) =>
   ssr: false,
   loading: () => <PanelSkeleton />,
 });
-
-export const SpendDonutChart = dynamic(() => import("./charts").then((m) => m.SpendDonutChart), {
-  ssr: false,
-  loading: () => <PanelSkeleton />,
-});

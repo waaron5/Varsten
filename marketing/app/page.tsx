@@ -1,454 +1,155 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type MouseEvent,
-  type MutableRefObject,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { APP_URL, CONTACT_HREF, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
+import { APP_URL, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
 
-const SAVINGS_RATE = 0.2;
-const VARSTEN_SHARE = 0.25;
+/* ── Static data for the dashboard product shot (decorative, fixed numbers) ── */
+const LEVER_GROSS_SAVED = 31570;
+const LEVER_GROSS_SAVED_LABEL = `$${LEVER_GROSS_SAVED.toLocaleString("en-US")}`;
 
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
-const metricCards = [
-  { label: "Total spend", value: "$2,418", note: "34% saved", positive: true },
-  { label: "Requests", value: "48.2K", note: "this month" },
-  { label: "Cache rate", value: "61%", note: "8 pts", positive: true },
-  { label: "Quality", value: "94.2", note: "no loss" },
+const KPIS = [
+  { label: "Net saved", value: "$23,678", delta: "↑ 18%", hl: true },
+  { label: "Gross saved", value: LEVER_GROSS_SAVED_LABEL, delta: "↑ 14%" },
+  { label: "Without Varsten", value: "$74,180", delta: "↑ 9%" },
+  { label: "Actual spend", value: "$42,610", delta: "↑ 6%" },
 ];
 
-const planFeatures = {
-  free: [
-    "Ongoing AI spend monitoring",
-    "Month-by-month spend trends",
-    "Savings recommendations by route, model, and workload",
-    "Pricing and catalog trust checks",
-    "Read-only Proof dashboard",
-  ],
-  performance: [
-    "Everything in Free, plus:",
-    "Automated routing, caching, batching, and model swaps",
-    "Quality guardrails and active rollback",
-    "Verified savings ledger",
-    "You keep 75% of every verified dollar saved",
-    "If Varsten saves $0, you pay $0",
-  ],
-};
-
-const savingsRules = [
-  "Cached repeat responses where the avoided model call cost is known.",
-  "Batch routing measured as sync price minus batch price.",
-  "Routing and model swaps measured against a live holdback or approved eval gate.",
-  "Quality guardrails and rollback history attached to each optimization.",
-  "Recommendations, estimates, and customer-side changes are not billed.",
+// Each bar: actual spend (beige) + savings (green), in $K against a $5K axis.
+const DAILY_BARS: Array<[number, number]> = [
+  [2.0, 1.3], [1.7, 1.1], [2.2, 1.5], [1.9, 1.0], [2.4, 1.7], [2.0, 1.4],
+  [1.6, 1.2], [2.3, 1.9], [2.1, 1.5], [1.8, 1.3], [2.5, 2.0], [2.2, 1.6],
+  [1.9, 1.4], [2.4, 1.8], [2.0, 1.5], [1.7, 1.1], [2.3, 1.9], [2.1, 1.7], [2.6, 2.2],
 ];
 
-function Check() {
+const LEVER_ROWS = [
+  { name: "Semantic cache", state: "Active", amount: "$14,800", pct: 47 },
+  { name: "Model downshift", state: "Active", amount: "$11,200", pct: 36 },
+  { name: "Batching", state: "Active", amount: "$3,300", pct: 10 },
+  { name: "Token trim", state: "Active", amount: "$2,270", pct: 7 },
+  { name: "Smart routing", state: "Off", amount: "$0", pct: 0 },
+];
+
+const DRIVERS = [
+  { team: "Engineering", amount: "$18,300", pct: 42.9, color: "#2B4A5A" },
+  { team: "Product", amount: "$9,800", pct: 23.0, color: "#3B6275" },
+  { team: "Data Science", amount: "$6,400", pct: 15.0, color: "#4F7A90" },
+  { team: "Marketing", amount: "$4,200", pct: 9.9, color: "#6E96AA" },
+  { team: "Support", amount: "$2,510", pct: 5.9, color: "#B8CED8" },
+  { team: "Untagged", amount: "$1,400", pct: 3.3, color: "#E9F1F5" },
+];
+
+const PROBLEMS = [
+  { n: "01", t: "What's actually driving spend—by model, route, feature, and team?" },
+  { n: "02", t: "Where are you paying premium prices for calls a lower-cost model or cache could handle?" },
+  { n: "03", t: "How do you reduce cost without breaking quality or latency?" },
+  { n: "04", t: "When the CFO asks if it worked, what proof do you have?" },
+];
+
+const SOLUTION = [
+  {
+    n: "01",
+    k: "OBSERVE",
+    t: "See where the money goes.",
+    d: "Break down spend by model, route, feature, team, and provider. Engineering and finance see the same numbers.",
+  },
+  {
+    n: "02",
+    k: "OPTIMIZE",
+    t: "Cut spend, safely.",
+    d: "Apply caching, batching, trimming, and routing only where quality and latency hold. If output would degrade, it doesn’t run.",
+  },
+  {
+    n: "03",
+    k: "PROVE",
+    t: "Show your work.",
+    d: "Get a finance-ready ledger with gross savings, fees, net savings, and attribution. Every result is easy to explain upstream.",
+  },
+];
+
+const LEVERS = [
+  { n: "01", t: "Smart routing", d: "Send each request to the most cost-effective model that still meets your quality bar, automatically." },
+  { n: "02", t: "Semantic cache", d: "Stop paying twice for the same answer. Repeated and near-identical requests resolve from cache." },
+  { n: "03", t: "Token trim", d: "Cut wasted tokens from prompts and context without changing what the model returns." },
+  { n: "04", t: "Model downshift", d: "Downshift to a lower-cost model where it produces equivalent output, and only where it does." },
+  { n: "05", t: "Batching", d: "Group eligible requests to capture provider efficiencies and lower per-call cost." },
+];
+
+const HOW_STEPS = [
+  { n: 1, t: "Connect", d: "Update the base URL." },
+  { n: 2, t: "Optimize", d: "Apply savings levers and guardrails." },
+  { n: 3, t: "Prove", d: "Verify your savings with a finance-ready ledger." },
+];
+
+const SECURITY = [
+  { t: "Fail-open by design", d: "If Varsten has an issue, traffic passes straight through to your providers. Optimization is never a production point of failure." },
+  { t: "Never stores prompts or outputs", d: "Varsten records the cost metadata needed to measure savings, without storing your prompts or model outputs." },
+  { t: "Quality & latency guardrails", d: "You set the limits. Any optimization that would breach them never fires." },
+];
+
+const OBSERVE_FEATURES = [
+  "Monitor AI spend and savings opportunities",
+  "Verify pricing against provider catalogs",
+  "Access a read-only savings dashboard",
+  "Includes up to 100,000 observed requests per month",
+];
+const PERFORMANCE_FEATURES = [
+  "Everything in Observe, plus:",
+  "Routing, caching, batching, token trimming, and model selection",
+  "Quality guardrails and automatic rollback",
+  "Finance-grade savings ledger",
+  "You keep 75% of every dollar saved",
+  "Monthly billing, cancel anytime",
+];
+
+/* ── Icons ─────────────────────────────────────────────────── */
+function Check({ className = "lp-check" }: { className?: string }) {
   return (
-    <svg
-      className="lp-check"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M20 6 9 17l-5-5" />
     </svg>
   );
 }
 
-function useEscapeClose(onClose: () => void) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-}
+const PROVIDER_LOGOS = {
+  openai: { src: "/openai.svg", alt: "OpenAI", width: 512, height: 126 },
+  anthropic: { src: "/anthropic.svg", alt: "Anthropic", width: 512, height: 58 },
+  gemini: { src: "/google-gemini.svg", alt: "Google Gemini", width: 512, height: 188 },
+} as const;
 
-function ModalShell({
-  children,
-  labelledBy,
-  onClose,
-  wide,
-}: {
-  children: ReactNode;
-  labelledBy: string;
-  onClose: () => void;
-  wide?: boolean;
-}) {
-  function handleOverlayClick(e: MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
-  }
+function ProviderLogo({ provider }: { provider: keyof typeof PROVIDER_LOGOS }) {
+  const logo = PROVIDER_LOGOS[provider];
 
   return (
-    <div
-      className="lp-modal-overlay"
-      onClick={handleOverlayClick}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={labelledBy}
-    >
-      <div className={`lp-modal${wide ? " lp-modal-wide" : ""}`}>{children}</div>
-    </div>
-  );
-}
-
-function ModalHeader({
-  eyebrow,
-  title,
-  subtitle,
-  titleId,
-  onClose,
-}: {
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  titleId: string;
-  onClose: () => void;
-}) {
-  return (
-    <div className="lp-modal-head">
-      <div className="lp-modal-head-text">
-        {eyebrow ? <p className="lp-eyebrow">{eyebrow}</p> : null}
-        <p className="lp-modal-title" id={titleId}>
-          {title}
-        </p>
-        {subtitle ? <p className="lp-modal-sub">{subtitle}</p> : null}
-      </div>
-      <button className="lp-modal-close" onClick={onClose} aria-label="Close">
-        &#x2715;
-      </button>
-    </div>
-  );
-}
-
-function EmailSuccess() {
-  return (
-    <div className="lp-modal-body">
-      <div className="lp-modal-success">
-        <div className="lp-modal-success-icon">
-          <Check />
-        </div>
-        <p className="lp-modal-title">Request received.</p>
-        <p>We do a secure, 15-minute white-glove setup to provision your tenant and keys. Check your inbox.</p>
-      </div>
-    </div>
-  );
-}
-
-function EmailForm({
-  email,
-  error,
-  fullName,
-  companyName,
-  inputRef,
-  onCancel,
-  onEmailChange,
-  onFullNameChange,
-  onCompanyNameChange,
-  onSubmit,
-  submitting,
-}: {
-  email: string;
-  error: string | null;
-  fullName: string;
-  companyName: string;
-  inputRef: RefObject<HTMLInputElement | null>;
-  onCancel: () => void;
-  onEmailChange: (email: string) => void;
-  onFullNameChange: (name: string) => void;
-  onCompanyNameChange: (company: string) => void;
-  onSubmit: (e: FormEvent) => void;
-  submitting: boolean;
-}) {
-  return (
-    <form onSubmit={onSubmit}>
-      <div className="lp-modal-body">
-        <label className="lp-input-label" htmlFor="email-input">
-          Work email
-        </label>
-        <input
-          ref={inputRef}
-          id="email-input"
-          className="lp-input"
-          type="email"
-          placeholder="you@company.com"
-          value={email}
-          onChange={(e) => onEmailChange(e.target.value)}
-          required
-          autoComplete="email"
-        />
-        <label className="lp-input-label" htmlFor="name-input">
-          Full name
-        </label>
-        <input
-          id="name-input"
-          className="lp-input"
-          type="text"
-          placeholder="Jane Smith"
-          value={fullName}
-          onChange={(e) => onFullNameChange(e.target.value)}
-          required
-          autoComplete="name"
-        />
-        <label className="lp-input-label" htmlFor="company-input">
-          Company name
-        </label>
-        <input
-          id="company-input"
-          className="lp-input"
-          type="text"
-          placeholder="Acme"
-          value={companyName}
-          onChange={(e) => onCompanyNameChange(e.target.value)}
-          required
-          autoComplete="organization"
-        />
-        {error ? (
-          <p className="lp-form-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-      <div className="lp-modal-foot">
-        <button type="button" className="lp-btn lp-btn-ghost" onClick={onCancel}>
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="lp-btn lp-btn-primary"
-          disabled={!email.trim() || !fullName.trim() || !companyName.trim() || submitting}
-        >
-          {submitting ? "Sending..." : "Confirm"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function EmailModalHeader({ submitted, onClose }: { submitted: boolean; onClose: () => void }) {
-  if (submitted) {
-    return <ModalHeader title="You're on the list." titleId="email-modal-title" onClose={onClose} />;
-  }
-
-  return (
-    <ModalHeader
-      eyebrow="Get started"
-      title="Enter your work email"
-      subtitle="Someone from the team will reach out shortly to get you set up."
-      titleId="email-modal-title"
-      onClose={onClose}
+    <Image
+      className={`provider-logo provider-logo-${provider}`}
+      src={logo.src}
+      width={logo.width}
+      height={logo.height}
+      alt={logo.alt}
     />
   );
 }
 
-function EmailModalContent({
-  email,
-  error,
-  fullName,
-  companyName,
-  inputRef,
-  submitted,
-  submitting,
-  onClose,
-  onEmailChange,
-  onFullNameChange,
-  onCompanyNameChange,
-  onSubmit,
-}: {
-  email: string;
-  error: string | null;
-  fullName: string;
-  companyName: string;
-  inputRef: RefObject<HTMLInputElement | null>;
-  submitted: boolean;
-  submitting: boolean;
-  onClose: () => void;
-  onEmailChange: (email: string) => void;
-  onFullNameChange: (name: string) => void;
-  onCompanyNameChange: (company: string) => void;
-  onSubmit: (e: FormEvent) => void;
-}) {
-  if (submitted) {
-    return (
-      <>
-        <EmailSuccess />
-        <div className="lp-modal-foot">
-          <button type="button" className="lp-btn lp-btn-ghost" onClick={onClose}>
-            Close
-          </button>
-        </div>
-      </>
-    );
-  }
-
+function Logo({ variant = "dark", className = "lp-logo-img" }: { variant?: "dark" | "light"; className?: string }) {
   return (
-    <EmailForm
-      email={email}
-      error={error}
-      fullName={fullName}
-      companyName={companyName}
-      inputRef={inputRef}
-      onCancel={onClose}
-      onEmailChange={onEmailChange}
-      onFullNameChange={onFullNameChange}
-      onCompanyNameChange={onCompanyNameChange}
-      onSubmit={onSubmit}
-      submitting={submitting}
+    <Image
+      className={className}
+      src={variant === "light" ? "/varsten-logo.svg" : "/varsten-logo-black.svg"}
+      width={458}
+      height={93}
+      alt=""
+      aria-hidden="true"
     />
   );
 }
 
-function EmailModal({ onClose }: { onClose: () => void }) {
-  const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEscapeClose(onClose);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/leads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          fullName: fullName.trim(),
-          companyName: companyName.trim(),
-          source: "landing-cta",
-        }),
-      });
-      if (!res.ok) {
-        throw new Error(`request failed (${res.status})`);
-      }
-      setSubmitted(true);
-    } catch {
-      setError("Something went wrong sending your email. Please try again in a moment.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <ModalShell labelledBy="email-modal-title" onClose={onClose}>
-      <EmailModalHeader submitted={submitted} onClose={onClose} />
-      <EmailModalContent
-        email={email}
-        error={error}
-        fullName={fullName}
-        companyName={companyName}
-        inputRef={inputRef}
-        submitted={submitted}
-        submitting={submitting}
-        onClose={onClose}
-        onEmailChange={setEmail}
-        onFullNameChange={setFullName}
-        onCompanyNameChange={setCompanyName}
-        onSubmit={handleSubmit}
-      />
-    </ModalShell>
-  );
+function LogoMark({ className = "lp-logo-mark" }: { className?: string }) {
+  return <Image className={className} src="/varsten-icon.svg" width={180} height={171} alt="" aria-hidden="true" loading="eager" />;
 }
 
-function DemoModal({ onClose }: { onClose: () => void }) {
-  useEscapeClose(onClose);
-
-  return (
-    <ModalShell labelledBy="demo-modal-title" onClose={onClose} wide>
-      <ModalHeader eyebrow="Product demo" title="See Varsten in action" titleId="demo-modal-title" onClose={onClose} />
-      <div className="lp-modal-body">
-        <div className="lp-demo-placeholder" aria-label="Demo video placeholder">
-          <div className="lp-demo-play" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </div>
-          <span>Demo coming soon</span>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
-function Terrain({ variant }: { variant: "hero" | "proxy" | "feature" | "pricing" | "proof" | "footer" }) {
-  return (
-    <svg className={`lp-terrain lp-terrain-${variant}`} viewBox="0 0 1440 760" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <g className="lp-rings lp-rings-a">
-        {[90, 178, 275, 382, 498, 624, 760, 906].map((rx, index) => (
-          <ellipse
-            key={rx}
-            cx="1410"
-            cy="-50"
-            rx={rx}
-            ry={Math.round(rx * 0.665)}
-            transform="rotate(-20 1410 -50)"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.6 - index * 0.14}
-            opacity={0.21 - index * 0.027}
-          />
-        ))}
-      </g>
-      <g className="lp-rings lp-rings-b">
-        {[155, 278, 412, 558, 730].map((rx, index) => (
-          <ellipse
-            key={rx}
-            cx="-20"
-            cy="760"
-            rx={rx}
-            ry={Math.round(rx * 0.665)}
-            transform="rotate(13 -20 760)"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.1 - index * 0.12}
-            opacity={0.1 - index * 0.018}
-          />
-        ))}
-      </g>
-      <g className="lp-tiles">
-        <path d="M 1240,497 L 1370,562 L 1240,627 L 1110,562 Z" />
-        <path d="M 1370,562 L 1240,627 L 1240,658 L 1370,593 Z" />
-        <path d="M 1110,562 L 1240,627 L 1240,658 L 1110,593 Z" />
-      </g>
-      <g className="lp-tiles lp-tiles-small">
-        <path d="M 1358,408 L 1440,449 L 1358,490 L 1276,449 Z" />
-        <path d="M 1440,449 L 1358,490 L 1358,510 L 1440,469 Z" />
-        <path d="M 1276,449 L 1358,490 L 1358,510 L 1276,469 Z" />
-      </g>
-    </svg>
-  );
-}
-
+/* ── Smooth anchor scrolling (preserved from the prior build) ── */
 function hashTarget(hash: string): HTMLElement | null {
   if (!hash || hash === "#") return null;
   try {
@@ -479,23 +180,17 @@ function useSmoothHashLinks(): MutableRefObject<boolean> {
     }
 
     function scheduleFinish() {
-      if (finishTimerRef.current !== null) {
-        window.clearTimeout(finishTimerRef.current);
-      }
+      if (finishTimerRef.current !== null) window.clearTimeout(finishTimerRef.current);
       window.removeEventListener("scrollend", finishAnchorScroll);
       window.addEventListener("scrollend", finishAnchorScroll, { once: true });
       finishTimerRef.current = window.setTimeout(finishAnchorScroll, 1200);
     }
 
     function onClick(event: globalThis.MouseEvent) {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-        return;
-      }
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       if (!(event.target instanceof Element)) return;
-
       const anchor = event.target.closest<HTMLAnchorElement>('a[href^="#"]');
       if (!anchor || anchor.origin !== window.location.origin || anchor.pathname !== window.location.pathname) return;
-
       const target = hashTarget(anchor.hash);
       if (!target) return;
 
@@ -506,13 +201,27 @@ function useSmoothHashLinks(): MutableRefObject<boolean> {
 
       const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - anchorScrollOffset());
-      window.scrollTo({ top, behavior: prefersReducedMotion ? "auto" : "smooth" });
+      const duration = Number.parseInt(anchor.dataset.scrollDuration ?? "", 10);
 
-      if (prefersReducedMotion) {
-        finishAnchorScroll();
+      if (!prefersReducedMotion && Number.isFinite(duration) && duration > 0) {
+        const start = window.scrollY;
+        const distance = top - start;
+        const startTime = window.performance.now();
+        const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+        function frame(now: number) {
+          const progress = Math.min(1, (now - startTime) / duration);
+          window.scrollTo({ top: start + distance * ease(progress), behavior: "auto" });
+          if (progress < 1) window.requestAnimationFrame(frame);
+        }
+
+        window.requestAnimationFrame(frame);
       } else {
-        scheduleFinish();
+        window.scrollTo({ top, behavior: prefersReducedMotion ? "auto" : "smooth" });
       }
+
+      if (prefersReducedMotion) finishAnchorScroll();
+      else scheduleFinish();
     }
 
     document.addEventListener("click", onClick);
@@ -525,63 +234,49 @@ function useSmoothHashLinks(): MutableRefObject<boolean> {
   return anchorScrollingRef;
 }
 
-function StickyBanner({
-  anchorScrollingRef,
-  onStartTrial,
-}: {
-  anchorScrollingRef: MutableRefObject<boolean>;
-  onStartTrial: () => void;
-}) {
+/* ── Sticky scroll-up banner ─────────────────────────────────── */
+function StickyBanner({ anchorScrollingRef, onStart }: { anchorScrollingRef: MutableRefObject<boolean>; onStart: () => void }) {
   const [visible, setVisible] = useState(false);
   const lastScrollY = useRef(0);
   const visibleRef = useRef(false);
   const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const THRESHOLD = 400;
+    const THRESHOLD = 600;
     const DELTA = 8;
 
-    function setBannerVisible(nextVisible: boolean) {
-      if (visibleRef.current === nextVisible) return;
-      visibleRef.current = nextVisible;
-      setVisible(nextVisible);
+    function setBannerVisible(next: boolean) {
+      if (visibleRef.current === next) return;
+      visibleRef.current = next;
+      setVisible(next);
     }
 
-    function updateVisibility() {
+    function update() {
       frameRef.current = null;
       const current = window.scrollY;
       const delta = current - lastScrollY.current;
-
-      if (anchorScrollingRef.current || current <= THRESHOLD) {
-        setBannerVisible(false);
-      } else if (delta < -DELTA) {
-        setBannerVisible(true);
-      } else if (delta > DELTA) {
-        setBannerVisible(false);
-      }
-
+      if (anchorScrollingRef.current || current <= THRESHOLD) setBannerVisible(false);
+      else if (delta < -DELTA) setBannerVisible(true);
+      else if (delta > DELTA) setBannerVisible(false);
       lastScrollY.current = current;
     }
 
     const onScroll = () => {
       if (frameRef.current !== null) return;
-      frameRef.current = window.requestAnimationFrame(updateVisibility);
+      frameRef.current = window.requestAnimationFrame(update);
     };
-
-    const onAnchorScrollStart = () => {
+    const onAnchorStart = () => {
       lastScrollY.current = window.scrollY;
       setBannerVisible(false);
     };
 
     lastScrollY.current = window.scrollY;
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("lp:anchor-scroll-start", onAnchorScrollStart);
+    window.addEventListener("lp:anchor-scroll-start", onAnchorStart);
     return () => {
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("lp:anchor-scroll-start", onAnchorScrollStart);
-      if (frameRef.current !== null) {
-        window.cancelAnimationFrame(frameRef.current);
-      }
+      window.removeEventListener("lp:anchor-scroll-start", onAnchorStart);
+      if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
     };
   }, [anchorScrollingRef]);
 
@@ -589,573 +284,707 @@ function StickyBanner({
     <div className={`lp-sticky-banner${visible ? " lp-sticky-banner-visible" : ""}`} aria-hidden={!visible}>
       <div className="lp-sticky-banner-inner">
         <div className="lp-sticky-banner-left">
-          <Image className="lp-sticky-mark" src="/varsten-icon.svg" alt="" width={24} height={23} aria-hidden="true" />
-          <span>Cut your AI costs <strong>by up to 43%.</strong></span>
+          <LogoMark className="lp-logo-mark lp-sticky-mark" />
+          <span>Cut your AI bill. <strong>Prove every dollar.</strong></span>
         </div>
-        <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartTrial}>
-          Start 14-Day Trial
-        </button>
+        <button className="lp-btn lp-btn-primary" onClick={onStart}>Start free</button>
       </div>
     </div>
   );
 }
 
-function Nav({ onStartFree, onBookCall }: { onStartFree: () => void; onBookCall: () => void }) {
+/* ── Nav ─────────────────────────────────────────────────────── */
+function Nav({ onStart }: { onStart: () => void }) {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
-    <header className="lp-nav">
+    <header className={`lp-nav${scrolled ? " scrolled" : ""}`}>
       <div className="lp-container lp-nav-inner">
         <Link className="lp-logo" href="/" aria-label="Varsten home">
-          <Image
-            src="/varsten-logo.svg"
-            alt="Varsten"
-            width={180}
-            height={37}
-            priority
-            style={{ width: "100%", height: "auto" }}
-          />
+          <Logo />
         </Link>
         <nav className="lp-nav-center" aria-label="Primary">
-          <a href="#how-it-works">Product</a>
+          <a href="#product">Product</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#ledger">Proof</a>
           <a href="#pricing">Pricing</a>
-          <Link href="/docs">Docs</Link>
-          <Link href="/security">Security</Link>
         </nav>
         <div className="lp-nav-right">
-          <button type="button" className="lp-link" onClick={onBookCall}>
-            Book setup call
-          </button>
-          <a className="lp-link" href={APP_URL}>
-            Sign in
-          </a>
-          <button className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" onClick={onStartFree}>
-            Start Free
-          </button>
+          <a className="lp-link" href={APP_URL}>Sign in</a>
+          <button className="lp-btn lp-btn-primary" onClick={onStart}>Start free</button>
         </div>
       </div>
     </header>
   );
 }
 
-function ProductShotPlaceholder() {
+/* ── Dashboard product shot ──────────────────────────────────── */
+function SavingsChart() {
   return (
-    <div className="lp-product-shot" aria-label="Varsten Dashboard preview">
-      <div className="lp-browser-bar">
-        <div className="lp-browser-dots" aria-hidden="true">
-          <span />
-          <span />
-          <span />
+    <div className="vchart" aria-hidden="true">
+      {DAILY_BARS.map(([spend, save], i) => (
+        <div className="vbar" key={i}>
+          <div className="seg seg-save" style={{ height: `${(save / 5) * 100}%` }} />
+          <div className="seg seg-spend" style={{ height: `${(spend / 5) * 100}%` }} />
         </div>
-        <div className="lp-url-pill">app.varsten.ai/dashboard</div>
+      ))}
+    </div>
+  );
+}
+
+function DashboardShot() {
+  return (
+    <div className="vds" aria-label="Varsten dashboard preview" role="img">
+      <div className="vds-bar">
+        <div className="vds-dots"><span /><span /><span /></div>
+        <div className="vds-url">app.varsten.ai/dashboard</div>
+        <span />
       </div>
-      <div className="lp-dashboard-body">
-        <aside className="lp-dashboard-sidebar" aria-hidden="true">
-          <div className="lp-sidebar-logo">
-            <Image src="/varsten-logo-black.svg" alt="" width={118} height={24} />
-          </div>
+      <div className="vds-body">
+        <div className="vds-rail">
+          <LogoMark className="lp-logo-mark" />
+          <i className="on" />
           <i />
           <i />
           <i />
-          <i />
-        </aside>
-        <div className="lp-dashboard-main">
-          <div className="lp-dashboard-topline" aria-hidden="true">
-            <span />
-            <span />
-          </div>
-        <div className="lp-metric-grid">
-          {metricCards.map((metric) => (
-            <div className="lp-metric-card" key={metric.label}>
-              <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
-              <small className={metric.positive ? "positive" : undefined}>{metric.note}</small>
-            </div>
-          ))}
         </div>
-        <div className="lp-dashboard-panels">
-          <div className="lp-dashboard-panel wide">
-            <span>Dashboard</span>
-            <div className="lp-chart-line" aria-hidden="true" />
-            <i />
-            <b />
-          </div>
-          <div className="lp-dashboard-panel">
-            <span>Models</span>
-            <div className="lp-model-stack" aria-hidden="true">
-              <i />
-              <i />
-              <i />
+        <div className="vds-main">
+          <div className="vds-topbar">
+            <div>
+              <h4>Dashboard</h4>
+              <p>Month to date · vs last month</p>
             </div>
-            <i />
-            <b />
+            <div className="vds-segments">
+              <span className="vds-pill active">Month</span>
+              <span className="vds-pill">Quarter</span>
+              <span className="vds-pill">Year</span>
+            </div>
           </div>
-        </div>
+          <div className="vds-kpis">
+            {KPIS.map((k) => (
+              <div className={`vds-kpi${k.hl ? " hl" : ""}`} key={k.label}>
+                <div className="k-label">{k.label}</div>
+                <div className="k-value">{k.value}</div>
+                <div className="k-delta">{k.delta}</div>
+              </div>
+            ))}
+          </div>
+          <div className="vds-panels">
+            <div className="vds-panel">
+              <div className="vds-panel-head">
+                <div>
+                  <h5>Daily Savings</h5>
+                  <p>Projected cost split into paid spend and saved dollars.</p>
+                </div>
+                <div className="vds-legend">
+                  <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
+                  <span><i style={{ background: "var(--brand)" }} />Savings</span>
+                </div>
+              </div>
+              <SavingsChart />
+              <div className="vds-stats">
+                <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
+                <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
+                <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
+              </div>
+            </div>
+            <div className="vds-panel">
+              <div className="vds-panel-head">
+                <div><h5>Savings by lever</h5></div>
+                <span className="meta">4 active</span>
+              </div>
+              <div className="vlever-rows">
+                {LEVER_ROWS.slice(0, 4).map((l) => (
+                  <div className="vlever" key={l.name}>
+                    <div className="vlever-top">
+                      <span className="vlever-name">{l.name}</span>
+                      <span className="vlever-amt">{l.amount}</span>
+                    </div>
+                    <div className="vlever-track"><i style={{ width: `${l.pct * 2}%` }} /></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="vds-panel vds-panel-drivers">
+              <div className="vds-panel-head">
+                <div>
+                  <h5>Spend Drivers</h5>
+                  <p>Where $42,610 of actual spend was allocated.</p>
+                </div>
+                <span className="meta">By team</span>
+              </div>
+              <div className="vdrivers-bar">
+                {DRIVERS.map((d) => (
+                  <i key={d.team} style={{ width: `${d.pct}%`, background: d.color }} />
+                ))}
+              </div>
+              <div className="vdriver-rows">
+                {DRIVERS.map((d) => (
+                  <div className="vdriver" key={d.team}>
+                    <span className="d-name"><i style={{ background: d.color }} />{d.team}</span>
+                    <span className="d-amt">{d.amount}</span>
+                    <span className="d-pct">{d.pct.toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="vds-panel vds-panel-proof">
+              <div className="vds-panel-head">
+                <div><h5>Data Integrity</h5></div>
+                <span className="meta">Audit-ready</span>
+              </div>
+              <div className="vproof-hero">
+                <div className="vproof-main">
+                  <span className="vproof-check"><Check /></span>
+                  <div>
+                    <p className="vproof-kicker">Confidence Score</p>
+                    <b>High Confidence</b>
+                  </div>
+                </div>
+                <div className="vproof-score"><strong>98</strong><span>/100</span></div>
+              </div>
+              <div className="vproof-rows">
+                <div className="vproof-row">
+                  <span>Pricing coverage</span>
+                  <b>100%</b>
+                </div>
+                <div className="vproof-row">
+                  <span>Verified savings</span>
+                  <b>{LEVER_GROSS_SAVED_LABEL}</b>
+                </div>
+                <div className="vproof-row">
+                  <span>Spend attribution</span>
+                  <b>96.7%</b>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function Hero({ onStartFree, onWatchDemo }: { onStartFree: () => void; onWatchDemo: () => void }) {
+/* ── Hero ────────────────────────────────────────────────────── */
+function Hero({ onStart }: { onStart: () => void }) {
   return (
     <section className="lp-hero">
-      <Terrain variant="hero" />
-      <div className="lp-container lp-hero-grid">
-        <div className="lp-hero-copy">
-          <h1 className="lp-hero-title">
-            <span className="lp-hero-title-line">
-              Reduce AI <span className="lp-hero-title-accent">spend</span>
-            </span>
-            <span className="lp-hero-title-line">without sacrificing quality.</span>
-          </h1>
-          <p className="lp-hero-sub">
-            Varsten helps your team spend less on AI by reusing safe repeat answers, sending each request to the right
-            model, and checking that cost savings do not hurt quality.
-          </p>
-          <div className="lp-hero-cta">
-            <button className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" onClick={onStartFree}>
-              Start Free
-            </button>
-            <button className="lp-btn lp-btn-ghost lp-btn-lg lp-btn-cta" onClick={onWatchDemo}>
-              Watch Demo
-            </button>
-          </div>
+      <div className="lp-container lp-hero-copy">
+        <h1 className="lp-hero-title">
+          Cut your AI bill.
+          <span className="accent">Prove every dollar.</span>
+        </h1>
+        <p className="lp-hero-sub">
+          Reduce your AI spend by routing requests through the cheapest models and optimizations that still meet
+          your quality bar, then proving every dollar saved in a finance-ready ledger.
+        </p>
+        <div className="lp-hero-cta">
+          <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onStart}>Start your 14-day free trial</button>
+          <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#ledger">See how the ledger works</a>
         </div>
-
-        <div className="lp-hero-visual">
-          <ProductShotPlaceholder />
+        <div className="lp-trust-row">
+          <span className="lp-trust-item"><Check /> Save $0, pay $0</span>
+          <span className="lp-trust-item"><Check /> Fail-open by design</span>
+          <span className="lp-trust-item"><Check /> Never stores prompts or outputs</span>
         </div>
+        <div className="lp-works-with">
+          <span className="label">Compatible with</span>
+          <span className="name"><ProviderLogo provider="openai" /></span>
+          <span className="name"><ProviderLogo provider="anthropic" /></span>
+          <span className="name"><ProviderLogo provider="gemini" /></span>
+        </div>
+      </div>
+      <div className="lp-container lp-hero-shot">
+        <DashboardShot />
       </div>
     </section>
   );
 }
 
-function Mechanism() {
+/* ── Problem ─────────────────────────────────────────────────── */
+function Problem() {
   return (
-    <section className="lp-section lp-section-proxy" id="how-it-works">
-      <Terrain variant="proxy" />
+    <section className="lp-section lp-section-cream-2 lp-problem-section" id="problem">
       <div className="lp-container">
-        <div className="lp-section-head center">
-          <p className="lp-eyebrow">Drop-in proxy</p>
-          <h2 className="lp-section-title">
-            <span className="lp-title-accent">One line</span> to integrate.
-          </h2>
-          <p className="lp-section-sub">
-            Keep your provider SDK. Point its base URL at Varsten and swap the key. Streaming, tool calls, and your
-            existing code stay exactly as they are.
-          </p>
-        </div>
-
-        <div className="lp-code">
-          <div className="lp-code-head">
-            <span className="red" />
-            <span className="yellow" />
-            <span className="green" />
-            <span className="lp-code-file">client.py</span>
+        <div className="lp-problem-layout">
+          <div className="lp-section-head">
+            <p className="lp-eyebrow">The problem</p>
+            <h2 className="lp-section-title">When AI becomes COGS, every token shows up in your margin.</h2>
+            <p className="lp-section-sub">
+              AI spend scales with usage and hits gross margin. The problem isn&apos;t
+              that the bill is high. It&apos;s that teams can&apos;t
+              see what drives it, cut it safely, or prove the savings.
+            </p>
           </div>
-          <pre>
-            <code>
-              {`from openai import OpenAI
-
-client = OpenAI(
-    base_url=`}
-              <span className="lp-code-em">&quot;https://proxy.varsten.ai/v1&quot;</span>
-              {`,  `}
-              <span className="lp-code-mut"># was https://api.openai.com/v1</span>
-              {`
-    api_key=`}
-              <span className="lp-code-em">os.environ[&quot;VARSTEN_API_KEY&quot;]</span>
-              {`,  `}
-              <span className="lp-code-mut"># your Varsten key</span>
-              {`
-)
-
-stream = client.chat.completions.create(
-    model="gpt-4o",
-    messages=messages,
-    stream=True,
-)`}
-            </code>
-          </pre>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Feature({
-  eyebrow,
-  title,
-  body,
-  chip,
-  id,
-  reverse,
-  visual,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  chip: string;
-  id?: string;
-  reverse?: boolean;
-  visual: "reuse" | "evals" | "reliability";
-}) {
-  return (
-    <article className={`lp-feature${reverse ? " rev" : ""}`} id={id}>
-      <Terrain variant="feature" />
-      <div className="lp-container lp-feature-inner">
-        <div className="lp-feature-text">
-          <p className="lp-eyebrow muted">{eyebrow}</p>
-          <h3>{title}</h3>
-          <p>{body}</p>
-        </div>
-        <div className={`lp-feature-visual lp-feature-visual-${visual}`} aria-hidden="true">
-          <div className="lp-feature-window">
-            <div className="lp-feature-window-head">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="lp-feature-window-grid">
-              <i />
-              <i />
-              <i />
-              <i />
-            </div>
-            <div className="lp-feature-window-chart">
-              <i />
-              <i />
-              <i />
-            </div>
+          <div className="lp-problem-cards">
+            {PROBLEMS.map((p) => (
+              <div className="lp-num-card" key={p.n}>
+                <span className="lp-num">{p.n}</span>
+                <p>{p.t}</p>
+              </div>
+            ))}
           </div>
-          <span className="lp-feature-chip">
-            <span className="dot" />
-            <b>{chip}</b>
+        </div>
+        <div className="lp-problem-callout">
+          <span>
+            Most teams answer these with spreadsheets, gut feel, and a quarterly scramble.{" "}
+            <span className="accent">That&apos;s not a strategy. It&apos;s exposure.</span>
           </span>
         </div>
       </div>
-    </article>
-  );
-}
-
-function Features() {
-  return (
-    <section className="lp-features-section" id="features">
-      <Feature
-        id="response-reuse"
-        eyebrow="Response reuse"
-        title="Repeat work does not need a new model call."
-        body="When the same request shows up again, Varsten can serve the stored response instead of paying for another completion. Near-duplicate matching can be enabled only on routes where it is safe; otherwise the request streams straight through untouched."
-        chip="repeat response · $0 · <1 ms"
-        visual="reuse"
-      />
-      <Feature
-        reverse
-        id="routing-evals"
-        eyebrow="Routing & evals"
-        title="A cheaper model ships only when the numbers say it's safe."
-        body="Before a route moves to a smaller model, Varsten replays your real traffic through both and grades them with a position-swapped judge. Savings are measured as an A/B difference against a concurrent holdback and reported with confidence intervals - not an estimate. If quality slips past tolerance, the route rolls back."
-        chip="swap · quality held · CI reported"
-        visual="evals"
-      />
-      <Feature
-        id="reliability"
-        eyebrow="Reliability"
-        title="Inline, but it can't take you down."
-        body="The data plane fails open. If anything upstream is unreachable, requests pass through to your original provider unchanged - you stop saving, you never stop serving. Strict read and total timeouts mean a hung upstream can't pin a connection."
-        chip="fail-open · strict timeouts"
-        visual="reliability"
-      />
     </section>
   );
 }
 
-type PlanProps = {
-  name: string;
-  price: string;
-  priceNote: string;
-  body: string;
-  features: string[];
-  cta: string;
-  featured?: boolean;
-  tag?: string;
-  onCtaClick: () => void;
-  subCta?: string;
-  onSubCtaClick?: () => void;
-};
+/* ── Solution ────────────────────────────────────────────────── */
+function Solution() {
+  return (
+    <section className="lp-section lp-section-dark on-dark lp-solution-section">
+      <div className="lp-container">
+        <div className="lp-section-head center">
+          <p className="lp-eyebrow">The solution</p>
+          <h2 className="lp-section-title">Observe. Optimize. Prove.</h2>
+          <p className="lp-section-sub">
+            Varsten sits between your app and your AI providers so you can see spend clearly, reduce it safely, and
+            prove the savings with records finance can trust.
+          </p>
+        </div>
+        <div className="lp-grid-3">
+          {SOLUTION.map((s) => (
+            <div className="lp-step-card" key={s.n}>
+              <div className="lp-step-top">
+                <span className="lp-step-num">{s.n}</span>
+                <span className="lp-step-kicker">{s.k}</span>
+              </div>
+              <h3>{s.t}</h3>
+              <p>{s.d}</p>
+            </div>
+          ))}
+        </div>
+        <a className="lp-solution-jump" href="#how-it-works" data-scroll-duration="950">
+          <span>See how it works</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 5v14" />
+            <path d="m19 12-7 7-7-7" />
+          </svg>
+        </a>
+      </div>
+    </section>
+  );
+}
 
-function PlanFeatureList({ features }: { features: string[] }) {
+/* ── Inside the product ──────────────────────────────────────── */
+function ProductInside() {
+  return (
+    <section className="lp-section" id="product">
+      <div className="lp-container">
+        <div className="lp-section-head">
+          <p className="lp-eyebrow">Inside the product</p>
+          <h2 className="lp-section-title">The finance view and the engineering view, in one place.</h2>
+          <p className="lp-section-sub">
+            Every dollar of spend is attributed to a model, route, feature, team, and
+            pricing source. No estimating. The full picture.
+          </p>
+        </div>
+        <div className="lp-product-grid">
+          <div className="lp-card">
+            <div className="vds-panel-head">
+              <div>
+                <h5>Savings</h5>
+                <p>Daily. Each bar is what you&apos;d have paid, split into spend &amp; savings.</p>
+              </div>
+              <div className="vds-legend">
+                <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
+                <span><i style={{ background: "var(--brand)" }} />Savings</span>
+              </div>
+            </div>
+            <SavingsChart />
+            <div className="vchart-x"><span>1</span><span>5</span><span>10</span><span>15</span><span>19</span></div>
+            <div className="vds-stats">
+              <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
+              <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
+              <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
+            </div>
+          </div>
+          <div className="lp-card">
+            <div className="vds-panel-head">
+              <div>
+                <h5>Spend drivers</h5>
+                <p>Where $42,610 of actual spend went, by team.</p>
+              </div>
+            </div>
+            <div className="vdrivers-bar">
+              {DRIVERS.map((d) => (
+                <i key={d.team} style={{ width: `${d.pct}%`, background: d.color }} />
+              ))}
+            </div>
+            <div className="vdriver-rows">
+              {DRIVERS.map((d) => (
+                <div className="vdriver" key={d.team}>
+                  <span className="d-name"><i style={{ background: d.color }} />{d.team}</span>
+                  <span className="d-amt">{d.amount}</span>
+                  <span className="d-pct">{d.pct.toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Levers ──────────────────────────────────────────────────── */
+function Levers() {
+  return (
+    <section className="lp-section lp-section-cream-2" id="levers">
+      <div className="lp-container">
+        <div className="lp-section-head">
+          <p className="lp-eyebrow">Savings levers</p>
+          <h2 className="lp-section-title">Five ways Varsten lowers your bill, safely.</h2>
+          <p className="lp-section-sub">
+            Every lever runs behind the same rule: if it risks your quality or latency guardrails, it doesn&apos;t run.
+          </p>
+        </div>
+        <div className="lp-levers-grid">
+          <div className="lp-lever-list">
+            {LEVERS.map((l) => (
+              <div className="lp-lever-item" key={l.n}>
+                <span className="n">{l.n}</span>
+                <div>
+                  <h4>{l.t}</h4>
+                  <p>{l.d}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="lp-card lever-panel">
+            <div className="vlever-head">
+              <h5>Savings by lever</h5>
+            </div>
+            <div className="vlever-rows">
+              {LEVER_ROWS.map((l) => (
+                <div className={`vlever${l.state === "Off" ? " is-off" : ""}`} key={l.name}>
+                  <div className="vlever-top">
+                    <span className="vlever-name">
+                      {l.name}
+                      <span className={`vstate ${l.state === "Off" ? "off" : "on"}`}>{l.state}</span>
+                    </span>
+                    <strong className="vlever-amt">{l.amount}</strong>
+                  </div>
+                  <div className="vlever-bar">
+                    <span className="vlever-track"><i style={{ width: `${l.pct}%` }} /></span>
+                    <em className="vlever-pct">{l.pct}%</em>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="vlever-total">
+              <span className="t-label">Gross saved</span>
+              <span className="t-value">{LEVER_GROSS_SAVED_LABEL}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Ledger ──────────────────────────────────────────────────── */
+function Ledger() {
+  return (
+    <section className="lp-section lp-section-dark on-dark" id="ledger">
+      <div className="lp-container">
+        <div className="lp-section-head">
+          <p className="lp-eyebrow">The ledger</p>
+          <h2 className="lp-section-title">Numbers your CFO can stand behind.</h2>
+          <p className="lp-section-sub">
+            A dashboard shows activity. A ledger shows exactly what changed, how much you saved, and how the number was
+            calculated. That is what makes the savings usable in finance reviews, board decks, and budget decisions.
+          </p>
+        </div>
+        <div className="lp-ledger-grid">
+          <div className="lp-ledger-card">
+            <div className="lp-ledger-head">
+              <h3>Savings ledger</h3>
+              <span className="meta">Month to date</span>
+            </div>
+            <div className="lp-ledger-row">
+              <span className="label">Gross savings</span>
+              <span className="val">{LEVER_GROSS_SAVED_LABEL}</span>
+            </div>
+            <div className="lp-ledger-row">
+              <span className="label">Varsten fee <small>· 25% of verified</small></span>
+              <span className="val">&minus;$7,893</span>
+            </div>
+            <div className="lp-ledger-row net">
+              <span className="label">Net savings <small>· what you keep</small></span>
+              <span className="val">$23,678</span>
+            </div>
+            <div className="lp-ledger-meta">
+              <div className="row">
+                <span className="k">Attribution</span>
+                <span className="v">By lever, route &amp; pricing source. 96.7% of spend tagged.</span>
+              </div>
+              <div className="row">
+                <span className="k">Method</span>
+                <span className="v">Live holdback A/B + official catalog pricing.</span>
+              </div>
+            </div>
+          </div>
+          <div className="lp-conf-card">
+            <div className="lp-conf-top">
+              <div className="lp-conf-badge">
+                <span className="lp-conf-check"><Check /></span>
+                <div>
+                  <h3>High confidence</h3>
+                  <p>Suitable for board reporting &amp; finance sign-off</p>
+                </div>
+              </div>
+              <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
+            </div>
+            <div className="lp-conf-row">
+              <span className="name">Pricing coverage <span className="vstate on">Catalog-verified</span></span>
+              <span className="stat">100%</span>
+              <span className="desc">Every dollar priced from official provider catalogs.</span>
+            </div>
+            <div className="lp-conf-row">
+              <span className="name">Spend attribution <span className="vstate on">Tagged</span></span>
+              <span className="stat">96.7%</span>
+              <span className="desc">Share of spend tied to a team or feature.</span>
+            </div>
+            <div className="lp-conf-row">
+              <span className="name">Holdback test <span className="vstate on">Passing</span></span>
+              <span className="stat">Live</span>
+              <span className="desc">A traffic slice skips Varsten so savings are proven against live behavior, not modeled.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── How it works ────────────────────────────────────────────── */
+function HowItWorks() {
+  return (
+    <section className="lp-section" id="how-it-works">
+      <div className="lp-container">
+        <div className="lp-section-head center">
+          <p className="lp-eyebrow">How it works</p>
+          <h2 className="lp-section-title">Goes live the same day.</h2>
+          <p className="lp-section-sub">
+            Point your existing AI traffic through Varsten with a base URL change. No rewrites, no SDK swap.
+          </p>
+        </div>
+        <div className="lp-how-grid">
+          <div className="lp-steps">
+            {HOW_STEPS.map((s) => (
+              <div className="lp-step-row" key={s.n}>
+                <span className="badge">{s.n}</span>
+                <div>
+                  <h4>{s.t}</h4>
+                  <p>{s.d}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="lp-code">
+            <div className="lp-code-head">
+              <span className="r" /><span className="y" /><span className="g" />
+              <span className="lp-code-file">client.py</span>
+            </div>
+            <pre>
+              <code>
+                <span className="kw">from</span> openai <span className="kw">import</span> OpenAI{"\n\n"}
+                client = OpenAI({"\n"}
+                {"    "}base_url=<span className="str">&quot;https://proxy.varsten.ai/v1&quot;</span>,{"  "}
+                <span className="com"># was api.openai.com/v1</span>{"\n"}
+                {"    "}api_key=os.environ[<span className="str">&quot;VARSTEN_KEY&quot;</span>],{"\n"}
+                ){"\n\n"}
+                <span className="com"># everything else stays the same</span>
+              </code>
+            </pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Pricing ─────────────────────────────────────────────────── */
+function PlanChecks({ items }: { items: string[] }) {
   return (
     <ul className="lp-checks">
-      {features.map((feature) => (
-        <li className="lp-check-item" key={feature}>
+      {items.map((f) => (
+        <li className="lp-check-item" key={f}>
           <Check />
-          {feature}
+          {f}
         </li>
       ))}
     </ul>
   );
 }
 
-function Plan(props: PlanProps) {
-  const { name, price, priceNote, body, features, featured, tag, cta, onCtaClick, subCta, onSubCtaClick } = props;
-
+function Pricing({ onStart }: { onStart: () => void }) {
   return (
-    <div className={`lp-plan${featured ? " lp-plan-featured" : ""}`}>
-      {tag ? <span className="lp-plan-tag">{tag}</span> : null}
-      <div className="lp-plan-name">{name}</div>
-      <div className="lp-plan-price">
-        {price} <span>{priceNote}</span>
+    <section className="lp-section lp-section-cream-2" id="pricing">
+      <div className="lp-container">
+        <div className="lp-section-head center">
+          <p className="lp-eyebrow">Pricing</p>
+          <h2 className="lp-section-title">Pay from savings.</h2>
+          <p className="lp-section-sub">
+            If we save you nothing, you pay nothing.
+          </p>
+        </div>
+        <div className="lp-plans">
+          <div className="lp-plan">
+            <span className="lp-plan-name">Observe · Free</span>
+            <div className="lp-plan-price">$0 <span>/mo</span></div>
+            <p className="lp-plan-body">See where the waste is before automating savings.</p>
+            <PlanChecks items={OBSERVE_FEATURES} />
+            <button className="lp-btn lp-btn-ghost" onClick={onStart}>Explore observe-only mode</button>
+          </div>
+          <div className="lp-plan featured">
+            <span className="lp-plan-tag">RECOMMENDED</span>
+            <span className="lp-plan-name">Performance</span>
+            <div className="lp-plan-price">25% <span>of verified savings</span></div>
+            <p className="lp-plan-body">Automate savings. Billed monthly in arrears.</p>
+            <PlanChecks items={PERFORMANCE_FEATURES} />
+            <button className="lp-btn lp-btn-primary" onClick={onStart}>Start your 14-day free trial</button>
+          </div>
+        </div>
       </div>
-      <p className="lp-plan-body">{body}</p>
-      <PlanFeatureList features={features} />
-      <button className={`lp-btn ${featured ? "lp-btn-dark" : "lp-btn-ghost"}`} onClick={onCtaClick}>
-        {cta}
-      </button>
-      {subCta && onSubCtaClick ? (
-        <button className="lp-plan-subcta" onClick={onSubCtaClick}>
-          {subCta}
-        </button>
-      ) : null}
+    </section>
+  );
+}
+
+/* ── Security ────────────────────────────────────────────────── */
+function Security() {
+  return (
+    <section className="lp-section" id="security">
+      <div className="lp-container">
+        <div className="lp-section-head">
+          <p className="lp-eyebrow">Security &amp; trust</p>
+          <h2 className="lp-section-title">Built for production traffic and security review.</h2>
+          <p className="lp-section-sub">Inline by design, but never a single point of failure.<br />
+             We measure cost, not content.</p>
+        </div>
+        <div className="lp-sec-grid">
+          {SECURITY.map((claim) => (
+            <div className="lp-sec-card" key={claim.t}>
+              <span className="lp-sec-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              </span>
+              <div>
+                <h4>{claim.t}</h4>
+                <p>{claim.d}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="lp-sec-support">Prepared for DPA and security review.</p>
+      </div>
+    </section>
+  );
+}
+
+/* ── Final CTA ───────────────────────────────────────────────── */
+function FinalCta({ onStart }: { onStart: () => void }) {
+  return (
+    <section className="lp-final">
+      <div className="lp-container">
+        <h2>Cut your AI spend confidently. Automate the entire process.</h2>
+        <p>
+          Start free in observe-only mode and find out where your money actually goes. Turn on optimization when
+          you&apos;re ready, and let the ledger make your case for you.
+        </p>
+        <div className="lp-final-cta">
+          <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onStart}>Start your 14-day free trial</button>
+          <button className="lp-btn lp-btn-ghost lp-btn-lg" onClick={onStart}>Explore observe-only mode</button>
+        </div>
+        <p className="lp-final-note">Pay 25% of verified savings. If we save you nothing, you pay nothing.</p>
+      </div>
+    </section>
+  );
+}
+
+/* ── Footer ──────────────────────────────────────────────────── */
+function FooterCol({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="lp-footer-col">
+      <h4>{title}</h4>
+      {children}
     </div>
   );
 }
 
-function Pricing({ onStartFree, onStartPerformance }: { onStartFree: () => void; onStartPerformance: () => void }) {
+function Footer() {
   return (
-    <section className="lp-section lp-pricing" id="pricing">
-      <Terrain variant="pricing" />
+    <footer className="lp-footer on-dark">
       <div className="lp-container">
-        <div className="lp-section-head center inverted">
-          <p className="lp-eyebrow">Pricing</p>
-          <h2 className="lp-section-title">
-            Pay only when Varsten <span>proves</span> savings.
-          </h2>
-          <p className="lp-section-sub">
-            Start with Free to monitor AI spend and review savings recommendations. Move to Performance when you want
-            Varsten to optimize traffic directly: 25% of verified savings, you keep the other 75%.
-          </p>
-        </div>
-
-        <div className="lp-plans">
-          <Plan
-            name="Free"
-            price="$0"
-            priceNote="/mo"
-            body="Monitor AI spend, review savings recommendations, and use the Proof dashboard without putting Varsten in the request path."
-            cta="Get Free"
-            onCtaClick={onStartFree}
-            features={planFeatures.free}
-          />
-          <Plan
-            featured
-            tag="14-day free trial"
-            name="Performance"
-            price="25%"
-            priceNote="of verified savings"
-            body="Automate routing, caching, batching, and model swaps with quality guardrails. After the trial, Varsten charges only from verified savings."
-            cta="Start 14-day trial"
-            onCtaClick={onStartPerformance}
-            subCta="No platform fee during trial. Cancel before day 14."
-            features={planFeatures.performance}
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PricingCalculator() {
-  const [monthlySpend, setMonthlySpend] = useState(25000);
-  const grossSavings = monthlySpend * SAVINGS_RATE;
-  const varstenFee = grossSavings * VARSTEN_SHARE;
-  const customerSavings = grossSavings - varstenFee;
-  const annualSavings = customerSavings * 12;
-  const rangePercent = Math.round(((monthlySpend - 5000) / 95000) * 100);
-
-  return (
-    <section className="lp-calculator" aria-labelledby="pricing-calculator-title">
-      <div className="lp-card-head">
-        <p className="lp-eyebrow">Interactive calculator</p>
-        <h3 id="pricing-calculator-title">Estimate the 75/25 split.</h3>
-        <p>Uses a conservative 20% savings assumption. Real billing uses verified savings only, never projections.</p>
-      </div>
-
-      <label className="lp-range-label" htmlFor="monthly-ai-spend">
-        <span>Estimated monthly AI spend</span>
-        <strong>{money.format(monthlySpend)}</strong>
-      </label>
-      <input
-        id="monthly-ai-spend"
-        className="lp-range"
-        type="range"
-        min="5000"
-        max="100000"
-        step="1000"
-        value={monthlySpend}
-        onChange={(event) => setMonthlySpend(Number(event.target.value))}
-        style={{
-          background: `linear-gradient(to right, var(--brand) ${rangePercent}%, rgba(26, 23, 20, 0.14) ${rangePercent}%)`,
-        }}
-      />
-      <div className="lp-range-meta">
-        <span>$5k</span>
-        <span>$100k+</span>
-      </div>
-
-      <div className="lp-calc-results">
-        <div>
-          <span>Gross savings at 20%</span>
-          <strong>{money.format(grossSavings)}/mo</strong>
-        </div>
-        <div>
-          <span>Varsten fee at 25%</span>
-          <strong>{money.format(varstenFee)}/mo</strong>
-        </div>
-        <div className="lp-calc-primary">
-          <span>You keep 75%</span>
-          <strong>{money.format(customerSavings)}/mo</strong>
-        </div>
-        <div>
-          <span>Annualized net savings</span>
-          <strong>{money.format(annualSavings)}/yr</strong>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function VerifiedSavings() {
-  return (
-    <section className="lp-verified" aria-labelledby="verified-savings-title">
-      <div className="lp-card-head">
-        <p className="lp-eyebrow">Verified savings</p>
-        <h3 id="verified-savings-title">What counts as billable proof?</h3>
-        <p>Varsten only charges when attribution can defend the delta.</p>
-      </div>
-      <ul className="lp-checks">
-        {savingsRules.map((item) => (
-          <li className="lp-check-item" key={item}>
-            <Check />
-            {item}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function SavingsProofSection() {
-  return (
-    <section className="lp-section lp-savings-proof" id="savings-proof">
-      <Terrain variant="proof" />
-      <div className="lp-container">
-        <div className="lp-section-head center dark">
-          <p className="lp-eyebrow">Savings proof</p>
-          <h2 className="lp-section-title">
-            See the split <span>before you pay.</span>
-          </h2>
-          <p className="lp-section-sub">
-            The calculator shows the shared-savings economics. The proof rules explain what Varsten can bill and what
-            stays off the invoice.
-          </p>
-        </div>
-        <div className="lp-pricing-proof-grid">
-          <PricingCalculator />
-          <VerifiedSavings />
-        </div>
-
-        <aside className="lp-enterprise-callout" aria-labelledby="enterprise-terms-title">
-          <div>
-            <p className="lp-eyebrow">Enterprise terms</p>
-            <h3 id="enterprise-terms-title">Predictable contracts, capped fees.</h3>
-            <p>
-              High-volume teams can use predictable annual contracts with true-ups, annual fee caps, VPC deployment,
-              custom evals, security review, and procurement-friendly billing terms.
-            </p>
-          </div>
-          <div className="lp-enterprise-tags" aria-label="Enterprise options">
-            <span>VPC deployment</span>
-            <span>Custom evals</span>
-            <span>Annual caps</span>
-            <span>True-ups</span>
-          </div>
-        </aside>
-      </div>
-    </section>
-  );
-}
-
-function Footer({ onStartTrial }: { onStartTrial: () => void }) {
-  return (
-    <footer className="lp-footer">
-      <div className="lp-container lp-footer-wrap">
         <div className="lp-footer-grid">
           <div className="lp-footer-brand">
-            <div className="lp-footer-logo" aria-label="Varsten">
-              <Image src="/varsten-logo.svg" alt="Varsten" width={176} height={36} />
-            </div>
-            <p>Reduce AI spend without sacrificing quality. The proxy that proves its savings.</p>
-            <button className="lp-btn lp-btn-primary lp-btn-cta" onClick={onStartTrial}>
-              Start Free
-            </button>
+            <Link className="lp-logo" href="/" aria-label="Varsten home">
+              <Logo variant="light" />
+            </Link>
+            <p>Reduce AI spend without sacrificing quality. The inline proxy that proves its savings.</p>
           </div>
-          <div>
-            <h4>Product</h4>
-            <a href="#how-it-works">Drop-in Proxy</a>
-            <a href="#response-reuse">Response Reuse</a>
-            <a href="#routing-evals">Routing & Evals</a>
-            <a href="#savings-proof">Savings Proof</a>
+          <FooterCol title="Product">
+            <a href="#product">Overview</a>
+            <a href="#levers">Savings levers</a>
+            <a href="#ledger">The ledger</a>
             <a href="#pricing">Pricing</a>
-          </div>
-          <div>
-            <h4>Company</h4>
-            <a href={CONTACT_HREF}>Contact</a>
+          </FooterCol>
+          <FooterCol title="Company">
             <Link href="/docs">Docs</Link>
-          </div>
-          <div>
-            <h4>Legal</h4>
+            <a href="#how-it-works">How it works</a>
+          </FooterCol>
+          <FooterCol title="Legal">
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Terms</Link>
             <Link href="/security">Security</Link>
-            <a href={DPA_REQUEST_HREF}>Request DPA</a>
-          </div>
+            <a href={DPA_REQUEST_HREF}>DPA</a>
+          </FooterCol>
         </div>
         <div className="lp-footer-bottom">
-          <span>&copy; 2026 Varsten, Inc. All rights reserved.</span>
+          <span>© 2026 Varsten, Inc. All rights reserved.</span>
         </div>
       </div>
     </footer>
   );
 }
 
+/* ── Page ────────────────────────────────────────────────────── */
 export default function LandingPage() {
-  const [demoOpen, setDemoOpen] = useState(false);
-  const [callOpen, setCallOpen] = useState(false);
   const anchorScrollingRef = useSmoothHashLinks();
-
-  // Primary CTA: go straight into the self-serve onboarding funnel. No lead form,
-  // no Calendly. Booking a setup call stays available as a secondary escape hatch.
   const startFree = () => {
     window.location.href = START_FREE_HREF;
   };
-  const openDemo = () => setDemoOpen(true);
-  const closeDemo = () => setDemoOpen(false);
-  const openCall = () => setCallOpen(true);
-  const closeCall = () => setCallOpen(false);
 
   return (
     <main className="lp-page">
-      <StickyBanner anchorScrollingRef={anchorScrollingRef} onStartTrial={startFree} />
-      <Nav onStartFree={startFree} onBookCall={openCall} />
-      <Hero onStartFree={startFree} onWatchDemo={openDemo} />
-      <Mechanism />
-      <Features />
-      <Pricing onStartFree={startFree} onStartPerformance={startFree} />
-      <SavingsProofSection />
-      <Footer onStartTrial={startFree} />
-
-      {callOpen && <EmailModal onClose={closeCall} />}
-      {demoOpen && <DemoModal onClose={closeDemo} />}
+      <StickyBanner anchorScrollingRef={anchorScrollingRef} onStart={startFree} />
+      <Nav onStart={startFree} />
+      <Hero onStart={startFree} />
+      <Problem />
+      <Solution />
+      <ProductInside />
+      <Levers />
+      <Ledger />
+      <HowItWorks />
+      <Pricing onStart={startFree} />
+      <Security />
+      <FinalCta onStart={startFree} />
+      <Footer />
     </main>
   );
 }

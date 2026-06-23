@@ -343,7 +343,7 @@ def test_batching_recommendation_requires_batch_pricing(client, db_session):
     assert recs[0]["risk_level"] == "low"
 
 
-def test_cheaper_model_recommendation_uses_catalog_substitute(client, db_session):
+def test_model_downshift_recommendation_uses_catalog_substitute(client, db_session):
     _seed_price(
         db_session,
         model_key="gpt-expensive",
@@ -375,9 +375,9 @@ def test_cheaper_model_recommendation_uses_catalog_substitute(client, db_session
         ),
     )
 
-    recs = _recommendations_by_lever(client, token, "cheaper_model")
+    recs = _recommendations_by_lever(client, token, "model_downshift")
     assert len(recs) == 1
-    assert recs[0]["type"] == "cheaper_model"
+    assert recs[0]["type"] == "model_downshift"
     assert recs[0]["related_model"] == "gpt-expensive"
 
 

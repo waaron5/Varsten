@@ -11,6 +11,7 @@ from app.api.deps import resolve_project
 from app.db.session import get_db
 from app.models import BatchJob, Project, UsageEvent
 from app.recommendations import ensure_recommendations_fresh
+from app.usage_dimensions import DIMENSION_TO_COLUMN
 from app.schemas.metrics import (
     Breakdown,
     BreakdownRow,
@@ -31,23 +32,6 @@ _SAVED = cast(UsageEvent.event_metadata["saved_usd"].astext, Numeric)
 _CACHE = UsageEvent.event_metadata["cache"].astext
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
-
-# Whitelist of groupable columns. Keys are the public dimension names; values
-# are the actual columns. Using a fixed map (not a raw string) keeps the
-# GROUP BY column safe and the indexes meaningful.
-BREAKDOWN_DIMENSIONS = {
-    "provider": UsageEvent.provider,
-    "model": UsageEvent.model,
-    "workflow": UsageEvent.feature,
-    "external_user_id": UsageEvent.user_id,
-    "feature": UsageEvent.feature,
-    "customer_id": UsageEvent.customer_id,
-    "user_id": UsageEvent.user_id,
-    "team": UsageEvent.team,
-    "department": UsageEvent.department,
-    "environment": UsageEvent.environment,
-    "request_type": UsageEvent.request_type,
-}
 
 
 def _utc_day_start(now: datetime) -> datetime:
@@ -263,10 +247,14 @@ def proxy_traffic(
     null on a project with no proxy traffic yet rather than showing a fake number."""
     now = datetime.now(UTC)
     start = _utc_day_start(now) - timedelta(days=days - 1)
+    # Proxy traffic is identified by the first-class `source` discriminator, NOT by
+    # the `feature` business dimension. Filtering on `feature == "proxy"` silently
+    # dropped every request that carried real client feature metadata -- exactly the
+    # well-instrumented customers whose proxy traffic we most need to count.
     proxy_window = (
         UsageEvent.project_id == project.id,
         UsageEvent.received_at >= start,
-        UsageEvent.feature == "proxy",
+        UsageEvent.source == "proxy",
     )
 
     is_hit = _CACHE == "hit"
@@ -365,7 +353,7 @@ def breakdown(
     period: Literal["rolling", "mtd"] = Query(default="rolling"),
     limit: int = Query(default=10, ge=1, le=100),
 ) -> Breakdown:
-    col = BREAKDOWN_DIMENSIONS[dimension]
+    col = DIMENSION_TO_COLUMN[dimension]
     now = datetime.now(UTC)
     today_start = _utc_day_start(now)
     start = today_start.replace(day=1) if period == "mtd" else today_start - timedelta(days=days - 1)

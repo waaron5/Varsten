@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright visual-check harness: the saved session is a credential; screenshots
+# are local artifacts. Never commit either.
+/playwright/.auth
+/playwright/screenshots

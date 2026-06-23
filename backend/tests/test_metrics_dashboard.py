@@ -25,8 +25,11 @@ def _proxy_event(
     latency: int,
     at: datetime | None = None,
     team: str | None = None,
-    feature: str = "proxy",
+    feature: str | None = None,
+    source: str = "proxy",
 ) -> UsageEvent:
+    # Real proxy traffic carries no `feature` unless the client supplies it; proxy
+    # rows are identified by source="proxy", not by an overloaded feature value.
     meta: dict = {"proxy": True, "cache": cache}
     if saved is not None:
         meta["saved_usd"] = saved
@@ -35,6 +38,7 @@ def _proxy_event(
         project_id=project.id,
         organization_id=project.organization_id,
         api_key_id=None,
+        source=source,
         provider="openai",
         model="gpt-4o-mini",
         operation="chat_completion",
@@ -187,3 +191,38 @@ def test_proxy_traffic_latency_null_without_traffic(client, db_session, provisio
     assert body["requests"] == 0
     assert body["hit_rate"] is None
     assert body["latency_p50_ms"] is None  # honest null, not a fabricated number
+
+
+def test_proxy_traffic_counts_events_with_custom_feature(client, db_session, provision):
+    """Regression: proxy traffic is identified by source, not by feature == 'proxy'.
+    A well-instrumented client that tags its own feature must still be counted."""
+    ws = provision(sub="auth0|custom-feature", email="custom-feature@example.com")
+    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    db_session.add_all(
+        [
+            _proxy_event(project, cache="hit", cost="0", saved="0.01", latency=5, feature="support_agent"),
+            _proxy_event(project, cache="miss", cost="0.02", saved=None, latency=400, feature="billing_copilot"),
+        ]
+    )
+    db_session.commit()
+
+    body = client.get("/v1/metrics/proxy-traffic", headers=_b(ws["api_key"])).json()
+    # Both rows count despite carrying real client feature tags (not "proxy").
+    assert body["requests"] == 2 and body["hit"] == 1 and body["miss"] == 1
+
+
+def test_proxy_traffic_excludes_ingest_source(client, db_session, provision):
+    """Metadata-ingested events (source='ingest') are not proxy traffic, even if a
+    client happened to tag feature='proxy'."""
+    ws = provision(sub="auth0|ingest-src", email="ingest-src@example.com")
+    project = db_session.get(Project, uuid.UUID(ws["project_id"]))
+    db_session.add_all(
+        [
+            _proxy_event(project, cache="hit", cost="0", saved="0.01", latency=5),  # source="proxy"
+            _proxy_event(project, cache="miss", cost="0.02", saved=None, latency=9, source="ingest", feature="proxy"),
+        ]
+    )
+    db_session.commit()
+
+    body = client.get("/v1/metrics/proxy-traffic", headers=_b(ws["api_key"])).json()
+    assert body["requests"] == 1 and body["hit"] == 1 and body["miss"] == 0

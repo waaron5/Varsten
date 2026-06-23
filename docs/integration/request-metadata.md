@@ -62,7 +62,7 @@ X-Varsten-Quality-Threshold: customer_safe
 ### Why `task_type` matters
 
 `task_type` is optional but the single most valuable field. It is the axis Varsten
-optimizes along: routing, cheaper-model swaps, and savings analysis all get
+optimizes along: routing, model-downshift swaps, and savings analysis all get
 sharper when requests are grouped by what they are actually doing
 (`summarization`, `extraction`, `classification`, `support_reply.billing`, ...)
 rather than just by which model was called. Use a stable, low-cardinality

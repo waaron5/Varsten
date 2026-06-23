@@ -1290,7 +1290,7 @@ async def _capture(
 
     # Eval harness tap: sample this real (prompt, incumbent response) into the
     # replay corpus, only when the project opted in and we are optimizing (not
-    # bypassed). Keyed on the requested model so a cheaper-model recommendation on
+    # bypassed). Keyed on the requested model so a model-downshift recommendation on
     # that route can later replay it. Best-effort and off the response path.
     if store_cache and body is not None and response_payload:
         await eval_capture.capture_sample(

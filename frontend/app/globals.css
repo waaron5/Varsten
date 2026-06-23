@@ -13,8 +13,18 @@
   --pos-soft: rgba(17, 135, 93, 0.1);
   --neg: #c24136;
   --neg-soft: rgba(194, 65, 54, 0.1);
-  --warn: #b7791f;
-  --warn-soft: rgba(183, 121, 31, 0.11);
+  --warn: #B8663E;
+  --warn-press: #985236;
+  --warn-deep: #7A3F2E;
+  --warn-line: #E3B18F;
+  --warn-soft: #F5E2D5;
+  --warn-faint: #FBF3EF;
+
+  --confidence: #8A6F86;
+  --confidence-strong: #655060;
+  --confidence-line: #DCCFDB;
+  --confidence-soft: #F4EFF4;
+  --confidence-faint: #FBF8FB;
 
   --support-blue: #A7C2D6;
   --support-peach: #E3C1AA;
@@ -39,7 +49,7 @@
 
   --radius: 8px;
   --radius-sm: 6px;
-  --radius-lg: 8px;
+  --radius-lg: 12px;
   --sidebar-w: 232px;
   --sidebar-collapsed-w: 68px;
   --header-h: 62px;
@@ -47,21 +57,26 @@
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --paper: #f4f5f7;
+  /* Warm paper theme. The mockup's canvas is a warm cream, not cool gray; the
+     neutrals are tinted to match so cards and borders read warm. Brand and
+     semantic (pos/neg/warn) tokens are unchanged. */
+  --paper: #f3f1ea;
   --bg: var(--paper);
   --sidebar: #1A1714;
   --sidebar-2: #19222c;
   --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --surface-hover: #eef2f5;
-  --border: #dce1e6;
-  --border-strong: #c7ced6;
+  --surface-2: #f7f5f0;
+  --surface-hover: #efece4;
+  --border: #e5e1d8;
+  --border-strong: #d4cfc3;
   --text: #1A1714;
-  --text-2: #52606e;
-  --text-3: #7b8794;
-  --text-faint: #a0a9b2;
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 30px rgba(15, 23, 42, 0.08);
-  --chart-grid: rgba(15, 23, 42, 0.08);
+  /* Warm neutral grays so secondary/tertiary text reads with the cream canvas
+     instead of the old cool blue-grays. */
+  --text-2: #6a6459;
+  --text-3: #938c80;
+  --text-faint: #b4aca0;
+  --shadow: 0 1px 2px rgba(40, 33, 24, 0.04), 0 5px 14px rgba(40, 33, 24, 0.05);
+  --chart-grid: rgba(40, 33, 24, 0.07);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -132,7 +147,7 @@ a { color: inherit; text-decoration: none; }
   width: 118px;
   max-width: 100%;
   height: auto;
-  transform: translateY(-2.5px);
+  /* transform: translateY(-2.4px); */
 }
 .sidebar-toggle {
   width: 32px; height: 32px;
@@ -393,13 +408,13 @@ a { color: inherit; text-decoration: none; }
   height: var(--header-h); flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 16px; padding: 0 26px;
-  background: var(--surface);
+  background: var(--bg);
 }
 .topbar-title { min-width: 0; }
 .topbar-title h1 {
-  font-size: 18px; font-weight: 600; letter-spacing: 0; line-height: 1.15;
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15;
 }
-.crumb { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.crumb { font-size: 12.5px; color: var(--text-3); margin-top: 2px; }
 
 /* --- contextual locked-section notice (one calm CTA per locked section) --- */
 .locked-notice {
@@ -483,7 +498,7 @@ a { color: inherit; text-decoration: none; }
 }
 .pill .dotp { width: 6px; height: 6px; border-radius: 50%; }
 .pill.green { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, transparent); background: var(--pos-soft); }
-.pill.amber { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: var(--warn-soft); }
+.pill.amber { color: var(--warn-deep); border-color: var(--warn-line); background: var(--warn-soft); }
 .pill.accent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 .pill.neutral { color: var(--text-2); background: var(--surface-2); }
 
@@ -593,7 +608,7 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .eval-evidence .meta-row { margin-bottom: 4px; }
 .eval-evidence .rec-meta { margin-top: 6px; }
 .eval-note { color: var(--text-3); font-size: 12px; margin-top: 8px; }
-.form-error { color: var(--warn); font-size: 12px; margin-top: 8px; }
+.form-error { color: var(--neg); font-size: 12px; margin-top: 8px; }
 .rec-side {
   display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
   gap: 8px; text-align: right;
@@ -871,19 +886,22 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 /* ===================== Dashboard ===================== */
 .content:has(.dashboard-view) { overflow-y: auto; }
 .dashboard-view {
+  --dash-net-value: #46a883;
+  --dash-delta-neutral: #7c7367;
+  --dash-delta-neutral-bg: #ede8de;
   width: 100%;
   max-width: 1480px;
   margin: 0 auto;
-  padding: 14px 18px 40px;
+  padding: 24px;
   display: grid;
-  gap: 16px;
+  gap: 24px;
 }
 .cc-zone { display: grid; gap: 16px; }
 .cc-zone-head {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 20px;
+  gap: 24px;
   padding: 0 2px;
 }
 .cc-zone-head span {
@@ -1075,7 +1093,7 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 .cc-budget-meter { display: grid; gap: 7px; }
 .cc-budget-meter-head { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); font-size: 12px; }
 .cc-budget-meter-head .amber,
-.cc-budget-meter p.amber { color: var(--warn); }
+.cc-budget-meter p.amber { color: var(--warn-deep); }
 .cc-budget-track,
 .cc-hbar-track {
   width: 100%;
@@ -1310,10 +1328,18 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   line-height: 1;
   text-transform: uppercase;
 }
+.dash-metric p {
+  gap: 8px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
 .dash-metric p span {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2.5px;
   background: var(--brand);
 }
 .dash-hero h1 {
@@ -1331,24 +1357,46 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 }
 .dash-metric-strip {
   display: grid;
-  grid-template-columns: minmax(260px, 1.45fr) repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
 }
 .dash-metric {
-  min-height: 126px;
-  display: grid;
-  align-content: center;
-  gap: 12px;
-  padding: 20px;
+  min-height: 152px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 22px;
 }
-.dash-metric.primary {
-  border-color: var(--brand-line);
-  background: linear-gradient(180deg, rgba(14, 158, 110, 0.08), var(--surface) 72%);
+/* Delta: a pale pill around only the arrow + percent, then a gray "vs last X"
+   suffix outside it (per the mockup close-up). */
+.dash-metric-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: auto;
+  padding-top: 3px;
 }
-.dash-metric p span { background: var(--chart-net); }
-.dash-metric:nth-child(2) p span { background: var(--chart-gross); }
-.dash-metric:nth-child(3) p span { background: var(--chart-baseline); }
-.dash-metric:nth-child(4) p span { background: var(--chart-actual); }
+.dash-metric-delta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dash-metric-delta-pill.up { color: var(--dash-net-value); background: color-mix(in srgb, var(--dash-net-value) 13%, transparent); }
+.dash-metric-delta-pill.flat { color: var(--dash-delta-neutral); background: var(--dash-delta-neutral-bg); }
+.dash-metric-delta-suffix { color: var(--text-3); font-size: 12.5px; }
+
+/* Muted dot palette per the mockup: green for the savings KPIs, neutral
+   charcoal/tan for the spend KPIs. */
+.dash-metric p span { background: var(--brand); }
+.dash-metric:nth-child(2) p span { background: #46a883; }
+.dash-metric:nth-child(3) p span { background: #6f675c; }
+.dash-metric:nth-child(4) p span { background: #c7ba9f; }
 .dash-metric.primary p span { background: var(--brand); }
 .dash-metric strong {
   overflow-wrap: anywhere;
@@ -1359,22 +1407,27 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   letter-spacing: 0;
   line-height: 1;
 }
+/* Net saved is the hero, but the card stays white like the others; only its
+   value (and dot) carry the lighter sage-green. */
 .dash-metric.primary strong {
-  color: var(--brand-press);
-  font-size: 32px;
+  color: var(--dash-net-value);
 }
 .dash-metric small {
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.35;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 .dash-main-grid,
 .dash-bottom-grid {
   display: grid;
   grid-template-columns: minmax(0, 2.05fr) minmax(330px, 1fr);
-  gap: 14px;
-  align-items: stretch;
+  gap: 24px;
 }
+/* Main grid stretches so the lever card's GROSS SAVED footer aligns with the
+   chart's bottom. The bottom grid does not, so the shorter Spend-drivers card
+   keeps its natural height instead of stretching into empty space. */
+.dash-main-grid { align-items: stretch; }
+.dash-bottom-grid { align-items: start; }
 .dash-card {
   min-width: 0;
   overflow: hidden;
@@ -1391,9 +1444,9 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 }
 .dash-card-head h2 {
   color: var(--text);
-  font-size: 16px;
-  font-weight: 670;
-  letter-spacing: 0;
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 .dash-card-head h2 span {
@@ -1404,7 +1457,7 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 }
 .dash-card-head p:not(.dash-section-kicker) {
   margin-top: 4px;
-  color: var(--text-2);
+  color: var(--text-3);
   font-size: 12.5px;
   line-height: 1.45;
 }
@@ -1428,9 +1481,9 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   white-space: nowrap;
 }
 .dash-chart-legend i {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2.5px;
 }
 .dash-chart-legend .baseline { background: var(--chart-baseline); }
 .dash-chart-legend .actual { background: var(--chart-actual); }
@@ -1449,28 +1502,39 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 .dash-trend-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
   margin: 12px 20px 0;
   padding: 18px 0 16px;
   border-top: 1px solid var(--border);
 }
+/* Each stat is its own section, divided by a hairline rule (per the mockup). */
 .dash-trend-stats div {
   display: grid;
-  gap: 6px;
+  gap: 7px;
+  padding-left: 22px;
+  border-left: 1px solid var(--border);
+}
+.dash-trend-stats div:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
 .dash-trend-stats span {
   color: var(--text-3);
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 720;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .dash-trend-stats b {
   color: var(--text);
   font-size: 21px;
-  font-weight: 740;
+  font-weight: 730;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+/* Avg daily saved matches the Net saved KPI value color. */
+.dash-trend-stats div:nth-child(2) b {
+  color: var(--dash-net-value);
 }
 .dash-trend-stats small,
 .dash-chart-note {
@@ -1810,6 +1874,11 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   text-align: right;
 }
 .dash-proof-card {
+  --proof-confidence: var(--confidence);
+  --proof-confidence-strong: var(--confidence-strong);
+  --proof-confidence-line: var(--confidence-line);
+  --proof-confidence-soft: var(--confidence-soft);
+  --proof-confidence-faint: var(--confidence-faint);
   display: flex;
   flex-direction: column;
 }
@@ -1820,18 +1889,32 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   gap: 20px;
   padding: 16px 20px 16px 17px;
   border-top: 1px solid var(--border);
-  border-left: 3px solid var(--brand);
+  border-left: 3px solid var(--proof-confidence);
+  background: var(--proof-confidence-faint);
+}
+.dash-proof-section-title,
+.dash-drivers-section-title {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.dash-proof-section-title {
+  margin-bottom: 7px;
 }
 .dash-proof-hero-label {
-  color: var(--brand);
+  color: var(--text);
   font-size: 16px;
-  font-weight: 670;
+  font-weight: 700;
   margin-bottom: 6px;
 }
 .dash-proof-hero-note {
-  color: var(--text-2);
+  color: var(--text-3);
   font-size: 12.5px;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 .dash-proof-hero-score {
   display: flex;
@@ -1841,9 +1924,9 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   gap: 2px;
 }
 .dash-proof-hero-score b {
-  color: var(--text);
-  font-size: 21px;
-  font-weight: 740;
+  color: var(--proof-confidence-strong);
+  font-size: 34px;
+  font-weight: 760;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -1886,11 +1969,12 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   white-space: nowrap;
   flex-shrink: 0;
 }
-.dash-proof-metric-val.green { color: var(--brand); }
-.dash-proof-metric-val.amber { color: var(--warn); }
+.dash-proof-metric-val.green,
+.dash-proof-metric-val.confidence { color: var(--text); }
+.dash-proof-metric-val.amber { color: var(--warn-deep); }
 .dash-proof-metric-desc {
-  color: var(--text-2);
-  font-size: 12px;
+  color: var(--text-3);
+  font-size: 12.5px;
   line-height: 1.45;
 }
 .dash-proof-badge {
@@ -1902,13 +1986,14 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   font-weight: 620;
   white-space: nowrap;
 }
-.dash-proof-badge.green {
-  background: var(--brand-soft);
-  color: var(--brand-press);
+.dash-proof-badge.green,
+.dash-proof-badge.confidence {
+  background: var(--proof-confidence-soft);
+  color: var(--proof-confidence-strong);
 }
 .dash-proof-badge.amber {
   background: var(--warn-soft);
-  color: var(--warn);
+  color: var(--warn-deep);
 }
 .dash-proof-badge.gray {
   background: var(--surface-hover);
@@ -1925,10 +2010,180 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   align-items: center;
   padding: 4px 12px;
   border-radius: 999px;
-  background: var(--brand-soft);
-  color: var(--brand-press);
+  background: var(--proof-confidence-soft);
+  color: var(--proof-confidence-strong);
   font-size: 12px;
   font-weight: 620;
+}
+
+/* Dashboard controls in the top navbar: Month/Quarter/Year seg + Export. */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.topbar-actions .seg button {
+  transition: background-color 80ms ease-out, color 80ms ease-out, box-shadow 80ms ease-out;
+}
+.topbar-actions .seg button:not(.active):hover:not(:disabled) {
+  background-color: rgba(26, 23, 20, 0.1);
+  color: var(--text);
+}
+.topbar-actions .seg button.active:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--brand) 8%, var(--surface));
+}
+.dash-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid var(--sidebar);
+  border-radius: 8px;
+  background: var(--sidebar);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.dash-export:hover { background: #2a2521; }
+.dash-export:disabled { opacity: 0.55; cursor: not-allowed; }
+.dash-export svg { width: 15px; height: 15px; }
+
+/* Savings-by-lever footer: the reconciling gross total under the lever rows. */
+.dash-levers-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding: 15px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.dash-levers-foot span {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dash-levers-foot b {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 740;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Spend drivers: a ranked stacked bar over per-category rows, each with its own
+   bar, in a warm monochrome ramp (darkest = largest). */
+.dash-drivers-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 20px 18px;
+}
+.dash-drivers-section-title {
+  margin: 0;
+}
+.dash-driver-stack {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface-hover);
+}
+.dash-driver-stack span {
+  height: 100%;
+  min-width: 2px;
+}
+.dash-driver-stack span + span {
+  border-left: 1.5px solid var(--surface);
+}
+.dash-driver-rows {
+  display: flex;
+  flex-direction: column;
+}
+.dash-driver-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.dash-driver-row:first-child { border-top: 0; }
+.dash-driver-swatch {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+.dash-driver-name {
+  width: 30%;
+  min-width: 78px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Untagged spend (no team/feature) reads muted, per the mockup. */
+.dash-driver-row.untagged .dash-driver-name,
+.dash-driver-row.untagged .dash-driver-amount,
+.dash-driver-row.untagged .dash-driver-pct {
+  color: var(--text-3);
+}
+.dash-driver-track {
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+.dash-driver-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+.dash-driver-amount {
+  min-width: 56px;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.dash-driver-pct {
+  min-width: 38px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Proof score: filled confidence circle-check + confidence copy + the /100 number. */
+.dash-proof-hero-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.dash-proof-check {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--proof-confidence);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 @media (max-width: 1240px) {
@@ -1952,7 +2207,7 @@ svg.chart { width: 100%; display: block; overflow: visible; }
 }
 
 @media (max-width: 760px) {
-  .dashboard-view { padding: 14px 10px 32px; gap: 14px; }
+  .dashboard-view { padding: 18px; gap: 18px; }
   .dash-hero { padding: 2px 2px 0; }
   .dash-hero h1 {
     font-size: 29px;

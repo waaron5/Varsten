@@ -112,7 +112,7 @@ def upgrade() -> None:
                 ('smart_routing', 'approve'),
                 ('semantic_cache', 'auto'),
                 ('token_trim', 'auto'),
-                ('cheaper_model', 'approve'),
+                ('model_downshift', 'approve'),
                 ('batching', 'auto')
         ) AS levers(lever, automation_mode)
         ON CONFLICT ON CONSTRAINT uq_lever_configs_project_lever DO NOTHING

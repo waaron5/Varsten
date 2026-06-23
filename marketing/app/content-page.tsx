@@ -1,7 +1,20 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { APP_URL, CONTACT_EMAIL, CONTACT_HREF, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
+import { APP_URL, CONTACT_EMAIL, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
+
+function Logo({ variant = "dark" }: { variant?: "dark" | "light" }) {
+  return (
+    <Image
+      className="lp-logo-img"
+      src={variant === "light" ? "/varsten-logo.svg" : "/varsten-logo-black.svg"}
+      width={458}
+      height={93}
+      alt=""
+      aria-hidden="true"
+    />
+  );
+}
 
 type ContentPageProps = {
   eyebrow: string;
@@ -77,23 +90,23 @@ export function ContentCode({ children }: { children: ReactNode }) {
 
 function ContentNav() {
   return (
-    <header className="lp-content-nav">
-      <div className="lp-container lp-content-nav-inner">
+    <header className="lp-nav scrolled">
+      <div className="lp-container lp-nav-inner">
         <Link className="lp-logo" href="/" aria-label="Varsten home">
-          <Image src="/varsten-logo.svg" alt="Varsten" width={180} height={37} priority />
+          <Logo />
         </Link>
-        <nav className="lp-content-nav-center" aria-label="Primary">
-          <Link href="/#how-it-works">Product</Link>
+        <nav className="lp-nav-center" aria-label="Primary">
+          <Link href="/#product">Product</Link>
+          <Link href="/#how-it-works">How it works</Link>
+          <Link href="/#ledger">Proof</Link>
           <Link href="/#pricing">Pricing</Link>
-          <Link href="/docs">Docs</Link>
-          <Link href="/security">Security</Link>
         </nav>
-        <div className="lp-content-nav-right">
+        <div className="lp-nav-right">
           <a className="lp-link" href={APP_URL}>
             Sign in
           </a>
-          <Link className="lp-btn lp-btn-primary lp-btn-lg lp-btn-cta" href={START_FREE_HREF}>
-            Start Free
+          <Link className="lp-btn lp-btn-primary" href={START_FREE_HREF}>
+            Start free
           </Link>
         </div>
       </div>
@@ -103,37 +116,33 @@ function ContentNav() {
 
 function ContentFooter() {
   return (
-    <footer className="lp-footer">
-      <div className="lp-container lp-footer-wrap">
+    <footer className="lp-footer on-dark">
+      <div className="lp-container">
         <div className="lp-footer-grid">
           <div className="lp-footer-brand">
-            <div className="lp-footer-logo" aria-label="Varsten">
-              <Image src="/varsten-logo.svg" alt="Varsten" width={176} height={36} />
-            </div>
-            <p>Reduce AI spend without sacrificing quality. The proxy that proves its savings.</p>
-            <Link className="lp-btn lp-btn-primary lp-btn-cta" href={START_FREE_HREF}>
-              Start Free
+            <Link className="lp-logo" href="/" aria-label="Varsten home">
+              <Logo variant="light" />
             </Link>
+            <p>Cut AI spend without losing quality. An inline proxy that shows you what it saved.</p>
           </div>
-          <div>
+          <div className="lp-footer-col">
             <h4>Product</h4>
-            <Link href="/#how-it-works">Drop-in Proxy</Link>
-            <Link href="/#response-reuse">Response Reuse</Link>
-            <Link href="/#routing-evals">Routing & Evals</Link>
-            <Link href="/#savings-proof">Savings Proof</Link>
+            <Link href="/#product">Overview</Link>
+            <Link href="/#levers">Savings levers</Link>
+            <Link href="/#ledger">The ledger</Link>
             <Link href="/#pricing">Pricing</Link>
           </div>
-          <div>
+          <div className="lp-footer-col">
             <h4>Company</h4>
-            <a href={CONTACT_HREF}>Contact</a>
             <Link href="/docs">Docs</Link>
+            <Link href="/#how-it-works">How it works</Link>
           </div>
-          <div>
+          <div className="lp-footer-col">
             <h4>Legal</h4>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Terms</Link>
             <Link href="/security">Security</Link>
-            <a href={DPA_REQUEST_HREF}>Request DPA</a>
+            <a href={DPA_REQUEST_HREF}>DPA</a>
           </div>
         </div>
         <div className="lp-footer-bottom">

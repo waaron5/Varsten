@@ -111,7 +111,7 @@ def test_holdback_measured_has_confidence_interval(client, db_session, provision
     start = month_start(datetime.now(UTC))
 
     pair = {"holdback": True, "experiment_from": "gpt-4o", "experiment_to": "gpt-4o-mini"}
-    # Control arm stays on the incumbent (more expensive); treatment is routed cheaper.
+    # Control arm stays on the incumbent; treatment is routed to the lower-cost candidate.
     for cost in ("0.100", "0.120", "0.110", "0.105"):
         _event(db_session, project_id, org_id, cost=cost, metadata={**pair, "arm": ARM_CONTROL})
     for cost in ("0.040", "0.050", "0.045", "0.042"):

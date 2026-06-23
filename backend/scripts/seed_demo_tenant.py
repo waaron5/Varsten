@@ -61,16 +61,21 @@ from app.models import (
 )
 from app.models.batch import STATUS_FINALIZED
 from app.proxy.routing import ARM_CONTROL, ARM_TREATMENT
-from app.savings import FEE_PERCENT, month_end, month_start
+from app.savings import month_end, month_start
 
 # --- demo identity ------------------------------------------------------------
 
 DEMO_ORG_NAME = "Varsten Demo"
 DEMO_PROJECT_NAME = "Production"
 
-# --- shape parameters (the 30-day B2B curve) ----------------------------------
+# --- shape parameters (the B2B growth curve) ----------------------------------
 
-WINDOW_DAYS = 30
+# ~2.5 months so the dashboard's prior-period KPI deltas (current month-to-date vs
+# the same elapsed slice of last month) always have real prior-month data to
+# compare against. Only current-month events feed the reconciliation accumulators
+# (each is guarded by `ts >= m_start`), so the wider window does not change the
+# Dashboard/Proof reconciliation contract.
+WINDOW_DAYS = 74
 BASE_REQUESTS = 600  # day-one request volume; the curve grows from here
 WEEKLY_GROWTH = Decimal("1.16")  # week-over-week growth, "up and to the right"
 WEEKEND_MULT = 0.62  # weekend dip
@@ -85,6 +90,17 @@ ROUTING_SHARE = 0.30
 HIT_RATE_START = 0.30  # exact-hash hit-rate inside the cache stream, day one
 HIT_RATE_END = 0.62  # ... ramping up as the cache warms over the window
 HOLDBACK = Decimal("0.15")  # fraction of routed traffic held back on the incumbent
+
+# Owning team per request, so the Dashboard's Spend-drivers panel shows a real
+# breakdown instead of one "Unknown" bucket. Weights are the rough share of
+# requests; spend follows from real per-event cost.
+TEAMS: tuple[tuple[str, int], ...] = (
+    ("Engineering", 42),
+    ("Product", 25),
+    ("Data Science", 18),
+    ("Marketing", 9),
+    ("Support", 6),
+)
 
 # Objective response-health per arm. Treatment sits a hair below control but inside
 # the drift tolerance (0.05), so the route reads "saving", never "drift".
@@ -237,6 +253,24 @@ def _tokens(rng: random.Random, *, big: bool) -> tuple[int, int]:
     return rng.randint(1200, 2600), rng.randint(200, 480)
 
 
+# A small slice of traffic carries no team tag, so the dashboard's Spend-drivers
+# panel shows a realistic "Untagged" bucket (and attribution lands below 100%).
+UNTAGGED_SHARE = 0.03
+
+
+def _pick_team(rng: random.Random) -> str | None:
+    """A weighted owning team for one request (see TEAMS), or None (untagged)."""
+    if rng.random() < UNTAGGED_SHARE:
+        return None
+    roll = rng.uniform(0, sum(weight for _, weight in TEAMS))
+    cumulative = 0.0
+    for name, weight in TEAMS:
+        cumulative += weight
+        if roll <= cumulative:
+            return name
+    return TEAMS[-1][0]
+
+
 def _event(
     *,
     project: Project,
@@ -255,6 +289,7 @@ def _event(
         project_id=project.id,
         organization_id=org_id,
         api_key_id=api_key_id,
+        source="proxy",
         provider="openai",
         model=model,
         operation="chat_completion",
@@ -399,7 +434,7 @@ def build_demo(
                     )
                 )
             else:
-                # Treatment arm: routed to the cheaper model. Saving = avoided delta.
+                # Treatment arm: routed to the lower-cost model. Saving = avoided delta.
                 cand_cost = _cost(CANDIDATE, in_tok, out_tok)
                 saved = inc_cost - cand_cost
                 ok = rng.random() < TREATMENT_OK_RATE
@@ -467,6 +502,10 @@ def build_demo(
         key_fn=_key,
     )
 
+    # Assign an owning team to every event so Spend-drivers shows a real breakdown.
+    for event in events:
+        event.team = _pick_team(rng)
+
     db.bulk_save_objects(events)
     db.flush()
 
@@ -477,7 +516,7 @@ def build_demo(
         ProxyPolicy(
             organization_id=org.id,
             project_id=project.id,
-            lever="cheaper_model",
+            lever="model_downshift",
             target_type="model",
             target_key=INCUMBENT,
             enabled=True,
@@ -489,7 +528,7 @@ def build_demo(
 
     # --- attributions + lever configs: reconciled to the current-month ledger ---
     _write_attribution(db, org, project, "semantic_cache", "direct", cache_saved_month, m_start, now)
-    _write_attribution(db, org, project, "cheaper_model", "holdback", routing_saved_month, m_start, now)
+    _write_attribution(db, org, project, "model_downshift", "holdback", routing_saved_month, m_start, now)
     _write_attribution(db, org, project, "batching", "direct", batch_saved_month, m_start, now)
 
     _write_lever(db, org, project, "semantic_cache", cache_saved_month, "auto", None)
@@ -497,12 +536,17 @@ def build_demo(
         db,
         org,
         project,
-        "cheaper_model",
+        "model_downshift",
         routing_saved_month,
         "approve",
         Decimal(str(round((TREATMENT_OK_RATE - CONTROL_OK_RATE) * 100, 2))),
     )
     _write_lever(db, org, project, "batching", batch_saved_month, "auto", None)
+    # The remaining two levers are configured so the card reads "4 active" with
+    # Smart routing Off, matching the product's intended posture. They carry no
+    # measured savings in v1 (token-trim savings are not yet recorded per event).
+    _write_lever(db, org, project, "token_trim", Decimal("0"), "auto", None)
+    _write_lever(db, org, project, "smart_routing", Decimal("0"), "approve", None, enabled=False)
 
     db.flush()
     return DemoResult(
@@ -607,7 +651,7 @@ def _write_attribution(
     current-month ledger savings (rounded to cents). This is the row the Command
     Center and Proof read, and the reason their numbers reconcile with the ledger."""
     gross = _q_cents(gross_raw)
-    fee = _q_cents(gross * FEE_PERCENT)
+    fee = _q_cents(gross * Decimal(org.gain_share_percent))
     net = gross - fee
     db.add(
         SavingsAttribution(
@@ -638,13 +682,14 @@ def _write_lever(
     saved_raw: Decimal,
     automation_mode: str,
     quality_delta_percent: Decimal | None,
+    enabled: bool = True,
 ) -> None:
     db.add(
         LeverConfig(
             organization_id=org.id,
             project_id=project.id,
             lever=lever,
-            enabled=True,
+            enabled=enabled,
             automation_mode=automation_mode,
             savings_to_date_usd=_q_cents(saved_raw),
             quality_delta_percent=quality_delta_percent,
@@ -697,7 +742,7 @@ def main() -> int:
     print(f"  events        {result.total_events} total, {result.month_events} this month")
     print("  current-month savings (reconciles with the Dashboard):")
     print(f"    semantic_cache  {_q_cents(result.cache_saved_month)}")
-    print(f"    cheaper_model   {_q_cents(result.routing_saved_month)}")
+    print(f"    model_downshift   {_q_cents(result.routing_saved_month)}")
     print(f"    batching        {_q_cents(result.batch_saved_month)}")
     print(f"    saved_month     {result.expected_saved_month}")
     return 0

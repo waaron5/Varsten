@@ -1,4 +1,4 @@
-"""Cheaper-model routing: the execution side of the lever.
+"""Model-downshift routing: the execution side of the lever.
 
 Covers rule activation/deactivation on apply/dismiss, hot-path resolution,
 naive-vs-optimized metering, and the proxy actually rewriting the upstream model.
@@ -40,7 +40,7 @@ INCUMBENT = "gpt-4o"
 CANDIDATE = "gpt-4o-mini"
 
 
-def _policy(project, *, incumbent=INCUMBENT, candidate=CANDIDATE, lever="cheaper_model", **kw):
+def _policy(project, *, incumbent=INCUMBENT, candidate=CANDIDATE, lever="model_downshift", **kw):
     """Build a routing-lever execution policy in the unified proxy_policies table."""
     return ProxyPolicy(
         organization_id=project.organization_id,
@@ -75,8 +75,8 @@ def _mk_rec(db, project) -> Recommendation:
         organization_id=project.organization_id,
         project_id=project.id,
         dedupe_key=f"k-{uuid.uuid4()}",
-        type="cheaper_model",
-        lever="cheaper_model",
+        type="model_downshift",
+        lever="model_downshift",
         title="Evaluate gpt-4o-mini",
         description="x",
         risk_level="medium",
@@ -156,7 +156,7 @@ def test_apply_through_engine_activates_rule(client, provision, db_session):
             organization_id=project.organization_id,
             project_id=project.id,
             recommendation_id=rec.id,
-            lever="cheaper_model",
+            lever="model_downshift",
             route_key=INCUMBENT,
             incumbent_model=INCUMBENT,
             candidate_model=CANDIDATE,
@@ -249,7 +249,7 @@ async def test_proxy_routes_request_to_candidate(async_client, async_provision, 
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
     )
     assert resp.status_code == 200
-    # The proxy rewrote the upstream model to the cheaper candidate.
+    # The proxy rewrote the upstream model to the lower-cost candidate.
     assert seen["model"] == CANDIDATE
     assert resp.headers.get("X-Varsten-Routed") == f"{INCUMBENT}->{CANDIDATE}"
     assert resp.headers.get("X-Varsten-Arm") == "treatment"

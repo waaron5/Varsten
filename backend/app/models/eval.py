@@ -1,6 +1,6 @@
 """Eval / replay harness tables (Track B).
 
-The shadow-evaluation loop that gates a cheaper-model swap on a route's real
+The shadow-evaluation loop that gates a model-downshift swap on a route's real
 traffic before it can be applied. Three tables:
 
 - ``ReplaySample``  the replay corpus. Sampled real traffic plus customer golden

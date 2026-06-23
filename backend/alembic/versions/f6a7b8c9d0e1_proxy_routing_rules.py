@@ -1,12 +1,12 @@
-"""proxy routing rules (cheaper-model lever execution)
+"""proxy routing rules (model-downshift lever execution)
 
 Revision ID: f6a7b8c9d0e1
 Revises: e5f6a7b8c9d0
 Create Date: 2026-06-04 13:30:00.000000
 
-Active inline model-routing rules. When an eval-passed cheaper-model
+Active inline model-routing rules. When an eval-passed model-downshift
 recommendation is applied, a rule is activated here and the proxy rewrites the
-matching requests to the cheaper candidate model.
+matching requests to the lower-cost candidate model.
 """
 from typing import Sequence, Union
 
