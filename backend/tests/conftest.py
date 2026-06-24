@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.api import deps
+from app.api.deps import clear_api_key_cache
 from app.core.config import settings
 from app.core.security import generate_api_key
 from app.db.session import async_engine, engine, get_async_db, get_db
@@ -25,11 +26,13 @@ def _isolate_price_cache():
 
 @pytest.fixture(autouse=True)
 def _isolate_provider_key_cache():
-    """Provider keys are resolved through a process-global TTL cache; clear it
-    around each test so monkeypatched settings cannot leak across test cases."""
+    """Provider keys and resolved proxy-key contexts are held in process-global
+    caches; clear both around each test so state never leaks across test cases."""
     clear_provider_key_cache()
+    clear_api_key_cache()
     yield
     clear_provider_key_cache()
+    clear_api_key_cache()
 
 
 @pytest.fixture(autouse=True)

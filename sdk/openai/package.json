@@ -1,0 +1,32 @@
+{
+  "name": "@varsten/openai",
+  "version": "0.1.0",
+  "description": "Fail-open wrapper around the OpenAI SDK. Optimize through Varsten when it is healthy; fall back directly to your provider when Varsten is unavailable, so an outage costs you savings, not uptime.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": ["varsten", "openai", "llm", "fail-open", "proxy", "cost", "fallback"],
+  "license": "UNLICENSED",
+  "peerDependencies": {
+    "openai": ">=4.20.0 <6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "openai": "^4.67.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

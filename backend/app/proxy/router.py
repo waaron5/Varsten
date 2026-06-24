@@ -27,7 +27,7 @@ from app.core.logging import get_logger, request_id_ctx
 from app.db.session import get_async_db
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import budget_enforcement, cache, http_client, quality, routing, trim
+from app.proxy import budget_enforcement, cache, http_client, origin, quality, routing, trim
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.client_dialects import (
     ClientDialect,
@@ -54,6 +54,15 @@ beta_router = APIRouter(prefix="/v1beta", tags=["proxy"])
 logger = get_logger("varsten.proxy")
 
 SSE_MEDIA_TYPE = "text/event-stream"
+
+
+@router.get("/health")
+async def proxy_health() -> dict:
+    """Liveness for the fail-open SDK's recovery probe and the onboarding connection
+    test. Co-located under /v1 so the SDK can probe its own base URL. Touches no
+    database, so a brief Postgres blip never flips this unhealthy and the SDK keeps
+    treating Varsten as reachable for the optimized path."""
+    return {"ok": True}
 
 
 class OpenAICacheProbe(NamedTuple):
@@ -86,8 +95,10 @@ def _rate_limited(api_key_id) -> JSONResponse | None:
         return None
     if ratelimit.allow(f"proxy:{api_key_id}", settings.proxy_rate_limit_per_minute):
         return None
-    return JSONResponse(
-        {"error": {"message": "rate limit exceeded", "type": "varsten_rate_limited"}},
+    return origin.varsten_error(
+        code=origin.CODE_RATE_LIMITED,
+        type_="varsten_rate_limited",
+        message="rate limit exceeded",
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         headers={"Retry-After": "60", "X-Varsten-RateLimit": "exceeded"},
     )
@@ -156,16 +167,12 @@ async def _budget_block(db: AsyncSession, project: Project, ctx, request_id: str
         "hard budget cap exceeded; blocking request",
         extra={"project_id": str(project.id), "owner_type": owner_type, "owner_key": owner_key},
     )
-    return JSONResponse(
-        {
-            "error": {
-                "message": f"hard budget cap exceeded for {owner_type} '{owner_key}'",
-                "type": "varsten_budget_exceeded",
-                "owner_type": owner_type,
-                "owner_key": owner_key,
-            }
-        },
+    return origin.varsten_error(
+        code=origin.CODE_BUDGET_EXCEEDED,
+        type_="varsten_budget_exceeded",
+        message=f"hard budget cap exceeded for {owner_type} '{owner_key}'",
         status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        extra_body={"owner_type": owner_type, "owner_key": owner_key},
         headers={"X-Varsten-Budget": "exceeded", "X-Varsten-Request-Id": request_id},
     )
 
@@ -249,9 +256,11 @@ async def _openai_dialect_completions(
 
     client_key = provider_key_for_project(project.id, adapter.provider)
     if not client_key:
-        raise HTTPException(
+        return origin.varsten_error(
+            code=origin.CODE_NO_PROVIDER_KEY,
+            type_="varsten_no_provider_key",
+            message="no provider key configured for this project",
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="no provider key configured for this project",
         )
 
     body = parsed.body
@@ -320,9 +329,11 @@ async def _openai_dialect_completions(
         adapter = get_adapter(opt.upstream_provider)
         client_key = provider_key_for_project(project.id, adapter.provider)
         if not client_key:
-            raise HTTPException(
+            return origin.varsten_error(
+                code=origin.CODE_NO_PROVIDER_KEY,
+                type_="varsten_no_provider_key",
+                message="no provider key configured for this project",
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="no provider key configured for this project",
             )
 
     # --- forward to OpenAI (cache miss, bypassed, or observe-only). store_cache is
@@ -334,6 +345,9 @@ async def _openai_dialect_completions(
         # Correlation id so the client can later attach outcome feedback to this
         # exact request (POST /v1/feedback).
         "X-Varsten-Request-Id": request_id,
+        # Forward path: a relayed provider result (success or provider error). The
+        # circuit-open branch below re-tags itself varsten via varsten_error.
+        origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
         **_entitlement_headers(entitlement),
     }
     if opt.routed_from:
@@ -352,8 +366,10 @@ async def _openai_dialect_completions(
     # making this request wait the full timeout. Cache hits above are unaffected.
     breaker = get_breaker(project.id)
     if not breaker.allow():
-        return JSONResponse(
-            {"error": {"message": "upstream temporarily unavailable (circuit open)", "type": "varsten_circuit_open"}},
+        return origin.varsten_error(
+            code=origin.CODE_CIRCUIT_OPEN,
+            type_="varsten_circuit_open",
+            message="upstream temporarily unavailable (circuit open)",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             headers={**headers, "X-Varsten-Circuit": "open"},
         )
@@ -621,7 +637,10 @@ def _serve_cache_hit(
     critical path; the cached bytes are already in memory."""
     latency_ms = int((time.perf_counter() - started) * 1000)
     background_tasks.add_task(_meter_cache_hit, db, project, api_key_id, entry, latency_ms, cache_label, draft)
-    headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": cache_label}
+    # A cache hit is a successful (200) response Varsten served itself. Origin is
+    # informational on a 2xx (the SDK only falls back on a failure status), tagged
+    # honestly as varsten.
+    headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": cache_label, origin.ORIGIN_HEADER: origin.ORIGIN_VARSTEN}
     if stream:
         return StreamingResponse(
             iter(list(canonical.to_openai_sse(entry.response_payload))),
@@ -674,6 +693,8 @@ async def _native_provider_passthrough(
         "X-Varsten-Mode": mode,
         "X-Varsten-Cache": "bypass",
         "X-Varsten-Request-Id": request_id,
+        # Native passthrough: a relayed provider result. Circuit-open re-tags itself.
+        origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
         **_entitlement_headers(entitlement),
     }
     draft = DecisionDraft(
@@ -696,8 +717,10 @@ async def _native_provider_passthrough(
 
     breaker = get_breaker(project.id)
     if not breaker.allow():
-        return JSONResponse(
-            {"error": {"message": "upstream temporarily unavailable (circuit open)", "type": "varsten_circuit_open"}},
+        return origin.varsten_error(
+            code=origin.CODE_CIRCUIT_OPEN,
+            type_="varsten_circuit_open",
+            message="upstream temporarily unavailable (circuit open)",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             headers={**response_headers, "X-Varsten-Circuit": "open"},
         )
@@ -720,9 +743,11 @@ async def _native_provider_passthrough(
 
     client_key = provider_key_for_project(project.id, adapter.provider)
     if not client_key:
-        raise HTTPException(
+        return origin.varsten_error(
+            code=origin.CODE_NO_PROVIDER_KEY,
+            type_="varsten_no_provider_key",
+            message="no provider key configured for this project",
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="no provider key configured for this project",
         )
 
     upstream_url = _native_request_url(adapter.provider, parsed, request.url.query)
@@ -837,6 +862,7 @@ async def _maybe_route_native_cross_provider(
             decision.candidate_model,
         ),
         "X-Varsten-Arm": arm,
+        origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
     }
     if parsed.stream:
         return StreamingResponse(
@@ -872,13 +898,10 @@ async def _maybe_route_native_cross_provider(
         logger.warning(
             "upstream request failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
         )
-        return JSONResponse(
-            {
-                "error": {
-                    "message": f"upstream request failed: {exc.__class__.__name__}",
-                    "type": "varsten_upstream_error",
-                }
-            },
+        return origin.varsten_error(
+            code=origin.CODE_UPSTREAM_UNREACHABLE,
+            type_="varsten_upstream_error",
+            message=f"upstream request failed: {exc.__class__.__name__}",
             status_code=status.HTTP_502_BAD_GATEWAY,
             headers=headers,
         )
@@ -1108,13 +1131,10 @@ async def _native_forward_once(
         logger.warning(
             "upstream request failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
         )
-        return JSONResponse(
-            {
-                "error": {
-                    "message": f"upstream request failed: {exc.__class__.__name__}",
-                    "type": "varsten_upstream_error",
-                }
-            },
+        return origin.varsten_error(
+            code=origin.CODE_UPSTREAM_UNREACHABLE,
+            type_="varsten_upstream_error",
+            message=f"upstream request failed: {exc.__class__.__name__}",
             status_code=status.HTTP_502_BAD_GATEWAY,
             headers=response_headers,
         )
@@ -1492,13 +1512,10 @@ async def _forward_once(
         logger.warning(
             "upstream request failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
         )
-        return JSONResponse(
-            {
-                "error": {
-                    "message": f"upstream request failed: {exc.__class__.__name__}",
-                    "type": "varsten_upstream_error",
-                }
-            },
+        return origin.varsten_error(
+            code=origin.CODE_UPSTREAM_UNREACHABLE,
+            type_="varsten_upstream_error",
+            message=f"upstream request failed: {exc.__class__.__name__}",
             status_code=status.HTTP_502_BAD_GATEWAY,
             headers=headers,
         )

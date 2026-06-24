@@ -68,6 +68,14 @@ backend-test:
 backend-sdk-smoke:
 	cd backend && .venv/bin/python -m pytest -m sdk_smoke tests/test_sdk_smoke.py
 
+# End-to-end fail-open smoke test: real @varsten/openai SDK -> real backend ->
+# mock provider, exercising optimized, provider-error relay, telemetry, and the
+# backend-down + circuit-open fallback paths. Self-contained: seeds and tears down
+# its own project, stands up the backend and a mock upstream, builds the SDK.
+# Needs the dev Postgres (docker compose up db) and Node installed.
+failopen-smoke:
+	cd backend && .venv/bin/python scripts/smoke_failopen.py
+
 # Static security scan for application code. Dependency vulnerability auditing
 # lives in backend-audit because it may need network access.
 backend-security:

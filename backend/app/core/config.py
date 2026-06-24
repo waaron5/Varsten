@@ -168,6 +168,13 @@ class Settings(BaseSettings):
     circuit_breaker_fail_threshold: int = 5
     circuit_breaker_reset_seconds: float = 30.0
 
+    # In-process cache of resolved vk_ -> (project, api_key) on the proxy hot path.
+    # Lets a known active key keep serving through a brief database blip instead of
+    # 500ing: on a DB error the proxy serves a context resolved within this TTL.
+    # Unknown/invalid keys are never cached and still fail closed. Revocation lag is
+    # bounded by this TTL. 0 disables the cache.
+    api_key_cache_ttl_seconds: float = 30.0
+
     # --- Eval / replay harness (Track B) ---
     # The shadow-evaluation loop that proves a model-downshift swap is safe on a
     # route's real traffic BEFORE it can be applied. Everything here runs async,

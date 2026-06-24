@@ -15,6 +15,7 @@ from app.api.v1 import (
     product_sections,
     projects,
     recommendations,
+    telemetry,
     usage_events,
 )
 from app.proxy.router import router as proxy_router
@@ -34,6 +35,8 @@ api_router.include_router(onboarding.router)
 api_router.include_router(entitlements.router)
 api_router.include_router(billing.router)
 api_router.include_router(product_sections.router)
+# Fail-open SDK fallback telemetry: POST /v1/telemetry/fallback.
+api_router.include_router(telemetry.router)
 # Phase 1 inline proxy: POST /v1/chat/completions (OpenAI mirror).
 api_router.include_router(proxy_router)
 # Batching lever: the async /v1/batches mirror.

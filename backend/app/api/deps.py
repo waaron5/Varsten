@@ -1,3 +1,4 @@
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -10,9 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.auth.auth0 import Auth0NotConfigured, verify_access_token
+from app.core.config import settings
+from app.core.logging import get_logger
 from app.core.security import hash_api_key
 from app.db.session import get_async_db, get_db
 from app.models import ApiKey, Organization, OrgMembership, Project, User
+
+logger = get_logger("varsten.auth")
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -98,21 +103,6 @@ def _api_key_context(token: str, db: Session) -> ApiKeyContext:
     return ApiKeyContext(project=project, api_key=api_key)
 
 
-def require_api_key(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> Project:
-    """Resolve the project for a Bearer API key (ingestion path)."""
-    token = _bearer_token(credentials)
-    if not token.startswith(API_KEY_PREFIX):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="expected an api key",
-            headers=_UNAUTHENTICATED,
-        )
-    return _api_key_context(token, db).project
-
-
 def require_api_key_context(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -131,8 +121,22 @@ def require_api_key_context(
 # --- async API key auth (the hot-path proxy; control-plane uses the sync ones) ---
 
 
-async def _api_key_context_async(token: str, db: AsyncSession) -> ApiKeyContext:
-    key_hash = hash_api_key(token)
+# Process-global cache of resolved proxy keys: vk_ hash -> (monotonic stored_at,
+# context). Read only when the database lookup raises, so a known active key keeps
+# serving through a brief DB blip instead of 500ing. Bounded by
+# settings.api_key_cache_ttl_seconds; see _api_key_context_async.
+_api_key_cache: dict[str, tuple[float, ApiKeyContext]] = {}
+
+
+def clear_api_key_cache() -> None:
+    """Drop all cached proxy-key contexts (used by tests)."""
+    _api_key_cache.clear()
+
+
+async def _resolve_api_key_context_async(key_hash: str, db: AsyncSession) -> ApiKeyContext:
+    """Resolve the project + API key from the database. Raises HTTPException for an
+    auth rejection (unknown/revoked key, missing project); lets a database error
+    propagate so the caller can decide whether to serve a cached context."""
     api_key = await db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
     if api_key is None or api_key.revoked_at is not None:
         raise HTTPException(
@@ -154,6 +158,39 @@ async def _api_key_context_async(token: str, db: AsyncSession) -> ApiKeyContext:
             headers=_UNAUTHENTICATED,
         )
     return ApiKeyContext(project=project, api_key=api_key)
+
+
+async def _api_key_context_async(token: str, db: AsyncSession) -> ApiKeyContext:
+    """Resolve the proxy key, with a small fail-open cache around the database.
+
+    Happy path always re-resolves fresh from the database and refreshes the cache.
+    Only when the database itself errors do we serve a recently resolved context for
+    a *known* key, so a brief Postgres blip degrades to "stop optimizing" rather
+    than "drop the customer's traffic". An auth rejection always fails closed: an
+    unknown or revoked key is never served from cache.
+    """
+    key_hash = hash_api_key(token)
+    ttl = settings.api_key_cache_ttl_seconds
+    try:
+        ctx = await _resolve_api_key_context_async(key_hash, db)
+    except HTTPException:
+        # Authentication decision (unknown/revoked key, missing project). Fail closed;
+        # never let a cached context paper over a rejection.
+        raise
+    except Exception:
+        # The database failed, not the credential. Serve a known key's cached context
+        # if it is fresh enough. Unknown keys never have a cache entry, so they still
+        # fail (the error propagates) and never get forwarded.
+        if ttl > 0:
+            cached = _api_key_cache.get(key_hash)
+            if cached is not None and (time.monotonic() - cached[0]) <= ttl:
+                logger.warning("api-key database lookup failed; serving cached context (degraded)")
+                return cached[1]
+        raise
+
+    if ttl > 0:
+        _api_key_cache[key_hash] = (time.monotonic(), ctx)
+    return ctx
 
 
 async def require_api_key_context_async(
