@@ -25,6 +25,9 @@ coverage.xml
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+# Committed, secret-free scaling inputs so CI and local share the same intended
+# values (CI never sees the gitignored terraform.tfvars).
+!infra/aws/terraform/scaling.auto.tfvars
 .terraform.lock.hcl
 
 # Other
