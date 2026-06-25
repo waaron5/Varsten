@@ -22,9 +22,10 @@ name: Deploy
 #   secrets.SENTRY_DSN              - TF var
 #   secrets.RATE_LIMIT_REDIS_URL    - TF var (optional; empty = per-instance limiter)
 #   vars.CORS_ORIGINS / vars.AUTH0_DOMAIN / vars.AUTH0_AUDIENCE - TF vars
-# Prerequisite: a remote Terraform state backend (e.g. S3) so the promote job can
-# apply from CI. Until that exists, run the promote step locally and use this
-# workflow for build-push + migrate only.
+# Prerequisite: the S3 + DynamoDB remote state backend (versions.tf) must be
+# bootstrapped ONCE per account via infra/aws/bootstrap_state.sh before the first
+# run, and the AWS_DEPLOY_ROLE_ARN must additionally allow s3:{Get,Put,List}Object
+# on the state bucket and dynamodb:{GetItem,PutItem,DeleteItem} on the lock table.
 
 on:
   workflow_dispatch:
@@ -78,9 +79,68 @@ jobs:
           docker push "$IMAGE_URI"
           echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
+  # Safety gate: plan against the SAME backend, workspace, vars, and image tag the
+  # apply will use, and hard-fail if Terraform wants to CREATE or DESTROY anything.
+  # In-place updates (the App Runner image swap + env-var changes) are allowed.
+  # This runs before migrate/apply so a state/config drift can never silently
+  # recreate production infrastructure.
+  terraform-plan:
+    name: Terraform plan gate (no creates/deletes)
+    needs: build-push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: terraform plan + gate
+        working-directory: infra/aws/terraform
+        env:
+          TF_VAR_image_tag: ${{ needs.build-push.outputs.image_tag }}
+          TF_VAR_database_url: ${{ secrets.DATABASE_URL }}
+          TF_VAR_sentry_dsn: ${{ secrets.SENTRY_DSN }}
+          TF_VAR_rate_limit_redis_url: ${{ secrets.RATE_LIMIT_REDIS_URL }}
+          TF_VAR_cors_origins: ${{ vars.CORS_ORIGINS }}
+          TF_VAR_auth0_domain: ${{ vars.AUTH0_DOMAIN }}
+          TF_VAR_auth0_audience: ${{ vars.AUTH0_AUDIENCE }}
+        run: |
+          set -euo pipefail
+          terraform init -input=false
+          terraform workspace select "${{ inputs.environment }}" || terraform workspace new "${{ inputs.environment }}"
+          terraform plan -input=false -lock-timeout=120s -var="environment=${{ inputs.environment }}" -out=tfplan
+          terraform show -json tfplan > plan.json
+
+          adds=$(jq '[(.resource_changes // [])[] | select(.change.actions | index("create"))] | length' plan.json)
+          dels=$(jq '[(.resource_changes // [])[] | select(.change.actions | index("delete"))] | length' plan.json)
+          upds=$(jq '[(.resource_changes // [])[] | select(.change.actions == ["update"])] | length' plan.json)
+
+          {
+            echo "## Terraform plan gate (${{ inputs.environment }})"
+            echo "- to add:     $adds"
+            echo "- to update:  $upds (in-place, allowed)"
+            echo "- to destroy: $dels"
+            echo ""
+            echo "Resources changing (non-no-op):"
+            echo '```'
+            jq -r '(.resource_changes // [])[] | select(.change.actions != ["no-op"] and .change.actions != ["read"]) | "  \(.change.actions | join("+"))  \(.address)"' plan.json
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          if [ "$adds" -ne 0 ] || [ "$dels" -ne 0 ]; then
+            echo "::error::Plan wants to create ($adds) or destroy ($dels) infrastructure. Hard-failing before migrate/apply."
+            exit 1
+          fi
+          echo "Plan gate passed: 0 to add, 0 to destroy ($upds in-place update(s))."
+
   migrate:
     name: Migrate database (before promote)
-    needs: build-push
+    needs: [build-push, terraform-plan]
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
@@ -120,7 +180,13 @@ jobs:
       # Promote by pointing App Runner at the migrated image tag. Terraform owns the
       # image identifier, so apply with the new tag; App Runner then performs a
       # rolling, health-checked deploy. Rollback is re-running this workflow with a
-      # previous SHA. Requires a configured remote state backend (see header).
+      # previous SHA.
+      #
+      # `terraform init` configures the S3 remote backend declared in versions.tf;
+      # the OIDC deploy role must allow s3:{Get,Put,List}Object on the state bucket
+      # and dynamodb:{GetItem,PutItem,DeleteItem} on the lock table. The bucket and
+      # table are created once by infra/aws/bootstrap_state.sh (see the runbook),
+      # not by this workflow.
       - name: terraform apply (promote image_tag)
         working-directory: infra/aws/terraform
         env:
@@ -132,6 +198,6 @@ jobs:
           TF_VAR_auth0_domain: ${{ vars.AUTH0_DOMAIN }}
           TF_VAR_auth0_audience: ${{ vars.AUTH0_AUDIENCE }}
         run: |
-          terraform init
+          terraform init -input=false
           terraform workspace select "${{ inputs.environment }}" || terraform workspace new "${{ inputs.environment }}"
-          terraform apply -auto-approve -var="environment=${{ inputs.environment }}"
+          terraform apply -input=false -auto-approve -var="environment=${{ inputs.environment }}"
