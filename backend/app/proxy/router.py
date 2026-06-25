@@ -374,6 +374,16 @@ async def _openai_dialect_completions(
             headers={**headers, "X-Varsten-Circuit": "open"},
         )
 
+    # Propagate the client's idempotency key to the upstream provider ONLY when we
+    # forward the request unchanged. If we routed or trimmed, the upstream body
+    # differs from what the SDK would send on a direct fallback, so reusing the key
+    # could collide at the provider; omit it then (the fallback uses the key fresh).
+    forward_idem = (
+        request.headers.get("idempotency-key")
+        if (opt.routed_from is None and not opt.trim_applied)
+        else None
+    )
+
     if stream:
         return StreamingResponse(
             _stream_through(
@@ -396,6 +406,7 @@ async def _openai_dialect_completions(
                 exp_to=opt.exp_to,
                 started=started,
                 draft=draft,
+                idempotency_key=forward_idem,
             ),
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
@@ -421,6 +432,7 @@ async def _openai_dialect_completions(
         exp_from=opt.exp_from,
         exp_to=opt.exp_to,
         draft=draft,
+        idempotency_key=forward_idem,
     )
 
 
@@ -559,6 +571,17 @@ async def _resolve_openai_optimizations(
 
 def _request_id(request: Request) -> str:
     return request_id_ctx.get() or request.headers.get("x-request-id") or f"req_{uuid.uuid4().hex}"
+
+
+def _with_idempotency(headers: dict[str, str], idempotency_key: str | None) -> dict[str, str]:
+    """Add the client's Idempotency-Key to the upstream request headers so the
+    provider can dedupe a direct SDK fallback retry against this proxied call.
+
+    Only ever passed a key on the verbatim forward path (no route/trim change), so
+    the same key can never reach the provider with a different request body."""
+    if not idempotency_key:
+        return headers
+    return {**headers, "Idempotency-Key": idempotency_key}
 
 
 def _routed_header(from_provider: str, from_model: str, to_provider: str, to_model: str) -> str:
@@ -1379,6 +1402,7 @@ async def _stream_through(
     exp_to=None,
     started=None,
     draft=None,
+    idempotency_key=None,
 ):
     """Pass the provider's stream through to the client via the adapter's stream
     translator (verbatim for an OpenAI upstream), accumulating a copy to bill and
@@ -1403,7 +1427,7 @@ async def _stream_through(
             async with client.stream(
                 "POST",
                 adapter.request_url(model=upstream_model or model, stream=True),
-                headers=adapter.headers(client_key),
+                headers=_with_idempotency(adapter.headers(client_key), idempotency_key),
                 json=upstream_body,
                 timeout=timeout,
             ) as resp:
@@ -1497,12 +1521,13 @@ async def _forward_once(
     exp_from=None,
     exp_to=None,
     draft=None,
+    idempotency_key=None,
 ) -> JSONResponse:
     upstream_body = adapter.prepare_request(body, model=upstream_model or model, stream=False)
     try:
         resp = await http_client.get_client().post(
             adapter.request_url(model=upstream_model or model, stream=False),
-            headers=adapter.headers(client_key),
+            headers=_with_idempotency(adapter.headers(client_key), idempotency_key),
             json=upstream_body,
             timeout=settings.proxy_upstream_timeout_seconds,
         )

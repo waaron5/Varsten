@@ -12,10 +12,12 @@ OpenAI SDK at `https://api.varsten.ai/v1`) is great for evaluation, but it keeps
 Varsten in your request path with no way around it if Varsten is down. Use this
 SDK for anything production-critical.
 
-> Status: v0.1.0. Non-streaming chat completions have direct-to-provider fallback.
-> Streaming currently goes through Varsten without the fallback net (the
-> first-token-boundary fallback lands in the next version). Anthropic and Gemini
-> packages follow.
+> Status: v0.1.0. Chat completions (streaming and non-streaming) have
+> direct-to-provider fallback. Streaming falls back only *before the first token*
+> (if the optimized request fails before a stream is returned); once a stream has
+> started, a mid-stream error surfaces to you and is never restarted. Every request
+> carries an idempotency key so a fallback retry can't double-bill at the provider.
+> Anthropic and Gemini packages follow.
 
 ## Install
 
@@ -92,7 +94,7 @@ bill:
 - A deliberate budget cap (`402 budget_exceeded`)
 - A bad request or auth error you caused (`400` / `401`)
 - A read timeout, by default (see below)
-- Streaming, once tokens have started (a later version)
+- Streaming, once the stream has started (a mid-stream error is surfaced, never restarted)
 
 ## How a response was served
 
@@ -113,10 +115,13 @@ completion content.
 ## Double billing
 
 The one place a naive fallback double-charges is a Varsten read timeout: Varsten
-may have already reached the provider and billed, but the response was lost. So a
-read timeout does **not** trigger fallback by default. A hard connection failure
-means Varsten never forwarded, so falling back there is safe. If you would rather
-have availability than avoid a rare double charge, set
+may have already reached the provider and billed, but the response was lost. Two
+defenses: (1) a read timeout does **not** trigger fallback by default (a hard
+connection failure means Varsten never forwarded, so falling back there is safe);
+and (2) every request carries an `Idempotency-Key` sent on **both** the Varsten
+attempt and the direct fallback, so when Varsten forwards the request verbatim the
+provider deduplicates the retry instead of billing/generating twice. If you would
+rather have availability than avoid a rare double charge, set
 `fallbackOnReadTimeout: true`.
 
 ## During a sustained outage

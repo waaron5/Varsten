@@ -180,4 +180,53 @@ describe("executeWithFallback", () => {
     await expect(executeWithFallback(params({ mode: "off", primaryCreate, fallbackCreate }))).rejects.toBeDefined();
     expect(fallbackCreate).not.toHaveBeenCalled();
   });
+
+  it("sends one idempotency key on both the Varsten attempt and the fallback", async () => {
+    let primaryIdem: string | undefined;
+    const primaryCreate = vi.fn(async (_b: any, idem: string) => {
+      primaryIdem = idem;
+      throw connError;
+    });
+    const fallbackCreate = vi.fn(async (_b: any, _idem: string) => ({ ok: "fallback" }));
+    await executeWithFallback(params({ primaryCreate, fallbackCreate }));
+    const fallbackIdem = fallbackCreate.mock.calls[0]![1];
+    expect(primaryIdem).toMatch(/^varsten-/);
+    expect(fallbackIdem).toBe(primaryIdem); // same key lets the provider dedupe the direct retry
+  });
+
+  it("uses a fresh idempotency key per logical request", async () => {
+    const seen = new Set<string>();
+    const primaryCreate = vi.fn(async (_b: any, idem: string) => {
+      seen.add(idem);
+      return { ok: "primary" };
+    });
+    await executeWithFallback(params({ primaryCreate }));
+    await executeWithFallback(params({ primaryCreate }));
+    expect(seen.size).toBe(2);
+  });
+
+  it("streaming: falls back before first token on a pre-stream failure (phase=pre-first-token)", async () => {
+    const events: any[] = [];
+    const providerStream = { id: "provider-stream" };
+    const primaryCreate = vi.fn(async () => {
+      throw connError; // optimized create() rejected before any stream/token
+    });
+    const fallbackCreate = vi.fn(async () => providerStream);
+    const res: any = await executeWithFallback(
+      params({ streaming: true, primaryCreate, fallbackCreate, onFallback: (e) => events.push(e) }),
+    );
+    expect(res).toBe(providerStream);
+    expect(res._varsten.servedBy).toBe("provider-fallback");
+    expect(events[0]!.phase).toBe("pre-first-token");
+  });
+
+  it("streaming: returns the optimized stream and does NOT fall back once it starts", async () => {
+    const varstenStream = { id: "varsten-stream" };
+    const primaryCreate = vi.fn(async () => varstenStream);
+    const fallbackCreate = vi.fn(async () => ({ id: "should-not-run" }));
+    const res: any = await executeWithFallback(params({ streaming: true, primaryCreate, fallbackCreate }));
+    expect(res).toBe(varstenStream);
+    expect(res._varsten.servedBy).toBe("varsten");
+    expect(fallbackCreate).not.toHaveBeenCalled(); // mid-stream errors are the caller's, never restarted
+  });
 });

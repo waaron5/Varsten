@@ -278,3 +278,42 @@ async def test_revoked_key_fails_closed_not_cached(async_db_session, async_provi
     with pytest.raises(HTTPException) as ei:
         await deps._api_key_context_async(token, async_db_session)
     assert ei.value.status_code == 401
+
+
+# --- idempotency key propagation (Phase 3) ----------------------------------
+
+
+@pytest.fixture
+def capturing_openai(monkeypatch):
+    """Mock upstream that records the Idempotency-Key it receives."""
+    seen: dict[str, str | None] = {"idempotency_key": "UNSET"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/embeddings"):
+            return httpx.Response(200, json={"data": [{"embedding": [0.0] * 1536}]})
+        seen["idempotency_key"] = request.headers.get("idempotency-key")
+        return httpx.Response(200, json=NONSTREAM_RESPONSE)
+
+    monkeypatch.setattr(http_client, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    return seen
+
+
+@pytest.mark.anyio
+async def test_idempotency_key_propagated_on_verbatim_forward(async_client, async_provision, capturing_openai, monkeypatch):
+    ws = await async_provision(sub="auth0|o", email="o@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    headers = {**_b(ws["api_key"]), "Idempotency-Key": "varsten-abc123"}
+    res = await async_client.post("/v1/chat/completions", headers=headers, json=_body())
+    assert res.status_code == 200
+    # The proxy forwarded the request verbatim, so the client's key reaches upstream
+    # and the provider can dedupe a direct SDK fallback retry against it.
+    assert capturing_openai["idempotency_key"] == "varsten-abc123"
+
+
+@pytest.mark.anyio
+async def test_no_idempotency_header_means_none_upstream(async_client, async_provision, capturing_openai, monkeypatch):
+    ws = await async_provision(sub="auth0|o", email="o@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    res = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=_body())
+    assert res.status_code == 200
+    assert capturing_openai["idempotency_key"] is None

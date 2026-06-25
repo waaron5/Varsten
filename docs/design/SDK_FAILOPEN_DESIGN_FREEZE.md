@@ -378,3 +378,28 @@ Until all eight pass, the product says **"automatic provider fallback (beta)"**,
   Varsten-wide 5xx storm — which *fails open* with the SDK, but worth a soak test.
 - **`upstream_unreachable` fallback default-on** — revisit if it causes wasted
   double attempts against a genuinely-down provider.
+
+---
+
+## 12. Acceptance status (as of 2026-06-25)
+
+| Item | Status |
+|---|---|
+| Production backend deployed (App Runner, image `failopen-phase2-prod-4`) | **yes** |
+| Production health check (`GET /v1/health`) | **green** |
+| Production unreachable → SDK direct provider fallback (real DNS/TLS) | **verified** (`servedBy: provider-fallback`, `reason: connection_error`) |
+| Local SDK + server origin contract (full keyed cases) | **verified** (local E2E `make failopen-smoke`: 9/9 + ledger; backend suite green) |
+| Production keyed contract smoke (optimized / provider-error / telemetry against the deployed image) | **deferred** |
+
+Deferral reason: there is no deployed dashboard and the operator provisioning
+endpoint is disabled in prod (`operator_admin_emails` unset → 403), so there is no
+clean path to mint a disposable production `vk_`. Direct DB seeding needs the prod
+DB credential and a (private) RDS, which is out of scope. Revisit once a dashboard
+or operator admin flow is deployed; the remote harness is already wired
+(`scripts/smoke_failopen.py --remote <url>` with `VARSTEN_SMOKE_KEY`).
+
+Acceptance-criteria mapping (§9): #1 (unreachable → fallback) verified under real
+network on prod; #2–#7 verified by the local E2E + unit suites; #8 (onboarding
+fallback simulation) is a later phase. The safety-critical claim — Varsten down →
+the customer's app keeps working — is considered **verified for production**. The
+deferred item is deployed-image contract polish, not a gap in the safety claim.

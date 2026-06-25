@@ -72,17 +72,18 @@ export class VarstenOpenAI {
   }
 
   private create(body: any): Promise<any> {
-    // Streaming bypasses the fallback engine for now: hand the optimized stream
-    // straight back. The first-token-boundary fallback arrives in a later version.
-    if (body && body.stream) {
-      return this.primary.chat.completions.create(body) as Promise<any>;
-    }
+    // Streaming flows through the same engine. The optimized create() rejects on a
+    // pre-stream failure (Varsten unreachable, circuit-open, 5xx) before any token
+    // reaches the caller, so the fallback there is safe; once a stream is returned,
+    // any mid-iteration error surfaces to the caller and is never restarted.
     return executeWithFallback({
       body,
       mode: this.options.fallback,
-      primaryCreate: (b) => this.primary.chat.completions.create(b) as Promise<any>,
+      streaming: Boolean(body && body.stream),
+      primaryCreate: (b, idem) =>
+        this.primary.chat.completions.create(b, { idempotencyKey: idem }) as Promise<any>,
       fallbackCreate: this.fallbackClient
-        ? (b) => this.fallbackClient!.chat.completions.create(b) as Promise<any>
+        ? (b, idem) => this.fallbackClient!.chat.completions.create(b, { idempotencyKey: idem }) as Promise<any>
         : null,
       breaker: this.breaker,
       fallbackOnReadTimeout: this.options.fallbackOnReadTimeout,
