@@ -77,7 +77,7 @@ async function deliverViaResend(
 
 Thanks for checking out Varsten.
 
-We do the first setup manually because this touches production AI traffic. I want to make sure your tenant, API keys, fail-open routing, and isolation are correct from minute one.
+We do the first setup manually because this touches production AI traffic. I want to make sure your tenant, API keys, provider routing, and isolation are correct from minute one.
 
 Grab a 15-minute setup slot here:
 ${calendlyUrl}

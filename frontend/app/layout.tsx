@@ -24,18 +24,29 @@ export const metadata: Metadata = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const cookieStore = await cookies();
   // Read the persisted sidebar state on the server so the shell renders with the
   // correct collapsed class on first paint. The client seeds its useState from the
   // same value, so server and client agree and there is no hydration mismatch.
-  const sidebarCollapsed = (await cookies()).get(SIDEBAR_COOKIE)?.value === "collapsed";
-  const session = await auth0.getSession();
+  const sidebarCollapsed = cookieStore.get(SIDEBAR_COOKIE)?.value === "collapsed";
+  const e2eUser = (
+    process.env.NEXT_PUBLIC_E2E_AUTH_BYPASS === "1" ||
+    (process.env.NODE_ENV === "development" && cookieStore.get("varsten_e2e_auth")?.value === "1")
+  )
+    ? {
+        sub: "auth0|maya-enterprise",
+        email: "maya@enterprise.example",
+        name: "Maya Chen",
+      }
+    : null;
+  const session = e2eUser ? null : await auth0.getSession();
   // Resolve projects + active project on the server so the client can skip its
   // sync/projects bootstrap waterfall and the first paint is immediately "ready".
-  const bootstrap = await loadServerBootstrap();
+  const bootstrap = e2eUser ? null : await loadServerBootstrap();
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
-        <Auth0Provider user={session?.user}>
+        <Auth0Provider user={e2eUser ?? session?.user}>
           <QueryProvider>
             <SessionProvider
               initialProjects={bootstrap?.projects}

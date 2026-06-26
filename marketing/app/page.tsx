@@ -41,51 +41,75 @@ const DRIVERS = [
 ];
 
 const PROBLEMS = [
-  { n: "01", t: "What's actually driving spend—by model, route, feature, and team?" },
-  { n: "02", t: "Where are you paying premium prices for calls a lower-cost model or cache could handle?" },
-  { n: "03", t: "How do you reduce cost without breaking quality or latency?" },
-  { n: "04", t: "When the CFO asks if it worked, what proof do you have?" },
+  { n: "01", t: "What's driving spend—by model, route, feature, and team?" },
+  { n: "02", t: "Where are we paying more for calls that a lower-cost model or cache could handle?" },
+  { n: "03", t: "How do we reduce cost without breaking quality or latency?" },
+  { n: "04", t: "What savings proof do we have?" },
 ];
+
+const PROBLEM_SPEND_BARS = [16, 19, 23, 26, 31, 35, 42, 48, 55, 62, 68, 74];
+const PROBLEM_CHART_MAX = 80;
+const PROBLEM_BUDGET_FRACTION = 0.58;
 
 const SOLUTION = [
   {
     n: "01",
     k: "OBSERVE",
-    t: "See where the money goes.",
-    d: "Break down spend by model, route, feature, team, and provider. Engineering and finance see the same numbers.",
+    t: "See where the money goes",
   },
   {
     n: "02",
     k: "OPTIMIZE",
-    t: "Cut spend, safely.",
-    d: "Apply caching, batching, trimming, and routing only where quality and latency hold. If output would degrade, it doesn’t run.",
+    t: "Cut spend safely",
   },
   {
     n: "03",
     k: "PROVE",
-    t: "Show your work.",
-    d: "Get a finance-ready ledger with gross savings, fees, net savings, and attribution. Every result is easy to explain upstream.",
+    t: "Prove every dollar",
   },
 ];
 
+const SOLUTION_BREAKDOWN = [
+  { team: "Engineering", pct: 43 },
+  { team: "Product", pct: 23 },
+  { team: "Data Science", pct: 15 },
+];
+
 const LEVERS = [
-  { n: "01", t: "Smart routing", d: "Send each request to the most cost-effective model that still meets your quality bar, automatically." },
+  { n: "01", t: "Smart routing", d: "Send each request to the most cost-effective model that balances quality and latency." },
   { n: "02", t: "Semantic cache", d: "Stop paying twice for the same answer. Repeated and near-identical requests resolve from cache." },
   { n: "03", t: "Token trim", d: "Cut wasted tokens from prompts and context without changing what the model returns." },
   { n: "04", t: "Model downshift", d: "Downshift to a lower-cost model where it produces equivalent output, and only where it does." },
   { n: "05", t: "Batching", d: "Group eligible requests to capture provider efficiencies and lower per-call cost." },
 ];
 
-const HOW_STEPS = [
-  { n: 1, t: "Connect", d: "Update the base URL." },
-  { n: 2, t: "Optimize", d: "Apply savings levers and guardrails." },
-  { n: 3, t: "Prove", d: "Verify your savings with a finance-ready ledger." },
-];
-
 const SECURITY = [
-  { t: "Fail-open by design", d: "If Varsten has an issue, traffic passes straight through to your providers. Optimization is never a production point of failure." },
+  { t: "Engineered to fail safe", d: "If an optimization step errors, your request still goes through to your provider. A circuit breaker and strict timeouts keep a slow provider from stalling your traffic." },
   { t: "Never stores prompts or outputs", d: "Varsten records the cost metadata needed to measure savings, without storing your prompts or model outputs." },
   { t: "Quality & latency guardrails", d: "You set the limits. Any optimization that would breach them never fires." },
+];
+
+const FAQS = [
+  {
+    q: "Who does Varsten work best for?",
+    a: "Varsten works best for teams with meaningful production LLM traffic. If your traffic is small or experimental, the savings may be too small to justify the integration. If you have a large volume of traffic, Varsten could significantly reduce costs.",
+  },
+  {
+    q: "How much can we expect to save?",
+    a: "It depends on your traffic mix. Varsten does not promise a fixed savings percentage. Savings come from cache hits, token reduction, batching, routing, and model changes where they are safe. Observe-only mode is the first step to estimate what is actually available.",
+  },
+  {
+    q: "How are savings verified?",
+    a: "Savings are tied to measured usage, provider pricing, and the optimization that produced the change. The ledger separates baseline spend, actual spend, gross savings, Varsten fee, and net customer savings so the math can be inspected.",
+  },
+  {
+    q: "What if we already use the cheapest model?",
+    a: "Model downshift may not apply. Varsten can still look for savings from caching, token trim, batching, and routing policies. If there is little safe waste to remove, the product should show that rather than invent savings.",
+  },
+  {
+    q: "What happens if Varsten goes down?",
+    a: "The inline path is designed to fail open. Requests continue to the original provider and model where possible, so the application keeps running. During that period you may lose optimization or savings capture, but traffic should not be blocked by Varsten.",
+  },
 ];
 
 const OBSERVE_FEATURES = [
@@ -285,7 +309,7 @@ function StickyBanner({ anchorScrollingRef, onStart }: { anchorScrollingRef: Mut
       <div className="lp-sticky-banner-inner">
         <div className="lp-sticky-banner-left">
           <LogoMark className="lp-logo-mark lp-sticky-mark" />
-          <span>Cut your AI bill. <strong>Prove every dollar.</strong></span>
+          <span>Cut your AI bill <strong>with one line of code.</strong></span>
         </div>
         <button className="lp-btn lp-btn-primary" onClick={onStart}>Start free</button>
       </div>
@@ -355,17 +379,6 @@ function DashboardShot() {
           <i />
         </div>
         <div className="vds-main">
-          <div className="vds-topbar">
-            <div>
-              <h4>Dashboard</h4>
-              <p>Month to date · vs last month</p>
-            </div>
-            <div className="vds-segments">
-              <span className="vds-pill active">Month</span>
-              <span className="vds-pill">Quarter</span>
-              <span className="vds-pill">Year</span>
-            </div>
-          </div>
           <div className="vds-kpis">
             {KPIS.map((k) => (
               <div className={`vds-kpi${k.hl ? " hl" : ""}`} key={k.label}>
@@ -477,21 +490,16 @@ function Hero({ onStart }: { onStart: () => void }) {
     <section className="lp-hero">
       <div className="lp-container lp-hero-copy">
         <h1 className="lp-hero-title">
-          Cut your AI bill.
-          <span className="accent">Prove every dollar.</span>
+          Cut your AI bill
+          <span className="accent">with one line of code</span>
         </h1>
         <p className="lp-hero-sub">
-          Reduce your AI spend by routing requests through the cheapest models and optimizations that still meet
-          your quality bar, then proving every dollar saved in a finance-ready ledger.
+          Varsten is the cost layer for AI. It routes, caches, batches, and trims requests automatically,
+          lowering your AI spend without sacrificing output quality.
         </p>
         <div className="lp-hero-cta">
           <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onStart}>Start your 14-day free trial</button>
-          <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#ledger">See how the ledger works</a>
-        </div>
-        <div className="lp-trust-row">
-          <span className="lp-trust-item"><Check /> Save $0, pay $0</span>
-          <span className="lp-trust-item"><Check /> Fail-open by design</span>
-          <span className="lp-trust-item"><Check /> Never stores prompts or outputs</span>
+          <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#levers">See how it works</a>
         </div>
         <div className="lp-works-with">
           <span className="label">Compatible with</span>
@@ -507,28 +515,120 @@ function Hero({ onStart }: { onStart: () => void }) {
   );
 }
 
+function ProblemSpendChart() {
+  const budgetValue = PROBLEM_CHART_MAX * PROBLEM_BUDGET_FRACTION;
+
+  return (
+    <div className="lp-problem-chart-card" aria-label="Monthly AI spend climbing into margin">
+      <div className="lp-problem-chart-head">
+        <div>
+          <h3>Monthly AI spend</h3>
+          <p>Climbing into your margin</p>
+        </div>
+        <div className="lp-problem-chart-value">
+          <strong>$74,180</strong>
+          <span>↑ 312% YoY</span>
+        </div>
+      </div>
+      <div className="lp-problem-bars" aria-hidden="true">
+        <div className="lp-problem-budget-line" />
+        <span className="lp-problem-budget-label">Budget</span>
+        {PROBLEM_SPEND_BARS.map((value) => {
+          const over = Math.max(0, value - budgetValue);
+          const base = value - over;
+          const totalHeight = `${(value / PROBLEM_CHART_MAX) * 100}%`;
+          const overHeight = `${(over / value) * 100}%`;
+          const baseHeight = `${(base / value) * 100}%`;
+
+          return (
+            <div className="lp-problem-bar" key={value}>
+              <div className="lp-problem-bar-stack" style={{ height: totalHeight }}>
+                <div className="lp-problem-bar-over" style={{ height: overHeight }} />
+                <div className="lp-problem-bar-base" style={{ height: baseHeight }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="lp-problem-legend">
+        <span><i className="base" />Within budget</span>
+        <span><i className="over" />Eating margin</span>
+      </div>
+    </div>
+  );
+}
+
+function SolutionPreview({ kind }: { kind: string }) {
+  if (kind === "OBSERVE") {
+    return (
+      <div className="lp-step-chip">
+        <div className="lp-step-chip-kicker">Spend by team</div>
+        <div className="lp-step-chip-rows">
+          {SOLUTION_BREAKDOWN.map((row) => (
+            <div className="lp-step-chip-row" key={row.team}>
+              <span>{row.team}</span>
+              <i><b style={{ width: `${row.pct}%` }} /></i>
+              <em>{row.pct}%</em>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === "OPTIMIZE") {
+    return (
+      <div className="lp-step-chip lp-step-chip-guardrail">
+        <div>
+          <strong>Quality guardrail</strong>
+          <span>Within limits · rollback on</span>
+        </div>
+        <i aria-hidden="true"><b /></i>
+      </div>
+    );
+  }
+
+  return (
+    <div className="lp-step-chip lp-step-chip-ledger">
+      <div className="lp-step-chip-ledger-head">
+        <span>Net saved · MTD</span>
+        <b>Confidence</b>
+      </div>
+      <div className="lp-step-chip-ledger-row">
+        <strong>$23,678</strong>
+        <em>98/100</em>
+      </div>
+    </div>
+  );
+}
+
 /* ── Problem ─────────────────────────────────────────────────── */
 function Problem() {
   return (
-    <section className="lp-section lp-section-cream-2 lp-problem-section" id="problem">
+    <section className="lp-section lp-problem-section" id="problem">
       <div className="lp-container">
         <div className="lp-problem-layout">
-          <div className="lp-section-head">
-            <p className="lp-eyebrow">The problem</p>
-            <h2 className="lp-section-title">When AI becomes COGS, every token shows up in your margin.</h2>
-            <p className="lp-section-sub">
-              AI spend scales with usage and hits gross margin. The problem isn&apos;t
-              that the bill is high. It&apos;s that teams can&apos;t
-              see what drives it, cut it safely, or prove the savings.
-            </p>
+          <div className="lp-problem-copy">
+            <div className="lp-section-head">
+              <p className="lp-eyebrow">The problem</p>
+              <h2 className="lp-section-title">AI spend is now COGS</h2>
+              <p className="lp-section-sub">
+                It scales with usage, hits gross margin, and lands in board decks. The problem isn&apos;t
+                just that the bill is high. It&apos;s that teams can&apos;t
+                see what drives it, cut it safely, or prove the savings.
+              </p>
+            </div>
           </div>
-          <div className="lp-problem-cards">
-            {PROBLEMS.map((p) => (
-              <div className="lp-num-card" key={p.n}>
-                <span className="lp-num">{p.n}</span>
-                <p>{p.t}</p>
-              </div>
-            ))}
+          <div className="lp-problem-visuals">
+            <ProblemSpendChart />
+            <div className="lp-problem-question-card">
+              {PROBLEMS.map((p) => (
+                <div className="lp-problem-question-row" key={p.n}>
+                  <span className="lp-num">{p.n}</span>
+                  <p>{p.t}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -539,27 +639,28 @@ function Problem() {
 /* ── Solution ────────────────────────────────────────────────── */
 function Solution() {
   return (
-    <section className="lp-section lp-section-dark on-dark lp-solution-section">
+    <section className="lp-section lp-solution-section">
       <div className="lp-container">
-        <div className="lp-section-head center">
-          <p className="lp-eyebrow">The solution</p>
-          <h2 className="lp-section-title">Observe. Optimize. Prove.</h2>
-          <p className="lp-section-sub">
-            Varsten sits between your app and your AI providers so you can see spend clearly, reduce it safely, and
-            prove the savings with records finance can trust.
-          </p>
-        </div>
-        <div className="lp-grid-3">
-          {SOLUTION.map((s) => (
-            <div className="lp-step-card" key={s.n}>
-              <div className="lp-step-top">
-                <span className="lp-step-num">{s.n}</span>
-                <span className="lp-step-kicker">{s.k}</span>
+        <div className="lp-solution-layout">
+          <div className="lp-section-head lp-solution-head">
+            <p className="lp-eyebrow">The solution</p>
+            <h2 className="lp-section-title">Automated cost optimization</h2>
+            <p className="lp-section-sub">
+              Varsten sits between your app and your AI providers so you can see spend clearly, reduce it safely, and
+              get proof of savings.
+            </p>
+          </div>
+          <div className="lp-solution-journey">
+            {SOLUTION.map((s, index) => (
+              <div className="lp-step-card" key={s.n}>
+                <div className="lp-step-top">
+                  <span className="lp-step-num">{index + 1}</span>
+                  <h3>{s.t}</h3>
+                </div>
+                <SolutionPreview kind={s.k} />
               </div>
-              <h3>{s.t}</h3>
-              <p>{s.d}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </section>
@@ -571,54 +672,56 @@ function ProductInside() {
   return (
     <section className="lp-section" id="product">
       <div className="lp-container">
-        <div className="lp-section-head">
-          <p className="lp-eyebrow">Inside the product</p>
-          <h2 className="lp-section-title">The finance view and the engineering view, in one place.</h2>
-          <p className="lp-section-sub">
-            Every dollar of spend is attributed to a model, route, feature, team, and
-            pricing source. No estimating. The full picture.
-          </p>
-        </div>
-        <div className="lp-product-grid">
-          <div className="lp-card">
-            <div className="vds-panel-head">
-              <div>
-                <h5>Savings</h5>
-                <p>Daily. Each bar is what you&apos;d have paid, split into spend &amp; savings.</p>
-              </div>
-              <div className="vds-legend">
-                <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
-                <span><i style={{ background: "var(--brand)" }} />Savings</span>
-              </div>
-            </div>
-            <SavingsChart />
-            <div className="vchart-x"><span>1</span><span>5</span><span>10</span><span>15</span><span>19</span></div>
-            <div className="vds-stats">
-              <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
-              <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
-              <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
-            </div>
+        <div className="lp-product-layout">
+          <div className="lp-section-head lp-product-head">
+            <p className="lp-eyebrow">Inside the product</p>
+            <h2 className="lp-section-title">Every view in one place</h2>
+            <p className="lp-section-sub">
+              Each dollar of spend is attributed to a model, route, feature, team, and
+              pricing source. No estimating. The full picture.
+            </p>
           </div>
-          <div className="lp-card">
-            <div className="vds-panel-head">
-              <div>
-                <h5>Spend drivers</h5>
-                <p>Where $42,610 of actual spend went, by team.</p>
+          <div className="lp-product-grid">
+            <div className="lp-card">
+              <div className="vds-panel-head">
+                <div>
+                  <h5>Savings</h5>
+                  <p>Daily. Each bar is what you&apos;d have paid, split into spend &amp; savings.</p>
+                </div>
+                <div className="vds-legend">
+                  <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
+                  <span><i style={{ background: "var(--brand)" }} />Savings</span>
+                </div>
+              </div>
+              <SavingsChart />
+              <div className="vchart-x"><span>1</span><span>5</span><span>10</span><span>15</span><span>19</span></div>
+              <div className="vds-stats">
+                <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
+                <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
+                <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
               </div>
             </div>
-            <div className="vdrivers-bar">
-              {DRIVERS.map((d) => (
-                <i key={d.team} style={{ width: `${d.pct}%`, background: d.color }} />
-              ))}
-            </div>
-            <div className="vdriver-rows">
-              {DRIVERS.map((d) => (
-                <div className="vdriver" key={d.team}>
-                  <span className="d-name"><i style={{ background: d.color }} />{d.team}</span>
-                  <span className="d-amt">{d.amount}</span>
-                  <span className="d-pct">{d.pct.toFixed(1)}%</span>
+            <div className="lp-card">
+              <div className="vds-panel-head">
+                <div>
+                  <h5>Spend drivers</h5>
+                  <p>Where $42,610 of actual spend went, by team.</p>
                 </div>
-              ))}
+              </div>
+              <div className="vdrivers-bar">
+                {DRIVERS.map((d) => (
+                  <i key={d.team} style={{ width: `${d.pct}%`, background: d.color }} />
+                ))}
+              </div>
+              <div className="vdriver-rows">
+                {DRIVERS.map((d) => (
+                  <div className="vdriver" key={d.team}>
+                    <span className="d-name"><i style={{ background: d.color }} />{d.team}</span>
+                    <span className="d-amt">{d.amount}</span>
+                    <span className="d-pct">{d.pct.toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -630,16 +733,17 @@ function ProductInside() {
 /* ── Levers ──────────────────────────────────────────────────── */
 function Levers() {
   return (
-    <section className="lp-section lp-section-cream-2" id="levers">
+    <section className="lp-section" id="levers">
       <div className="lp-container">
-        <div className="lp-section-head">
-          <p className="lp-eyebrow">Savings levers</p>
-          <h2 className="lp-section-title">Five ways Varsten lowers your bill, safely.</h2>
-          <p className="lp-section-sub">
-            Every lever runs behind the same rule: if it risks your quality or latency guardrails, it doesn&apos;t run.
-          </p>
-        </div>
-        <div className="lp-levers-grid">
+        <div className="lp-levers-layout">
+          <div className="lp-section-head lp-levers-head">
+            <p className="lp-eyebrow">Savings levers</p>
+            <h2 className="lp-section-title">Cost cutting in five unique ways</h2>
+            <p className="lp-section-sub">
+              Each Lever runs behind the same rule: if it risks your quality or latency guardrails, it doesn&apos;t run.
+              You don&apos;t pay for levers that aren&apos;t actively cutting costs.
+            </p>
+          </div>
           <div className="lp-lever-list">
             {LEVERS.map((l) => (
               <div className="lp-lever-item" key={l.n}>
@@ -648,34 +752,9 @@ function Levers() {
                   <h4>{l.t}</h4>
                   <p>{l.d}</p>
                 </div>
+                <span className="lp-lever-toggle" aria-hidden="true"><i /></span>
               </div>
             ))}
-          </div>
-          <div className="lp-card lever-panel">
-            <div className="vlever-head">
-              <h5>Savings by lever</h5>
-            </div>
-            <div className="vlever-rows">
-              {LEVER_ROWS.map((l) => (
-                <div className={`vlever${l.state === "Off" ? " is-off" : ""}`} key={l.name}>
-                  <div className="vlever-top">
-                    <span className="vlever-name">
-                      {l.name}
-                      <span className={`vstate ${l.state === "Off" ? "off" : "on"}`}>{l.state}</span>
-                    </span>
-                    <strong className="vlever-amt">{l.amount}</strong>
-                  </div>
-                  <div className="vlever-bar">
-                    <span className="vlever-track"><i style={{ width: `${l.pct}%` }} /></span>
-                    <em className="vlever-pct">{l.pct}%</em>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="vlever-total">
-              <span className="t-label">Gross saved</span>
-              <span className="t-value">{LEVER_GROSS_SAVED_LABEL}</span>
-            </div>
           </div>
         </div>
       </div>
@@ -686,70 +765,44 @@ function Levers() {
 /* ── Ledger ──────────────────────────────────────────────────── */
 function Ledger() {
   return (
-    <section className="lp-section lp-section-dark on-dark" id="ledger">
+    <section className="lp-section" id="ledger">
       <div className="lp-container">
-        <div className="lp-section-head">
-          <p className="lp-eyebrow">The ledger</p>
-          <h2 className="lp-section-title">Numbers your CFO can stand behind.</h2>
-          <p className="lp-section-sub">
-            A dashboard shows activity. A ledger shows exactly what changed, how much you saved, and how the number was
-            calculated. That is what makes the savings usable in finance reviews, board decks, and budget decisions.
-          </p>
-        </div>
-        <div className="lp-ledger-grid">
-          <div className="lp-ledger-card">
-            <div className="lp-ledger-head">
-              <h3>Savings ledger</h3>
-              <span className="meta">Month to date</span>
-            </div>
-            <div className="lp-ledger-row">
-              <span className="label">Gross savings</span>
-              <span className="val">{LEVER_GROSS_SAVED_LABEL}</span>
-            </div>
-            <div className="lp-ledger-row">
-              <span className="label">Varsten fee <small>· 25% of verified</small></span>
-              <span className="val">&minus;$7,893</span>
-            </div>
-            <div className="lp-ledger-row net">
-              <span className="label">Net savings <small>· what you keep</small></span>
-              <span className="val">$23,678</span>
-            </div>
-            <div className="lp-ledger-meta">
-              <div className="row">
-                <span className="k">Attribution</span>
-                <span className="v">By lever, route &amp; pricing source. 96.7% of spend tagged.</span>
-              </div>
-              <div className="row">
-                <span className="k">Method</span>
-                <span className="v">Live holdback A/B + official catalog pricing.</span>
-              </div>
-            </div>
+        <div className="lp-ledger-layout">
+          <div className="lp-section-head lp-ledger-head-copy">
+            <p className="lp-eyebrow">The ledger</p>
+            <h2 className="lp-section-title">Continuous self-auditing</h2>
+            <p className="lp-section-sub">
+              The ledger shows exactly what changed, how much you saved, and how the number was
+              calculated. Usable in finance reviews, board decks, and budget decisions.
+            </p>
           </div>
-          <div className="lp-conf-card">
-            <div className="lp-conf-top">
-              <div className="lp-conf-badge">
-                <span className="lp-conf-check"><Check /></span>
-                <div>
-                  <h3>High confidence</h3>
-                  <p>Suitable for board reporting &amp; finance sign-off</p>
+          <div className="lp-ledger-grid">
+            <div className="lp-conf-card">
+              <div className="lp-conf-label-row">Data integrity</div>
+              <div className="lp-conf-top">
+                <div className="lp-conf-badge">
+                  <span className="lp-conf-check"><Check /></span>
+                  <div>
+                    <h3>High confidence</h3>
+                  </div>
                 </div>
+                <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
               </div>
-              <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
-            </div>
-            <div className="lp-conf-row">
-              <span className="name">Pricing coverage <span className="vstate on">Catalog-verified</span></span>
-              <span className="stat">100%</span>
-              <span className="desc">Every dollar priced from official provider catalogs.</span>
-            </div>
-            <div className="lp-conf-row">
-              <span className="name">Spend attribution <span className="vstate on">Tagged</span></span>
-              <span className="stat">96.7%</span>
-              <span className="desc">Share of spend tied to a team or feature.</span>
-            </div>
-            <div className="lp-conf-row">
-              <span className="name">Holdback test <span className="vstate on">Passing</span></span>
-              <span className="stat">Live</span>
-              <span className="desc">A traffic slice skips Varsten so savings are proven against live behavior, not modeled.</span>
+              <div className="lp-conf-row">
+                <span className="name">Pricing coverage <span className="vstate on">Catalog-verified</span></span>
+                <span className="stat">100%</span>
+                <span className="desc">Every dollar priced from official provider catalogs.</span>
+              </div>
+              <div className="lp-conf-row">
+                <span className="name">Spend attribution <span className="vstate on">Tagged</span></span>
+                <span className="stat">96.7%</span>
+                <span className="desc">Share of spend tied to a team or feature.</span>
+              </div>
+              <div className="lp-conf-row">
+                <span className="name">Holdback test <span className="vstate on">Passing</span></span>
+                <span className="stat">Live</span>
+                <span className="desc">A traffic slice skips Varsten so savings are proven against live behavior, not modeled.</span>
+              </div>
             </div>
           </div>
         </div>
@@ -763,41 +816,32 @@ function HowItWorks() {
   return (
     <section className="lp-section" id="how-it-works">
       <div className="lp-container">
-        <div className="lp-section-head center">
-          <p className="lp-eyebrow">How it works</p>
-          <h2 className="lp-section-title">Goes live the same day.</h2>
-          <p className="lp-section-sub">
-            Point your existing AI traffic through Varsten with a base URL change. No rewrites, no SDK swap.
-          </p>
-        </div>
-        <div className="lp-how-grid">
-          <div className="lp-steps">
-            {HOW_STEPS.map((s) => (
-              <div className="lp-step-row" key={s.n}>
-                <span className="badge">{s.n}</span>
-                <div>
-                  <h4>{s.t}</h4>
-                  <p>{s.d}</p>
-                </div>
-              </div>
-            ))}
+        <div className="lp-how-layout">
+          <div className="lp-section-head lp-how-head">
+            <p className="lp-eyebrow">Installation</p>
+            <h2 className="lp-section-title">Simple integration</h2>
+            <p className="lp-section-sub">
+              Start sending traffic through Varsten with a base URL change.
+            </p>
           </div>
-          <div className="lp-code">
-            <div className="lp-code-head">
-              <span className="r" /><span className="y" /><span className="g" />
-              <span className="lp-code-file">client.py</span>
+          <div className="lp-code-page">
+            <div className="lp-code">
+              <div className="lp-code-head">
+                <span className="r" /><span className="y" /><span className="g" />
+                <span className="lp-code-file">client.py</span>
+              </div>
+              <pre>
+                <code>
+                  <span className="kw">from</span> openai <span className="kw">import</span> OpenAI{"\n\n"}
+                  client = OpenAI({"\n"}
+                  {"    "}base_url=<span className="str">&quot;https://proxy.varsten.ai/v1&quot;</span>,{"  "}
+                  <span className="com"># was api.openai.com/v1</span>{"\n"}
+                  {"    "}api_key=os.environ[<span className="str">&quot;VARSTEN_KEY&quot;</span>],{"\n"}
+                  ){"\n\n"}
+                  <span className="com"># everything else stays the same</span>
+                </code>
+              </pre>
             </div>
-            <pre>
-              <code>
-                <span className="kw">from</span> openai <span className="kw">import</span> OpenAI{"\n\n"}
-                client = OpenAI({"\n"}
-                {"    "}base_url=<span className="str">&quot;https://proxy.varsten.ai/v1&quot;</span>,{"  "}
-                <span className="com"># was api.openai.com/v1</span>{"\n"}
-                {"    "}api_key=os.environ[<span className="str">&quot;VARSTEN_KEY&quot;</span>],{"\n"}
-                ){"\n\n"}
-                <span className="com"># everything else stays the same</span>
-              </code>
-            </pre>
           </div>
         </div>
       </div>
@@ -825,7 +869,7 @@ function Pricing({ onStart }: { onStart: () => void }) {
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">Pricing</p>
-          <h2 className="lp-section-title">Pay from savings.</h2>
+          <h2 className="lp-section-title">Pay from savings</h2>
           <p className="lp-section-sub">
             If we save you nothing, you pay nothing.
           </p>
@@ -852,33 +896,65 @@ function Pricing({ onStart }: { onStart: () => void }) {
   );
 }
 
+/* ── FAQ ─────────────────────────────────────────────────────── */
+function FAQ() {
+  return (
+    <section className="lp-section lp-faq-section" id="faq">
+      <div className="lp-container">
+        <div className="lp-section-head center">
+          <p className="lp-eyebrow">FAQ</p>
+          <h2 className="lp-section-title">Common Questions</h2>
+          <p className="lp-section-sub">
+            A short reference for security, billing, and production behavior.
+          </p>
+        </div>
+        <div className="lp-faq-list">
+          {FAQS.map((item, index) => (
+            <details className="lp-faq-item" key={item.q} open={index === 0}>
+              <summary>
+                <span>{item.q}</span>
+                <i aria-hidden="true" />
+              </summary>
+              <p>{item.a}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ── Security ────────────────────────────────────────────────── */
 function Security() {
   return (
     <section className="lp-section" id="security">
       <div className="lp-container">
-        <div className="lp-section-head">
-          <p className="lp-eyebrow">Security &amp; trust</p>
-          <h2 className="lp-section-title">Built for production traffic and security review.</h2>
-          <p className="lp-section-sub">Inline by design, but never a single point of failure.<br />
-             We measure cost, not content.</p>
-        </div>
-        <div className="lp-sec-grid">
-          {SECURITY.map((claim) => (
-            <div className="lp-sec-card" key={claim.t}>
-              <span className="lp-sec-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-              </span>
-              <div>
-                <h4>{claim.t}</h4>
-                <p>{claim.d}</p>
-              </div>
+        <div className="lp-sec-layout">
+          <div className="lp-section-head lp-sec-head">
+            <p className="lp-eyebrow">Security &amp; trust</p>
+            <h2 className="lp-section-title">A set-it-and-forget-it solution</h2>
+            <p className="lp-section-sub">Inline by design, engineered to degrade gracefully.<br />
+              We measure cost, not content.</p>
+          </div>
+          <div className="lp-sec-content">
+            <div className="lp-sec-grid">
+              {SECURITY.map((claim) => (
+                <div className="lp-sec-card" key={claim.t}>
+                  <span className="lp-sec-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h4>{claim.t}</h4>
+                    <p>{claim.d}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+            <p className="lp-sec-support">Prepared for DPA and security review.</p>
+          </div>
         </div>
-        <p className="lp-sec-support">Prepared for DPA and security review.</p>
       </div>
     </section>
   );
@@ -889,10 +965,10 @@ function FinalCta({ onStart }: { onStart: () => void }) {
   return (
     <section className="lp-final">
       <div className="lp-container">
-        <h2>Cut your AI spend confidently. Automate the entire process.</h2>
+        <h2>Cut your AI spend,<br /> automate the entire process</h2>
         <p>
-          Start free in observe-only mode and find out where your money actually goes. Turn on optimization when
-          you&apos;re ready, and let the ledger make your case for you.
+          Start free in observe-only mode and find out where your money actually goes. Automate when
+          you&apos;re ready, and let the ledger make it&apos;s case.
         </p>
         <div className="lp-final-cta">
           <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onStart}>Start your 14-day free trial</button>
@@ -934,6 +1010,7 @@ function Footer() {
           <FooterCol title="Company">
             <Link href="/docs">Docs</Link>
             <a href="#how-it-works">How it works</a>
+            <a href="mailto:mail@varsten.ai">Contact</a>
           </FooterCol>
           <FooterCol title="Legal">
             <Link href="/privacy">Privacy</Link>
@@ -968,8 +1045,9 @@ export default function LandingPage() {
       <Levers />
       <Ledger />
       <HowItWorks />
-      <Pricing onStart={startFree} />
       <Security />
+      <Pricing onStart={startFree} />
+      <FAQ />
       <FinalCta onStart={startFree} />
       <Footer />
     </main>

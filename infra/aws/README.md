@@ -78,6 +78,42 @@ The single-instance constraints are handled in code; the Terraform default
 - **Schema migrations:** decoupled from boot (see the deployment lifecycle below),
   so parallel replica starts never race the migration.
 
+## Terraform remote state (bootstrap once, before the first `terraform init`)
+
+Terraform uses an **S3 backend with a DynamoDB lock** (`terraform/versions.tf`) so
+CI/CD and operators share one state and concurrent applies can't corrupt it. The
+state bucket can't be created by the same Terraform run that uses it, so create it
+**once per account, before your first `terraform init`**:
+
+```sh
+cd infra/aws
+# Defaults match the backend block (bucket varsten-tfstate, table varsten-tflock,
+# us-east-1). Override STATE_BUCKET if the global name is taken -- then change it in
+# terraform/versions.tf too.
+./bootstrap_state.sh
+
+cd terraform
+terraform init                              # configures the S3 backend
+terraform workspace new staging             # per-env state: env:/staging/...
+# terraform workspace new production
+terraform apply -var="environment=staging" -var="image_tag=<git-sha>" ...
+```
+
+The script is idempotent (safe to re-run) and creates the bucket with versioning,
+AES256 encryption, full public-access block, and a TLS-only policy, plus the lock
+table keyed on `LockID`. Each environment is a Terraform **workspace**, so staging
+and production keep separate state in the same bucket.
+
+If this directory already has **local** state from an earlier solo deploy
+(`terraform.tfstate` present), the first `terraform init` after adding the backend
+will offer to copy it up: run `terraform init -migrate-state` and confirm. Verify
+with `terraform plan` (expect no changes), then delete the local `terraform.tfstate*`
+files so they can't drift.
+
+The principal running Terraform (your CLI identity, and the CI `AWS_DEPLOY_ROLE_ARN`)
+needs `s3:{Get,Put,List}Object` on the bucket and `dynamodb:{GetItem,PutItem,
+DeleteItem}` on the lock table, in addition to the resource permissions in `iam.tf`.
+
 ## Deployment lifecycle (migrate before promote)
 
 The API image no longer migrates on boot. The schema is brought to head by a
@@ -213,13 +249,15 @@ curl https://<service-url>/health           # {"ok": true}
 - Move compute to **ECS Fargate** (always-on service, blue/green deploys, finer
   security groups), keeping the same image.
 - Migrations already run as a decoupled release step, not on container boot (see
-  "Deployment lifecycle" above). The remaining graduation work is moving Terraform
-  to a remote state backend so the promote job can `terraform apply` from CI.
+  "Deployment lifecycle" above), and Terraform state is already remote (S3 + Dynamo
+  lock, see "Terraform remote state" above), so the promote job can
+  `terraform apply` from CI.
 - RDS Multi-AZ + automated backups + a read replica if Proof queries grow.
 - Scheduler overlap across replicas is already handled by the per-job Postgres
   advisory lock (`SCHEDULER_ADVISORY_LOCK_ENABLED`, see `app/scheduler.py` and the
   Horizontal scaling section above). Moving the sweeps to EventBridge cron is the
   next step only if you want the API tier fully free of background work.
-- Promote this runbook to Terraform under `infra/aws/` and validate with
-  `terraform plan` against the account.
+- This runbook is largely codified in `infra/aws/terraform/` already (App Runner,
+  ECR, IAM, secrets, autoscaling, remote state). Validate changes with
+  `terraform plan` against the account before applying.
 ```

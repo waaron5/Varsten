@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:e2e": "playwright test -c playwright.config.ts",
     "pw:login": "node scripts/pw-login.mjs",
     "pw:shot": "node scripts/pw-shot.mjs"
   },

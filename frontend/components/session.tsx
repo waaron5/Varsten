@@ -32,6 +32,25 @@ interface SessionValue {
 const SessionContext = createContext<SessionValue | null>(null);
 
 type PickActiveProject = (list: Project[]) => void;
+type AuthUser = { email?: string | null; name?: string | null };
+
+const E2E_AUTH_USER: AuthUser = {
+  email: "maya@enterprise.example",
+  name: "Maya Chen",
+};
+
+function e2eAuthUser(): AuthUser | null {
+  // Test seam for Playwright. CI gets the explicit build-time flag from
+  // playwright.config.ts; local dev can reuse an already-running Next server via
+  // a development-only cookie. Production builds do not set either path.
+  const envEnabled = process.env.NEXT_PUBLIC_E2E_AUTH_BYPASS === "1";
+  const devCookieEnabled =
+    process.env.NODE_ENV === "development" &&
+    typeof document !== "undefined" &&
+    document.cookie.split(";").some((cookie) => cookie.trim() === "varsten_e2e_auth=1");
+  if (!envEnabled && !devCookieEnabled) return null;
+  return E2E_AUTH_USER;
+}
 
 function authErrorMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
@@ -252,7 +271,10 @@ export function SessionProvider({
   initialActiveProjectId?: string | null;
 }) {
   const seeded = Boolean(initialProjects && initialProjects.length > 0);
-  const { user, isLoading } = useUser();
+  const auth = useUser();
+  const e2eUser = e2eAuthUser();
+  const user = e2eUser ?? auth.user;
+  const isLoading = e2eUser ? false : auth.isLoading;
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [projects, setProjects] = useState<Project[]>(initialProjects ?? []);
   const [activeProjectId, setActive] = useState<string | null>(initialActiveProjectId);

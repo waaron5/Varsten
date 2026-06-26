@@ -50,6 +50,15 @@ export default function DocsPage() {
         <ContentCode>{quickstartCode}</ContentCode>
       </ContentSection>
 
+      <ContentCallout title="Evaluation vs production fail-open">
+        <p>
+          The base-URL change is the fastest way to evaluate Varsten and is a good fit for
+          development and low-risk workloads. It keeps Varsten in your request path, so a Varsten
+          outage would interrupt requests to it. Service-level fallback that calls your provider
+          directly when Varsten is unavailable ships with the Varsten SDK, which is in development.
+        </p>
+      </ContentCallout>
+
       <ContentSection eyebrow="Core concepts" title="What Varsten does in the request path.">
         <ContentGrid>
           <ContentCard title="Response reuse">
@@ -77,7 +86,7 @@ export default function DocsPage() {
         <ul className="lp-content-list">
           <li>Begin with read-only monitoring if you want to see spend before you optimize anything inline.</li>
           <li>Use separate routes for workloads with different quality needs or retention rules.</li>
-          <li>Keep fail-open turned on for production paths that must keep serving during provider problems.</li>
+          <li>Rely on the circuit breaker and strict timeouts so a struggling provider fails fast instead of tying up your connections.</li>
           <li>Check the Proof dashboard before you turn a recommendation into an automatic policy.</li>
         </ul>
       </ContentSection>

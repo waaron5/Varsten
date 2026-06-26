@@ -18,7 +18,7 @@ export default function SecurityPage() {
     <ContentPage
       eyebrow="Security"
       title="Built for AI traffic that has to keep serving."
-      description="Varsten is an inline proxy with careful controls around data handling, access, provider routing, and fail-open reliability."
+      description="Varsten is an inline proxy with careful controls around data handling, access, provider routing, and reliability."
     >
       <ContentSection eyebrow="Data handling" title="Keep request data scoped to the route's purpose.">
         <ContentGrid>
@@ -46,7 +46,8 @@ export default function SecurityPage() {
       <ContentSection eyebrow="Controls" title="Access and reliability controls stay clear.">
         <ul className="lp-content-list">
           <li>Use scoped API keys for production traffic instead of shared personal credentials.</li>
-          <li>Set inline routes to fail open to the original provider when Varsten or an upstream service is down.</li>
+          <li>Pass requests through to the original provider when an internal optimization step fails, and use a circuit breaker with strict timeouts so a failing upstream cannot stall traffic.</li>
+          <li>Base-URL integration keeps Varsten in the request path; service-level fallback that calls your provider directly during a Varsten outage ships with the Varsten SDK, which is in development.</li>
           <li>Use strict read and total timeouts so a hung upstream cannot tie up production connections.</li>
           <li>Limit admin access to people who need billing, routing, eval, or security review.</li>
         </ul>

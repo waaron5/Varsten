@@ -57,21 +57,8 @@ def invalidate_plan_tier(organization_id: uuid.UUID | None = None) -> None:
             _tier_cache.pop(str(organization_id), None)
 
 
-def plan_tier_for_project(db: Session, project: Project) -> str:
-    org = db.get(Organization, project.organization_id)
-    return org.plan_tier if org is not None else PLAN_FREE
-
-
 def is_performance(db: Session, project: Project) -> bool:
     state = entitlement_state_for_project(db, project)
-    return state.plan_tier == PLAN_PERFORMANCE and not state.observe_only
-
-
-def is_performance_org(db: Session, organization_id: uuid.UUID) -> bool:
-    org = db.get(Organization, organization_id)
-    if org is None:
-        return False
-    state = _entitlement_state_for_org(db, org)
     return state.plan_tier == PLAN_PERFORMANCE and not state.observe_only
 
 
