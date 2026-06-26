@@ -1,89 +1,297 @@
 # Varsten
 
-Varsten is an AI cost-optimization engine for companies using LLMs in any capacity. It cuts AI spend, keeps quality inside configured guardrails, and proves the savings.
+Varsten is an AI cost-control and savings-proof system for production LLM traffic.
+It sits in front of model providers, records trusted cost metadata, identifies
+safe savings opportunities, applies approved optimizations, and shows the ledger
+behind the savings number.
 
-Varsten ingests AI usage across products, teams, customers, models, and providers, derives trusted cost from a pricing catalog, and surfaces pricing/data-quality gaps instead of hiding them. The product value comes from what sits on top of that foundation: an engine that finds specific cuts, maps them to savings levers, lets a human approve what is not yet trusted, and shows proof of the dollars saved.
+The current repository contains four main surfaces:
 
-Varsten's five savings levers are smart routing, semantic cache, token trim, model downshift, and batching.
+- `backend/` - FastAPI control plane and inline proxy.
+- `frontend/` - authenticated dashboard/control-plane UI.
+- `marketing/` - public marketing site.
+- `sdk/openai/` - fail-open OpenAI SDK wrapper.
 
-The daily product loop is: spend comes in, the engine identifies cuts, guardrails define what is safe, a user approves or dismisses the risky work, and Proof explains the savings attribution. Analysis exists to support that loop, not to be the destination.
+This README describes what is built in this repo today. Longer product and
+operations notes live under `docs/`.
 
-## Product Screenshots
+## What Is Built
 
-### Dashboard
+### Backend
 
-![Varsten Dashboard](docs/assets/screenshots/varsten-home.png)
+The backend is a FastAPI app with PostgreSQL/pgvector storage. It includes:
 
-### Savings Levers
+- API-key authenticated usage ingestion.
+- Pricing catalog and cost resolution with pricing/data-quality status.
+- Provider connection state and provider-key handling.
+- Dashboard snapshot APIs.
+- Recommendations mapped to savings levers.
+- Engine apply/dismiss flows.
+- Guardrails for quality floors, budgets, and alerts.
+- Proof views for savings, attribution, data quality, and reports.
+- Eval/replay harness for gated model-swap recommendations.
+- Inline proxy routes for OpenAI-compatible chat completions, Anthropic Messages,
+  Gemini native generation, Gemini OpenAI-compatible chat, streaming, tool-call
+  preservation, semantic cache, token trim, routing, batching, holdback evidence,
+  drift sweep, and optimization decision records.
 
-![Varsten savings levers](docs/assets/screenshots/varsten-levers.png)
+Proxy routes include:
 
-### Guardrails
+- `POST /v1/chat/completions`
+- `POST /v1/messages`
+- `POST /v1/messages/count_tokens`
+- `POST /v1/messages/batches`
+- `POST /v1beta/models/{model}:generateContent`
+- `POST /v1beta/models/{model}:streamGenerateContent?alt=sse`
+- `POST /v1beta/models/{model}:countTokens`
+- `POST /v1beta/batches`
+- `POST /v1beta/openai/chat/completions`
 
-![Varsten guardrails](docs/assets/screenshots/varsten-guardrails.png)
+The backend exposes:
 
-### Proof
+- `GET /health` for process liveness.
+- `GET /health/ready` for database-backed readiness.
 
-![Varsten proof view](docs/assets/screenshots/varsten-proof.png)
+### Dashboard App
 
-## MVP Scope
+The dashboard is a Next.js app in `frontend/`. It includes:
 
-In:
+- Auth0-backed app shell.
+- Server-seeded session/project bootstrap for the dashboard path.
+- Onboarding and provider connection flows.
+- Dashboard, Engine, Analysis, Guardrails, Proof, Reports, Admin, Settings, and
+  Upgrade surfaces.
+- Shared design tokens in `frontend/app/tokens.css`.
+- Playwright E2E specs for onboarding, proxy resilience, and savings math using
+  a mock API harness.
 
-- FastAPI backend
-- PostgreSQL via Docker Compose
-- API-key authenticated usage ingestion
-- Pydantic validation
-- Authoritative cost measurement with pricing catalog, overrides, `cost_source`, and `pricing_status`
-- Rule-based recommendation engine mapped to the five savings levers
-- Dashboard and Engine decision-loop UI
-- Apply, dismiss, and status tracking for recommendations
-- Proof views for estimated/backtested savings, attribution method, net-after-fee, and data quality
-- Guardrails configuration for quality floors, budgets, and alerts
-- Analysis views for spend, customers, and models
-- Admin views for connections, API keys, team, billing, and security
-- Usage explorer and setup flow as supporting/admin tools
-- Inline SDK-compatible proxy for OpenAI chat completions, Anthropic Messages,
-  Gemini native `generateContent`, Gemini OpenAI-compatible chat completions,
-  streaming, tool calls, provider-key vaulting, and cross-provider routing audit
-  records
+### Marketing App
 
-Out for v1:
+The marketing site is a separate Next.js app in `marketing/`. It includes:
 
-- published SDKs
-- in-VPC data plane deployment
-- billing-grade invoice reconciliation
-- full enterprise permissions
-- advanced ML forecasting
+- Landing page for Varsten.
+- Docs, security, privacy, and terms pages.
+- Lead capture endpoint using Resend when configured.
+- Shared design tokens in `marketing/app/tokens.css`.
+
+The marketing app is intentionally separate from the authenticated dashboard.
+
+### OpenAI SDK
+
+The OpenAI SDK wrapper in `sdk/openai/` is the production-oriented fail-open
+integration for OpenAI chat completions.
+
+When Varsten is healthy, requests go through Varsten. When Varsten is
+unreachable, slow to connect, or returns a Varsten-originated failure before
+provider output is produced, the SDK can send the same request directly to
+OpenAI with the customer's provider key.
+
+See `sdk/openai/README.md` for the exact fallback rules and limitations.
+
+## What Is Not Finished
+
+The repo is usable for local demos, frontend verification, and continued product
+development, but a few things are intentionally not represented as complete:
+
+- The AWS Terraform under `infra/aws/terraform/` still needs a reviewed first
+  production apply and restore drill before routing customer traffic.
+- The base-URL-only proxy integration is useful for evaluation, but production
+  apps that require fail-open behavior should use the SDK wrapper path.
+- The OpenAI SDK exists; Anthropic and Gemini SDK wrappers are not present in
+  this repo yet.
+- Manual invoicing is the current commercial path. There is no full Stripe
+  subscription system here.
+- Some product claims depend on deployment mode. Inline proxy traffic necessarily
+  passes request content through the proxy; ledger/proof storage is based on
+  metadata and measured costs unless a feature such as eval capture or cache
+  explicitly stores bounded content.
+
+## Repository Layout
+
+```text
+backend/        FastAPI app, Alembic migrations, proxy, pricing, evals, tests
+frontend/       Authenticated Next.js dashboard and Playwright E2E tests
+marketing/      Public Next.js marketing site
+sdk/openai/     Fail-open OpenAI SDK wrapper package
+infra/aws/      AWS App Runner/RDS/ECR/Secrets Manager Terraform and runbooks
+docs/           Product, security, operations, and design notes
+```
+
+## Prerequisites
+
+- Docker
+- Python 3.13
+- `uv`
+- Node.js 22
+- npm
 
 ## Local Development
 
-Start Postgres:
+### Start the Compose Stack
+
+This starts Postgres, the API, and the dashboard app:
+
+```bash
+docker compose up --build -d
+```
+
+Services:
+
+- API: `http://localhost:8000`
+- Dashboard: `http://localhost:3000`
+- Postgres: host port `5434`
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Drop the local database volume too:
+
+```bash
+docker compose down -v
+```
+
+### Backend Native Dev
+
+Start only Postgres:
 
 ```bash
 docker compose up db
 ```
 
-Run the API from `backend/`:
+Install backend dependencies:
 
 ```bash
+cd backend
+uv sync --dev
+```
+
+Run migrations:
+
+```bash
+cd ..
+make migrate
+```
+
+Run the API:
+
+```bash
+cd backend
 uv run uvicorn app.main:app --reload
 ```
 
-Health check:
+Health checks:
 
 ```bash
 curl http://localhost:8000/health
+curl http://localhost:8000/health/ready
 ```
 
-Provider SDK drop-in routes supported by the local API:
+### Seed Demo Data
 
-- OpenAI-compatible: `POST /v1/chat/completions`
-- Anthropic native: `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1/messages/batches`
-- Gemini native: `POST /v1beta/models/{model}:generateContent`, `:streamGenerateContent?alt=sse`, `:countTokens`, `POST /v1beta/batches`
-- Gemini OpenAI-compatible: `POST /v1beta/openai/chat/completions`
+After migrations:
 
-Run opt-in SDK smoke tests against a running Varsten API:
+```bash
+make demo-seed
+```
+
+This creates a deterministic demo organization, project, API key, pricing rows,
+usage events, recommendations, guardrails, proof rows, customer economics, and
+provider connection state.
+
+The demo project key is:
+
+```text
+vk_demo_varsten_local_key
+```
+
+For sales/demo tenant resets:
+
+```bash
+make seed-demo-tenant
+```
+
+### Dashboard App
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+Auth0 settings are documented in `frontend/README.md`.
+
+### Marketing App
+
+```bash
+cd marketing
+npm install
+cp .env.example .env.local
+npm run dev -- -p 3001
+```
+
+Open:
+
+```text
+http://localhost:3001
+```
+
+Lead-email configuration is documented in `docs/OPERATIONS_SETUP.md`.
+
+## Verification
+
+Backend quality gate:
+
+```bash
+make backend-check
+```
+
+Backend tests only:
+
+```bash
+make backend-test
+```
+
+Backend security/audit checks:
+
+```bash
+make backend-security
+make backend-audit
+```
+
+Dashboard checks:
+
+```bash
+cd frontend
+npm run lint
+npm run build
+npm run test:e2e
+```
+
+Marketing checks:
+
+```bash
+cd marketing
+npm run lint
+npm run build
+```
+
+OpenAI SDK package checks are run from `sdk/openai/` according to that package's
+own README and scripts.
+
+## Live SDK Smoke Tests
+
+Run these only against a running Varsten API with real provider keys configured
+for the target project:
 
 ```bash
 cd backend
@@ -95,25 +303,78 @@ VARSTEN_SDK_SMOKE_API_KEY=vk_your_project_key \
 make backend-sdk-smoke
 ```
 
-Optional model overrides are `VARSTEN_SDK_SMOKE_OPENAI_MODEL`,
-`VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL`, and `VARSTEN_SDK_SMOKE_GEMINI_MODEL`.
-
-Production multi-provider setup is covered in `docs/OPERATIONS_SETUP.md`.
-
-Seed the local product demo after migrations:
+Optional model overrides:
 
 ```bash
-make demo-seed
+VARSTEN_SDK_SMOKE_OPENAI_MODEL=gpt-4o-mini
+VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL=claude-3-5-haiku-20241022
+VARSTEN_SDK_SMOKE_GEMINI_MODEL=gemini-3.5-flash
 ```
 
-This creates a deterministic demo organization, project, API key, pricing catalog rows, usage events, lever recommendations, guardrails, proof rows, customer economics, and provider connection state. It is safe to rerun. The demo API key is `vk_demo_varsten_local_key`.
+## Deployment Notes
 
-## Product Direction
+Frontend and marketing are designed for Vercel deployments. The backend is
+designed for AWS App Runner with RDS Postgres, ECR, Secrets Manager, Sentry, and
+Terraform-managed infrastructure.
 
-The current direction is engine-first. Varsten should not drift back into an analytics-first product where visibility is the end goal. Measurement exists so the engine can cut spend safely and Proof can defend the savings.
+Important docs:
 
-Read these before making product or UI changes:
+- `infra/aws/README.md` - AWS infrastructure overview and remote-state setup.
+- `infra/aws/bootstrap_state.sh` - one-time S3/DynamoDB Terraform state bootstrap.
+- `docs/OPERATIONS_DEPLOY.md` - deploy, backup, migration, and rollback runbook.
+- `docs/OPERATIONS_SETUP.md` - provider connections, SDK smoke, lead email, and
+  operator setup.
+- `docs/security/` - security notes and data-handling docs.
 
-- `CLAUDE.md` for build order, v1 scope, and agent guidance.
-- `docs/product/VARSTEN_PRODUCT_GUIDE.md` for the finished product direction.
-- `docs/product/varsten-ui-mockup.html` for the canonical UI and information architecture.
+Terraform remote state must be bootstrapped before first `terraform init`:
+
+```bash
+cd infra/aws
+./bootstrap_state.sh
+cd terraform
+terraform init
+```
+
+Production migrations should run as a separate release step before promoting a
+new backend image. Do not run production migrations implicitly on container boot.
+
+## Product Model
+
+Varsten's current product loop is:
+
+1. Ingest or proxy production AI usage.
+2. Resolve trusted cost from the pricing catalog.
+3. Surface savings opportunities by lever.
+4. Gate risky changes with evals, guardrails, approvals, and holdbacks.
+5. Apply enabled policies in the proxy path.
+6. Record evidence and savings attribution.
+7. Show the proof ledger for finance and operations.
+
+The savings levers represented in the app are:
+
+- Smart routing
+- Semantic cache
+- Token trim
+- Model downshift
+- Batching
+
+Guardrails are split into:
+
+- Quality floors and auto-rollback controls.
+- Budget rules.
+- Alert rules.
+
+Proof is split into:
+
+- Savings accounting.
+- Attribution.
+- Data quality.
+- Shareable reports.
+
+## Useful References
+
+- `docs/product/VARSTEN_PRODUCT_GUIDE.md` - product direction and buyer-facing
+  explanations.
+- `CLAUDE.md` - engineering/product constraints and agent guidance.
+- `docs/design/SDK_FAILOPEN_DESIGN_FREEZE.md` - fail-open SDK contract.
+- `docs/SMOKE_TESTS.md` - manual smoke checks.

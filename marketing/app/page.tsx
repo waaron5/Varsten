@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { APP_URL, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
+import { APP_URL, CONTACT_EMAIL, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
 
 /* ── Static data for the dashboard product shot (decorative, fixed numbers) ── */
 const LEVER_GROSS_SAVED = 31570;
@@ -84,9 +84,9 @@ const LEVERS = [
 ];
 
 const SECURITY = [
-  { t: "Engineered to fail safe", d: "If an optimization step errors, your request still goes through to your provider. A circuit breaker and strict timeouts keep a slow provider from stalling your traffic." },
-  { t: "Never stores prompts or outputs", d: "Varsten records the cost metadata needed to measure savings, without storing your prompts or model outputs." },
-  { t: "Quality & latency guardrails", d: "You set the limits. Any optimization that would breach them never fires." },
+  { t: "Your app keeps working", d: "A failed optimization will never break your app. If Varsten runs into a hiccup or goes offline, requests bypass it and go straight to your regular provider." },
+  { t: "The ledger avoids content", d: "The ledger monitors usage, cost, and speed, but does not store prompts or answers. Some optional features like caching hold temporary data based on the retention settings you choose." },
+  { t: "Changes are tested first", d: "Varsten tests model changes against a control group behind the scenes. If a new setup doesn't meet your quality standards, it rolls back before affecting a broader audience." },
 ];
 
 const FAQS = [
@@ -189,7 +189,7 @@ function anchorScrollOffset(): number {
   return Number.isFinite(offset) ? offset : 0;
 }
 
-function useSmoothHashLinks(): MutableRefObject<boolean> {
+function useSmoothHashLinks() {
   const anchorScrollingRef = useRef(false);
   const finishTimerRef = useRef<number | null>(null);
 
@@ -258,63 +258,42 @@ function useSmoothHashLinks(): MutableRefObject<boolean> {
   return anchorScrollingRef;
 }
 
-/* ── Sticky scroll-up banner ─────────────────────────────────── */
-function StickyBanner({ anchorScrollingRef, onStart }: { anchorScrollingRef: MutableRefObject<boolean>; onStart: () => void }) {
-  const [visible, setVisible] = useState(false);
-  const lastScrollY = useRef(0);
-  const visibleRef = useRef(false);
-  const frameRef = useRef<number | null>(null);
-
+function useSectionReveal() {
   useEffect(() => {
-    const THRESHOLD = 600;
-    const DELTA = 8;
+    const root = document.documentElement;
+    const sections = Array.from(document.querySelectorAll<HTMLElement>(".lp-reveal"));
+    const revealTargets = sections.map((section) => ({
+      section,
+      target: section.querySelector<HTMLElement>(":scope > .lp-container") ?? section,
+    }));
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    function setBannerVisible(next: boolean) {
-      if (visibleRef.current === next) return;
-      visibleRef.current = next;
-      setVisible(next);
+    root.classList.add("lp-reveal-ready");
+
+    if (prefersReducedMotion || !("IntersectionObserver" in window)) {
+      sections.forEach((section) => section.classList.add("is-visible"));
+      return () => root.classList.remove("lp-reveal-ready");
     }
 
-    function update() {
-      frameRef.current = null;
-      const current = window.scrollY;
-      const delta = current - lastScrollY.current;
-      if (anchorScrollingRef.current || current <= THRESHOLD) setBannerVisible(false);
-      else if (delta < -DELTA) setBannerVisible(true);
-      else if (delta > DELTA) setBannerVisible(false);
-      lastScrollY.current = current;
-    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const match = revealTargets.find(({ target }) => target === entry.target);
+          match?.section.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        });
+      },
+      { rootMargin: "0px 0px -20% 0px", threshold: 0.08 },
+    );
 
-    const onScroll = () => {
-      if (frameRef.current !== null) return;
-      frameRef.current = window.requestAnimationFrame(update);
-    };
-    const onAnchorStart = () => {
-      lastScrollY.current = window.scrollY;
-      setBannerVisible(false);
-    };
+    revealTargets.forEach(({ target }) => observer.observe(target));
 
-    lastScrollY.current = window.scrollY;
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("lp:anchor-scroll-start", onAnchorStart);
     return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("lp:anchor-scroll-start", onAnchorStart);
-      if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
+      observer.disconnect();
+      root.classList.remove("lp-reveal-ready");
     };
-  }, [anchorScrollingRef]);
-
-  return (
-    <div className={`lp-sticky-banner${visible ? " lp-sticky-banner-visible" : ""}`} aria-hidden={!visible}>
-      <div className="lp-sticky-banner-inner">
-        <div className="lp-sticky-banner-left">
-          <LogoMark className="lp-logo-mark lp-sticky-mark" />
-          <span>Cut your AI bill <strong>with one line of code.</strong></span>
-        </div>
-        <button className="lp-btn lp-btn-primary" onClick={onStart}>Start free</button>
-      </div>
-    </div>
-  );
+  }, []);
 }
 
 /* ── Nav ─────────────────────────────────────────────────────── */
@@ -334,13 +313,14 @@ function Nav({ onStart }: { onStart: () => void }) {
           <Logo />
         </Link>
         <nav className="lp-nav-center" aria-label="Primary">
-          <a href="#product">Product</a>
-          <a href="#how-it-works">How it works</a>
-          <a href="#ledger">Proof</a>
+          <a href="#solution">Product</a>
+          <a href="#levers">How it works</a>
           <a href="#pricing">Pricing</a>
+          <Link href="/docs">Docs</Link>
         </nav>
         <div className="lp-nav-right">
           <a className="lp-link" href={APP_URL}>Sign in</a>
+          <a className="lp-btn lp-btn-ghost" href={`mailto:${CONTACT_EMAIL}`}>Contact sales</a>
           <button className="lp-btn lp-btn-primary" onClick={onStart}>Start free</button>
         </div>
       </div>
@@ -487,7 +467,7 @@ function DashboardShot() {
 /* ── Hero ────────────────────────────────────────────────────── */
 function Hero({ onStart }: { onStart: () => void }) {
   return (
-    <section className="lp-hero">
+    <section className="lp-hero lp-reveal">
       <div className="lp-container lp-hero-copy">
         <h1 className="lp-hero-title">
           Cut your AI bill
@@ -580,7 +560,16 @@ function SolutionPreview({ kind }: { kind: string }) {
     return (
       <div className="lp-step-chip lp-step-chip-guardrail">
         <div>
-          <strong>Quality guardrail</strong>
+          <strong>
+            <svg className="lp-scissors-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="6" cy="6" r="3" />
+              <circle cx="6" cy="18" r="3" />
+              <path d="M20 4 8.12 15.88" />
+              <path d="M14.47 14.48 20 20" />
+              <path d="M8.12 8.12 12 12" />
+            </svg>
+            Token trimming
+          </strong>
           <span>Within limits · rollback on</span>
         </div>
         <i aria-hidden="true"><b /></i>
@@ -605,7 +594,7 @@ function SolutionPreview({ kind }: { kind: string }) {
 /* ── Problem ─────────────────────────────────────────────────── */
 function Problem() {
   return (
-    <section className="lp-section lp-problem-section" id="problem">
+    <section className="lp-section lp-problem-section lp-reveal" id="problem">
       <div className="lp-container">
         <div className="lp-problem-layout">
           <div className="lp-problem-copy">
@@ -639,7 +628,7 @@ function Problem() {
 /* ── Solution ────────────────────────────────────────────────── */
 function Solution() {
   return (
-    <section className="lp-section lp-solution-section">
+    <section className="lp-section lp-solution-section lp-reveal" id="solution">
       <div className="lp-container">
         <div className="lp-solution-layout">
           <div className="lp-section-head lp-solution-head">
@@ -670,7 +659,7 @@ function Solution() {
 /* ── Inside the product ──────────────────────────────────────── */
 function ProductInside() {
   return (
-    <section className="lp-section" id="product">
+    <section className="lp-section lp-reveal" id="product">
       <div className="lp-container">
         <div className="lp-product-layout">
           <div className="lp-section-head lp-product-head">
@@ -733,7 +722,7 @@ function ProductInside() {
 /* ── Levers ──────────────────────────────────────────────────── */
 function Levers() {
   return (
-    <section className="lp-section" id="levers">
+    <section className="lp-section lp-reveal" id="levers">
       <div className="lp-container">
         <div className="lp-levers-layout">
           <div className="lp-section-head lp-levers-head">
@@ -765,7 +754,7 @@ function Levers() {
 /* ── Ledger ──────────────────────────────────────────────────── */
 function Ledger() {
   return (
-    <section className="lp-section" id="ledger">
+    <section className="lp-section lp-reveal" id="ledger">
       <div className="lp-container">
         <div className="lp-ledger-layout">
           <div className="lp-section-head lp-ledger-head-copy">
@@ -814,7 +803,7 @@ function Ledger() {
 /* ── How it works ────────────────────────────────────────────── */
 function HowItWorks() {
   return (
-    <section className="lp-section" id="how-it-works">
+    <section className="lp-section lp-reveal" id="how-it-works">
       <div className="lp-container">
         <div className="lp-how-layout">
           <div className="lp-section-head lp-how-head">
@@ -865,7 +854,7 @@ function PlanChecks({ items }: { items: string[] }) {
 
 function Pricing({ onStart }: { onStart: () => void }) {
   return (
-    <section className="lp-section lp-section-cream-2" id="pricing">
+    <section className="lp-section lp-section-cream-2 lp-reveal" id="pricing">
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">Pricing</p>
@@ -899,7 +888,7 @@ function Pricing({ onStart }: { onStart: () => void }) {
 /* ── FAQ ─────────────────────────────────────────────────────── */
 function FAQ() {
   return (
-    <section className="lp-section lp-faq-section" id="faq">
+    <section className="lp-section lp-faq-section lp-reveal" id="faq">
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">FAQ</p>
@@ -927,14 +916,13 @@ function FAQ() {
 /* ── Security ────────────────────────────────────────────────── */
 function Security() {
   return (
-    <section className="lp-section" id="security">
+    <section className="lp-section lp-reveal" id="security">
       <div className="lp-container">
         <div className="lp-sec-layout">
           <div className="lp-section-head lp-sec-head">
             <p className="lp-eyebrow">Security &amp; trust</p>
-            <h2 className="lp-section-title">A set-it-and-forget-it solution</h2>
-            <p className="lp-section-sub">Inline by design, engineered to degrade gracefully.<br />
-              We measure cost, not content.</p>
+            <h2 className="lp-section-title">Production safe rollout</h2>
+            <p className="lp-section-sub">Our approach to safety is this: keep your app running smoothly even if varsten goes down, measure savings without storing your data, and verify changes work before they go live.</p>
           </div>
           <div className="lp-sec-content">
             <div className="lp-sec-grid">
@@ -952,7 +940,6 @@ function Security() {
                 </div>
               ))}
             </div>
-            <p className="lp-sec-support">Prepared for DPA and security review.</p>
           </div>
         </div>
       </div>
@@ -1029,14 +1016,14 @@ function Footer() {
 
 /* ── Page ────────────────────────────────────────────────────── */
 export default function LandingPage() {
-  const anchorScrollingRef = useSmoothHashLinks();
+  useSmoothHashLinks();
+  useSectionReveal();
   const startFree = () => {
     window.location.href = START_FREE_HREF;
   };
 
   return (
     <main className="lp-page">
-      <StickyBanner anchorScrollingRef={anchorScrollingRef} onStart={startFree} />
       <Nav onStart={startFree} />
       <Hero onStart={startFree} />
       <Problem />
