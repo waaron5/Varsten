@@ -135,7 +135,7 @@ function ContentFooter() {
           <div className="lp-footer-col">
             <h4>Company</h4>
             <Link href="/docs">Docs</Link>
-            <Link href="/#how-it-works">Installation</Link>
+            <Link href="/#how-it-works">How it works</Link>
           </div>
           <div className="lp-footer-col">
             <h4>Legal</h4>
