@@ -15,6 +15,8 @@ const PROXY_BASE = "https://api.varsten.ai/v1";
 const SETUP_CALL_HREF = "mailto:mail@varsten.ai?subject=Varsten%20setup%20call";
 const DOCS_HREF = "https://varsten.ai/docs";
 type ProviderId = "openai" | "anthropic" | "gemini";
+type ProviderDefinition = (typeof PROVIDERS)[number];
+type ProviderConnectionStatus = OnboardingStatus["provider_connections"][number];
 
 const PROVIDERS: {
   id: ProviderId;
@@ -201,33 +203,65 @@ function ApiKeyStep({ status }: { status: OnboardingStatus }) {
       <div className="es">
         This is your Varsten key. Use it in place of your provider key when calling Varsten.
       </div>
-      {created ? (
-        <>
-          <div className="es" style={{ color: "var(--pos, #1a7f37)", marginTop: 8 }}>
-            Copy this now — you won&apos;t be able to see it again.
-          </div>
-          <pre style={CODE_STYLE}>{created.plaintext_key}</pre>
-          <CopyButton value={created.plaintext_key} label="Copy key" />
-        </>
-      ) : status.has_api_key ? (
-        <div className="es" style={{ marginTop: 8 }}>
-          A key already exists for this project. Create a new one only if you need to (the old key
-          keeps working).
-          <div style={{ marginTop: 8 }}>
-            <button className="btn" disabled={busy} onClick={() => void create()}>
-              {busy ? "Creating…" : "Create another key"}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ marginTop: 8 }}>
-          <button className="btn primary" disabled={busy || !activeProjectId} onClick={() => void create()}>
-            {busy ? "Creating…" : "Create API key"}
-          </button>
-        </div>
-      )}
+      <ApiKeyStepContent
+        activeProjectId={activeProjectId}
+        busy={busy}
+        created={created}
+        hasApiKey={status.has_api_key}
+        onCreate={create}
+      />
       {err && <div className="es" style={{ color: "var(--neg)" }}>{err}</div>}
     </StepCard>
+  );
+}
+
+function ApiKeyStepContent({
+  activeProjectId,
+  busy,
+  created,
+  hasApiKey,
+  onCreate,
+}: {
+  activeProjectId: string | null;
+  busy: boolean;
+  created: ApiKeyCreated | null;
+  hasApiKey: boolean;
+  onCreate: () => Promise<void>;
+}) {
+  if (created) return <CreatedApiKey created={created} />;
+  if (hasApiKey) return <ExistingApiKey busy={busy} onCreate={onCreate} />;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button className="btn primary" disabled={busy || !activeProjectId} onClick={() => void onCreate()}>
+        {busy ? "Creating…" : "Create API key"}
+      </button>
+    </div>
+  );
+}
+
+function CreatedApiKey({ created }: { created: ApiKeyCreated }) {
+  return (
+    <>
+      <div className="es" style={{ color: "var(--pos, #1a7f37)", marginTop: 8 }}>
+        Copy this now — you won&apos;t be able to see it again.
+      </div>
+      <pre style={CODE_STYLE}>{created.plaintext_key}</pre>
+      <CopyButton value={created.plaintext_key} label="Copy key" />
+    </>
+  );
+}
+
+function ExistingApiKey({ busy, onCreate }: { busy: boolean; onCreate: () => Promise<void> }) {
+  return (
+    <div className="es" style={{ marginTop: 8 }}>
+      A key already exists for this project. Create a new one only if you need to (the old key
+      keeps working).
+      <div style={{ marginTop: 8 }}>
+        <button className="btn" disabled={busy} onClick={() => void onCreate()}>
+          {busy ? "Creating…" : "Create another key"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -268,50 +302,17 @@ function ProviderStep({ status, onChanged }: { status: OnboardingStatus; onChang
       <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
         {PROVIDERS.map((provider) => {
           const connection = connectionByProvider.get(provider.id);
-          const connected = connection?.status === "connected";
-          const error = errors[provider.id] ?? connection?.last_error;
-          const value = keys[provider.id];
           return (
-            <div className="card" key={provider.id} style={{ boxShadow: "none", margin: 0 }}>
-              <div className="card-head">
-                <h3>{provider.name}</h3>
-                <div className="right">
-                  <span className={`pill ${connected ? "green" : "neutral"}`}>
-                    {connected ? "Connected" : connection?.status === "manual_setup_required" ? "Manual setup" : "Not connected"}
-                  </span>
-                </div>
-              </div>
-              <div style={{ padding: "0 12px 12px" }}>
-                <div className="es">{provider.description}</div>
-                <div className="es mono" style={{ marginTop: 6 }}>{provider.endpoint}</div>
-                {connected ? (
-                  <div className="es" style={{ color: "var(--pos)", marginTop: 8 }}>
-                    Verified{connection?.last_verified_at ? ` ${new Date(connection.last_verified_at).toLocaleString()}` : ""}.
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <input
-                      className="input"
-                      type="password"
-                      placeholder={provider.placeholder}
-                      value={value}
-                      onChange={(e) => setKeys((current) => ({ ...current, [provider.id]: e.target.value }))}
-                      style={{ flex: 1 }}
-                    />
-                    <button
-                      className="btn primary"
-                      disabled={busy !== null || !value.trim()}
-                      onClick={() => void connect(provider.id)}
-                    >
-                      {busy === provider.id ? "Connecting…" : "Connect"}
-                    </button>
-                  </div>
-                )}
-                {error && !connected && (
-                  <div className="es" style={{ color: "var(--neg)", marginTop: 8 }}>{error}</div>
-                )}
-              </div>
-            </div>
+            <ProviderConnectionCard
+              busy={busy}
+              connection={connection}
+              error={errors[provider.id] ?? connection?.last_error ?? undefined}
+              key={provider.id}
+              onConnect={connect}
+              onKeyChange={(value) => setKeys((current) => ({ ...current, [provider.id]: value }))}
+              provider={provider}
+              value={keys[provider.id]}
+            />
           );
         })}
       </div>
@@ -335,6 +336,99 @@ function ProviderStep({ status, onChanged }: { status: OnboardingStatus; onChang
         </div>
       )}
     </StepCard>
+  );
+}
+
+function providerConnectionLabel(connection: ProviderConnectionStatus | undefined): string {
+  if (connection?.status === "connected") return "Connected";
+  if (connection?.status === "manual_setup_required") return "Manual setup";
+  return "Not connected";
+}
+
+function ProviderConnectionCard({
+  busy,
+  connection,
+  error,
+  onConnect,
+  onKeyChange,
+  provider,
+  value,
+}: {
+  busy: ProviderId | null;
+  connection: ProviderConnectionStatus | undefined;
+  error?: string;
+  onConnect: (provider: ProviderId) => Promise<void>;
+  onKeyChange: (value: string) => void;
+  provider: ProviderDefinition;
+  value: string;
+}) {
+  const connected = connection?.status === "connected";
+  return (
+    <div className="card" style={{ boxShadow: "none", margin: 0 }}>
+      <div className="card-head">
+        <h3>{provider.name}</h3>
+        <div className="right">
+          <span className={`pill ${connected ? "green" : "neutral"}`}>
+            {providerConnectionLabel(connection)}
+          </span>
+        </div>
+      </div>
+      <div style={{ padding: "0 12px 12px" }}>
+        <div className="es">{provider.description}</div>
+        <div className="es mono" style={{ marginTop: 6 }}>{provider.endpoint}</div>
+        {connected ? (
+          <ConnectedProvider connection={connection} />
+        ) : (
+          <ProviderKeyForm busy={busy} onConnect={onConnect} onKeyChange={onKeyChange} provider={provider} value={value} />
+        )}
+        {error && !connected ? (
+          <div className="es" style={{ color: "var(--neg)", marginTop: 8 }}>{error}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ConnectedProvider({ connection }: { connection: ProviderConnectionStatus | undefined }) {
+  const verifiedAt = connection?.last_verified_at ? ` ${new Date(connection.last_verified_at).toLocaleString()}` : "";
+  return (
+    <div className="es" style={{ color: "var(--pos)", marginTop: 8 }}>
+      Verified{verifiedAt}.
+    </div>
+  );
+}
+
+function ProviderKeyForm({
+  busy,
+  onConnect,
+  onKeyChange,
+  provider,
+  value,
+}: {
+  busy: ProviderId | null;
+  onConnect: (provider: ProviderId) => Promise<void>;
+  onKeyChange: (value: string) => void;
+  provider: ProviderDefinition;
+  value: string;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+      <input
+        className="input"
+        type="password"
+        placeholder={provider.placeholder}
+        value={value}
+        onChange={(e) => onKeyChange(e.target.value)}
+        style={{ flex: 1 }}
+      />
+      <button
+        className="btn primary"
+        disabled={busy !== null || !value.trim()}
+        onClick={() => void onConnect(provider.id)}
+      >
+        {busy === provider.id ? "Connecting…" : "Connect"}
+      </button>
+    </div>
   );
 }
 

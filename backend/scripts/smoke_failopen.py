@@ -21,14 +21,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import cast
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parent
@@ -46,7 +48,11 @@ CANNED_COMPLETION = {
     "object": "chat.completion",
     "model": "gpt-4o-mini",
     "choices": [
-        {"index": 0, "message": {"role": "assistant", "content": "Hello from the mock provider"}, "finish_reason": "stop"}
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "Hello from the mock provider"},
+            "finish_reason": "stop",
+        }
     ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
 }
@@ -84,7 +90,7 @@ class MockProviderHandler(BaseHTTPRequestHandler):
             return self._send(200, {"data": [{"embedding": [0.0] * 1536}]})
 
         if path.endswith("/chat/completions"):
-            MOCK_STATE["calls"] = int(MOCK_STATE["calls"]) + 1
+            MOCK_STATE["calls"] = cast(int, MOCK_STATE["calls"]) + 1
             mode = MOCK_STATE["mode"]
             if mode == "fail_400":
                 return self._send(400, {"error": {"message": "bad request", "type": "invalid_request_error"}})
@@ -150,9 +156,7 @@ def ledger_has_optimized_miss(project_id: str) -> bool:
 
     session = get_session_factory()()
     try:
-        events = session.scalars(
-            select(UsageEvent).where(UsageEvent.project_id == uuid.UUID(project_id))
-        ).all()
+        events = session.scalars(select(UsageEvent).where(UsageEvent.project_id == uuid.UUID(project_id))).all()
         return any((e.event_metadata or {}).get("cache") == "miss" for e in events)
     finally:
         session.close()
@@ -162,18 +166,21 @@ def wait_for(url: str, timeout: float = 30.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as resp:
+            with urllib.request.urlopen(url, timeout=2) as resp:  # nosec B310
                 if resp.status == 200:
                     return True
-        except Exception:
-            pass
+        except (OSError, TimeoutError, urllib.error.URLError):
+            time.sleep(0.4)
+            continue
         time.sleep(0.4)
     return False
 
 
 def build_sdk() -> None:
     print("[smoke] building SDK...")
-    subprocess.run(["npm", "run", "build"], cwd=str(SDK_DIR), check=True, capture_output=True, text=True)
+    subprocess.run(  # nosec B603 B607
+        ["npm", "run", "build"], cwd=str(SDK_DIR), check=True, capture_output=True, text=True
+    )
 
 
 def run_local() -> int:
@@ -195,7 +202,7 @@ def run_local() -> int:
     backend_env["SCHEDULER_ENABLED"] = "false"
     backend_env["SEMANTIC_CACHE_ENABLED"] = "false"
 
-    backend = subprocess.Popen(
+    backend = subprocess.Popen(  # nosec B603
         [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(BACKEND_PORT), "--log-level", "warning"],
         cwd=str(BACKEND_DIR),
         env=backend_env,
@@ -220,7 +227,7 @@ def run_local() -> int:
                 "BACKEND_DOWN_URL": "http://127.0.0.1:1/v1",
             }
         )
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607
             ["node", "smoke/run.mjs"], cwd=str(SDK_DIR), env=node_env, capture_output=True, text=True
         )
         print(result.stdout, end="")
@@ -241,8 +248,10 @@ def run_local() -> int:
         print("[smoke] torn down")
 
     passed = node_ok and ledger_ok
-    print(f"\n[smoke] RESULT: {'PASS' if passed else 'FAIL'} "
-          f"(sdk_scenarios={'ok' if node_ok else 'fail'}, ledger={'ok' if ledger_ok else 'fail'})")
+    print(
+        f"\n[smoke] RESULT: {'PASS' if passed else 'FAIL'} "
+        f"(sdk_scenarios={'ok' if node_ok else 'fail'}, ledger={'ok' if ledger_ok else 'fail'})"
+    )
     return 0 if passed else 1
 
 
@@ -275,7 +284,7 @@ def run_remote(base_url: str) -> int:
         }
     )
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607
             ["node", "smoke/run-remote.mjs"], cwd=str(SDK_DIR), env=node_env, capture_output=True, text=True
         )
         print(result.stdout, end="")

@@ -148,8 +148,8 @@ class LocalDBProviderKeyResolver:
             key = raw.encode("utf-8")
             if len(key) == 44:
                 return Fernet(key)
-        except Exception:
-            pass
+        except ValueError:
+            logger.debug("provider_key_local_encryption_key is not raw Fernet key; deriving Fernet key from digest")
         digest = hashlib.sha256(raw.encode("utf-8")).digest()
         return Fernet(base64.urlsafe_b64encode(digest))
 

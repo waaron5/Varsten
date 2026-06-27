@@ -45,7 +45,7 @@ from app.proxy.evidence import DecisionDraft, record_request_decision
 from app.proxy.keys import provider_key_for_project
 from app.proxy.ledger import record_proxy_usage
 from app.proxy.optimization_decisions import record_ineligible_decision_async
-from app.proxy.providers import canonical, get_adapter
+from app.proxy.providers import LLMAdapter, canonical, get_adapter
 from app.proxy.request_context import parse_request_context
 from app.proxy.routing_eligibility import cross_provider_ineligibility
 
@@ -82,6 +82,27 @@ class OpenAIOptimizationState(NamedTuple):
     trim_applied: bool
 
 
+class OpenAIDialectContext(NamedTuple):
+    parsed: ParsedClientRequest
+    adapter: LLMAdapter
+    client_key: str
+    body: dict
+    stream: bool
+    model: str
+    bypass: bool
+    entitlement: EntitlementState
+    observe_only: bool
+    optimize_enabled: bool
+    cache_key: str
+    request_id: str
+    draft: DecisionDraft
+
+
+class OpenAISetup(NamedTuple):
+    context: OpenAIDialectContext | None
+    response: Response | None
+
+
 def _is_bypassed(project: Project) -> bool:
     """The kill switch: global (operator) OR per-project (customer). When engaged,
     Varsten forwards straight through with no optimization, still metered."""
@@ -101,6 +122,138 @@ def _rate_limited(api_key_id) -> JSONResponse | None:
         message="rate limit exceeded",
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         headers={"Retry-After": "60", "X-Varsten-RateLimit": "exceeded"},
+    )
+
+
+async def _openai_dialect_setup(
+    request: Request,
+    db: AsyncSession,
+    project: Project,
+    api_key_id,
+    destination_provider: str | None,
+) -> OpenAISetup:
+    parsed = await _parse_client_request(request)
+    if parsed.dialect != ClientDialect.OPENAI or parsed.operation != "chat_completions":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unsupported proxy operation")
+
+    # The upstream provider is resolved through the adapter registry. Future
+    # routing policy selects this per-request; the router below stays provider-agnostic.
+    adapter = get_adapter(destination_provider or settings.proxy_default_provider)
+    client_key = provider_key_for_project(project.id, adapter.provider)
+    if not client_key:
+        return OpenAISetup(
+            None,
+            origin.varsten_error(
+                code=origin.CODE_NO_PROVIDER_KEY,
+                type_="varsten_no_provider_key",
+                message="no provider key configured for this project",
+                status_code=status.HTTP_502_BAD_GATEWAY,
+            ),
+        )
+
+    body = parsed.body
+    bypass = _is_bypassed(project)
+    entitlement = await _resolve_entitlement_state(db, project.organization_id)
+    observe_only = entitlement.observe_only
+    optimize_enabled = not bypass and not observe_only
+    model = parsed.model or ""
+    request_id = _request_id(request)
+    draft = DecisionDraft(
+        request_id=request_id,
+        client_dialect=parsed.dialect.value,
+        provider_requested=adapter.provider,
+        model_requested=model,
+        api_key_id=api_key_id,
+        ctx=parse_request_context(dict(request.headers)),
+        bypassed=bypass,
+        bypass_reason=_bypass_reason(project) if bypass else None,
+    )
+    return OpenAISetup(
+        OpenAIDialectContext(
+            parsed,
+            adapter,
+            client_key,
+            body,
+            parsed.stream,
+            model,
+            bypass,
+            entitlement,
+            observe_only,
+            optimize_enabled,
+            cache.compute_cache_key(body),
+            request_id,
+            draft,
+        ),
+        None,
+    )
+
+
+def _openai_forward_headers(
+    *,
+    adapter: LLMAdapter,
+    bypass: bool,
+    entitlement: EntitlementState,
+    observe_only: bool,
+    opt: OpenAIOptimizationState,
+    request_id: str,
+) -> dict[str, str]:
+    mode = "bypass" if bypass else ("observe" if observe_only else "optimize")
+    headers = {
+        "X-Varsten-Mode": mode,
+        "X-Varsten-Cache": "bypass" if bypass else ("off" if observe_only else "miss"),
+        # Correlation id so the client can later attach outcome feedback to this
+        # exact request (POST /v1/feedback).
+        "X-Varsten-Request-Id": request_id,
+        # Forward path: a relayed provider result (success or provider error). The
+        # circuit-open branch below re-tags itself varsten via varsten_error.
+        origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
+        **_entitlement_headers(entitlement),
+    }
+    if opt.routed_from:
+        headers["X-Varsten-Routed"] = _routed_header(
+            opt.routed_from_provider or adapter.provider,
+            opt.routed_from,
+            opt.upstream_provider,
+            opt.upstream_model,
+        )
+    if opt.trim_applied:
+        headers["X-Varsten-Trim"] = "applied"
+    if opt.arm:
+        headers["X-Varsten-Arm"] = opt.arm
+    return headers
+
+
+def _resolve_openai_candidate_provider(
+    project: Project,
+    adapter: LLMAdapter,
+    client_key: str,
+    opt: OpenAIOptimizationState,
+) -> tuple[LLMAdapter, str, OpenAIOptimizationState]:
+    if opt.upstream_provider == adapter.provider:
+        return adapter, client_key, opt
+
+    candidate_adapter = get_adapter(opt.upstream_provider)
+    candidate_key = provider_key_for_project(project.id, candidate_adapter.provider)
+    if candidate_key:
+        return candidate_adapter, candidate_key, opt
+
+    # Fail open: the candidate provider has no key configured, so keep the
+    # request on the incumbent (already keyed above) instead of failing it.
+    # A routing/config gap must only cost a saving, never the request. This
+    # mirrors the native-dialect path (_native_cross_provider), which also
+    # forwards the incumbent when the candidate key is missing -- returning a
+    # 502 here would break base-URL-mode users who have no SDK fallback.
+    logger.warning(
+        "candidate provider key missing; forwarding incumbent",
+        extra={"project_id": str(project.id), "provider": candidate_adapter.provider},
+    )
+    incumbent_model = opt.routed_from or opt.upstream_model
+    return (
+        adapter,
+        client_key,
+        OpenAIOptimizationState(
+            opt.body, incumbent_model, adapter.provider, None, None, None, None, None, opt.trim_applied
+        ),
     )
 
 
@@ -246,63 +399,25 @@ async def _openai_dialect_completions(
     # first stream chunk arrives. This is the latency a buyer feels.
     started = time.perf_counter()
 
-    parsed = await _parse_client_request(request)
-    if parsed.dialect != ClientDialect.OPENAI or parsed.operation != "chat_completions":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unsupported proxy operation")
-
-    # The upstream provider is resolved through the adapter registry. Future
-    # routing policy selects this per-request; the router below stays provider-agnostic.
-    adapter = get_adapter(destination_provider or settings.proxy_default_provider)
-
-    client_key = provider_key_for_project(project.id, adapter.provider)
-    if not client_key:
-        return origin.varsten_error(
-            code=origin.CODE_NO_PROVIDER_KEY,
-            type_="varsten_no_provider_key",
-            message="no provider key configured for this project",
-            status_code=status.HTTP_502_BAD_GATEWAY,
-        )
-
-    body = parsed.body
-    stream = parsed.stream
-    model = parsed.model or ""
-    bypass = _is_bypassed(project)
-    # Observe-only (Free): meter and record, but never change behaviour — no cache
-    # serve/store, no routing, no trim. Distinct from the kill-switch bypass.
-    # Fail-open: treats the org as observe-only if the tier can't be resolved.
-    entitlement = await _resolve_entitlement_state(db, project.organization_id)
-    observe_only = entitlement.observe_only
-    optimize_enabled = not bypass and not observe_only
-    cache_key = cache.compute_cache_key(body)
-
-    # Parse client-supplied business/task context once at the edge and start a
-    # decision-evidence draft. Both are additive and fail-open: an absent or
-    # malformed context yields the prior behaviour with an empty context.
-    request_id = _request_id(request)
-    draft = DecisionDraft(
-        request_id=request_id,
-        client_dialect=parsed.dialect.value,
-        provider_requested=adapter.provider,
-        model_requested=model,
-        api_key_id=api_key_id,
-        ctx=parse_request_context(dict(request.headers)),
-        bypassed=bypass,
-        bypass_reason=_bypass_reason(project) if bypass else None,
-    )
+    setup = await _openai_dialect_setup(request, db, project, api_key_id, destination_provider)
+    if setup.response is not None:
+        return setup.response
+    ctx = setup.context
+    assert ctx is not None
 
     cache_probe = await _maybe_serve_openai_cache(
         db,
         project,
         api_key_id,
-        client_key,
-        body,
-        model,
-        cache_key,
-        stream,
+        ctx.client_key,
+        ctx.body,
+        ctx.model,
+        ctx.cache_key,
+        ctx.stream,
         background_tasks,
         started,
-        not optimize_enabled,
-        draft,
+        not ctx.optimize_enabled,
+        ctx.draft,
     )
     if cache_probe.response is not None:
         return cache_probe.response
@@ -310,57 +425,33 @@ async def _openai_dialect_completions(
     # Hard-cap budget enforcement on the paid forward path. Cache hits above were
     # served at $0 and are exempt; only optimization-enabled (Performance,
     # non-bypassed) traffic is gated, and the check is fail-open.
-    if optimize_enabled:
-        blocked = await _budget_block(db, project, draft.ctx, request_id)
+    if ctx.optimize_enabled:
+        blocked = await _budget_block(db, project, ctx.draft.ctx, ctx.request_id)
         if blocked is not None:
             return blocked
 
     opt = await _resolve_openai_optimizations(
         db,
         project,
-        parsed,
-        adapter.provider,
-        request_id,
-        not optimize_enabled,
-        draft,
+        ctx.parsed,
+        ctx.adapter.provider,
+        ctx.request_id,
+        not ctx.optimize_enabled,
+        ctx.draft,
     )
     body = opt.body
-    if opt.upstream_provider != adapter.provider:
-        adapter = get_adapter(opt.upstream_provider)
-        client_key = provider_key_for_project(project.id, adapter.provider)
-        if not client_key:
-            return origin.varsten_error(
-                code=origin.CODE_NO_PROVIDER_KEY,
-                type_="varsten_no_provider_key",
-                message="no provider key configured for this project",
-                status_code=status.HTTP_502_BAD_GATEWAY,
-            )
+    adapter, client_key, opt = _resolve_openai_candidate_provider(project, ctx.adapter, ctx.client_key, opt)
 
     # --- forward to OpenAI (cache miss, bypassed, or observe-only). store_cache is
     # off unless optimization is enabled (Performance and not kill-switched). ---
-    mode = "bypass" if bypass else ("observe" if observe_only else "optimize")
-    headers = {
-        "X-Varsten-Mode": mode,
-        "X-Varsten-Cache": "bypass" if bypass else ("off" if observe_only else "miss"),
-        # Correlation id so the client can later attach outcome feedback to this
-        # exact request (POST /v1/feedback).
-        "X-Varsten-Request-Id": request_id,
-        # Forward path: a relayed provider result (success or provider error). The
-        # circuit-open branch below re-tags itself varsten via varsten_error.
-        origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
-        **_entitlement_headers(entitlement),
-    }
-    if opt.routed_from:
-        headers["X-Varsten-Routed"] = _routed_header(
-            opt.routed_from_provider or adapter.provider,
-            opt.routed_from,
-            opt.upstream_provider,
-            opt.upstream_model,
-        )
-    if opt.trim_applied:
-        headers["X-Varsten-Trim"] = "applied"
-    if opt.arm:
-        headers["X-Varsten-Arm"] = opt.arm
+    headers = _openai_forward_headers(
+        adapter=adapter,
+        bypass=ctx.bypass,
+        entitlement=ctx.entitlement,
+        observe_only=ctx.observe_only,
+        opt=opt,
+        request_id=ctx.request_id,
+    )
 
     # Circuit breaker: if the upstream has been failing, fail fast instead of
     # making this request wait the full timeout. Cache hits above are unaffected.
@@ -379,12 +470,10 @@ async def _openai_dialect_completions(
     # differs from what the SDK would send on a direct fallback, so reusing the key
     # could collide at the provider; omit it then (the fallback uses the key fresh).
     forward_idem = (
-        request.headers.get("idempotency-key")
-        if (opt.routed_from is None and not opt.trim_applied)
-        else None
+        request.headers.get("idempotency-key") if (opt.routed_from is None and not opt.trim_applied) else None
     )
 
-    if stream:
+    if ctx.stream:
         return StreamingResponse(
             _stream_through(
                 db,
@@ -393,11 +482,11 @@ async def _openai_dialect_completions(
                 client_key,
                 adapter,
                 body,
-                model,
-                cache_key,
+                ctx.model,
+                ctx.cache_key,
                 breaker,
                 cache_probe.embedding,
-                store_cache=optimize_enabled,
+                store_cache=ctx.optimize_enabled,
                 upstream_model=opt.upstream_model,
                 routed_from=opt.routed_from,
                 routed_from_provider=opt.routed_from_provider,
@@ -405,7 +494,7 @@ async def _openai_dialect_completions(
                 exp_from=opt.exp_from,
                 exp_to=opt.exp_to,
                 started=started,
-                draft=draft,
+                draft=ctx.draft,
                 idempotency_key=forward_idem,
             ),
             media_type=SSE_MEDIA_TYPE,
@@ -418,11 +507,11 @@ async def _openai_dialect_completions(
         client_key,
         adapter,
         body,
-        model,
-        cache_key,
+        ctx.model,
+        ctx.cache_key,
         breaker,
         cache_probe.embedding,
-        store_cache=optimize_enabled,
+        store_cache=ctx.optimize_enabled,
         headers=headers,
         started=started,
         upstream_model=opt.upstream_model,
@@ -431,7 +520,7 @@ async def _openai_dialect_completions(
         arm=opt.arm,
         exp_from=opt.exp_from,
         exp_to=opt.exp_to,
-        draft=draft,
+        draft=ctx.draft,
         idempotency_key=forward_idem,
     )
 
@@ -663,7 +752,11 @@ def _serve_cache_hit(
     # A cache hit is a successful (200) response Varsten served itself. Origin is
     # informational on a 2xx (the SDK only falls back on a failure status), tagged
     # honestly as varsten.
-    headers = {"X-Varsten-Mode": "optimize", "X-Varsten-Cache": cache_label, origin.ORIGIN_HEADER: origin.ORIGIN_VARSTEN}
+    headers = {
+        "X-Varsten-Mode": "optimize",
+        "X-Varsten-Cache": cache_label,
+        origin.ORIGIN_HEADER: origin.ORIGIN_VARSTEN,
+    }
     if stream:
         return StreamingResponse(
             iter(list(canonical.to_openai_sse(entry.response_payload))),

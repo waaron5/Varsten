@@ -7,7 +7,7 @@ import { api } from "./api";
 import { ACTIVE_PROJECT_COOKIE } from "./projectCookie";
 import type { Project } from "./types";
 
-export interface ServerBootstrap {
+interface ServerBootstrap {
   token: string;
   projects: Project[];
   activeProjectId: string | null;

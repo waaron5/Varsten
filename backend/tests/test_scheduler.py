@@ -254,9 +254,12 @@ def test_run_guarded_passes_through_when_disabled(monkeypatch):
         sched = Scheduler()
         monkeypatch.setattr(settings, "scheduler_advisory_lock_enabled", False)
         acquired = {"n": 0}
-        monkeypatch.setattr(
-            scheduler_mod, "_acquire_advisory_lock", lambda name: (acquired.__setitem__("n", 1), (True, object()))[1]
-        )
+
+        def acquire_lock(name):
+            acquired["n"] = 1
+            return True, object()
+
+        monkeypatch.setattr(scheduler_mod, "_acquire_advisory_lock", acquire_lock)
         calls = {"n": 0}
 
         async def job():

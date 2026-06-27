@@ -1,4 +1,7 @@
 {
+  "entry": [
+    "playwright/tests/**/*.ts"
+  ],
   "health": {
     "maxCyclomatic": 20,
     "maxCognitive": 15,

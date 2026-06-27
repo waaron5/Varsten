@@ -97,6 +97,61 @@ def test_snapshot_is_all_null_on_empty_project(client, provision):
         "smart_routing",
     }
     assert all(lever["value_usd"] is None for lever in snap["levers"])
+    # Fallback coverage always lists all three providers; an empty project has none
+    # SDK-enabled and no keys configured.
+    coverage = {row["provider"]: row for row in snap["fallback_coverage"]}
+    assert set(coverage) == {"openai", "anthropic", "gemini"}
+    assert all(not row["sdk_enabled"] for row in coverage.values())
+    assert all(row["status"] == "Not enabled" for row in coverage.values())
+
+
+def test_snapshot_fallback_coverage_reflects_sdk_traffic(client, db_session, provision):
+    ws = provision(sub="auth0|snap-coverage", email="snap-coverage@example.com")
+    project = _project(db_session, ws)
+    # One request that came through the Anthropic fail-open SDK (the proxy records
+    # the X-Varsten-Client marker into event metadata), and one plain OpenAI request.
+    db_session.add_all(
+        [
+            UsageEvent(
+                project_id=project.id,
+                organization_id=project.organization_id,
+                api_key_id=None,
+                provider="anthropic",
+                model="claude-3-5-sonnet-20241022",
+                operation="chat_completion",
+                request_type="chat_completion",
+                environment="production",
+                input_tokens=100,
+                output_tokens=50,
+                cached_input_tokens=0,
+                total_tokens=150,
+                cost_usd=Decimal("1.00"),
+                cost_source="catalog",
+                pricing_status="priced",
+                currency="USD",
+                status="success",
+                success=True,
+                event_metadata={"proxy": True, "sdk_client": "varsten-anthropic/0.1.0"},
+                received_at=datetime.now(UTC) - timedelta(hours=1),
+                occurred_at=datetime.now(UTC) - timedelta(hours=1),
+            ),
+            _event(project, cost="2.00", saved=None, kind=None),  # plain openai, no SDK marker
+        ]
+    )
+    db_session.commit()
+
+    snap = client.get("/v1/dashboard/snapshot", headers=_b(ws["api_key"]), params={"period": "month"}).json()
+    coverage = {row["provider"]: row for row in snap["fallback_coverage"]}
+
+    # Anthropic ran through the SDK -> enabled, with the version it reported.
+    assert coverage["anthropic"]["sdk_enabled"] is True
+    assert coverage["anthropic"]["sdk_client"] == "varsten-anthropic/0.1.0"
+    assert coverage["anthropic"]["status"] == "SDK enabled"
+    # OpenAI had traffic but no SDK marker -> not SDK enabled.
+    assert coverage["openai"]["sdk_enabled"] is False
+    # Gemini had no traffic at all -> not enabled.
+    assert coverage["gemini"]["sdk_enabled"] is False
+    assert coverage["gemini"]["status"] == "Not enabled"
 
 
 def test_snapshot_panels_reconcile(client, db_session, provision):

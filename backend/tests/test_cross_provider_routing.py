@@ -476,3 +476,74 @@ async def test_anthropic_cache_control_cross_provider_route_is_audited_and_kept_
     assert decision.client_dialect == "anthropic"
     assert decision.reason_code == "anthropic_cache_control"
     assert decision.reason_detail == {"path": "/v1/messages", "field": "cache_control"}
+
+
+# --- candidate provider key missing -> fail open to the incumbent ----------------
+#
+# A routing policy can point at a provider whose key is not configured (a half-done
+# setup, a rotated key). That is a config gap, not a request failure: the proxy must
+# keep the request on the incumbent provider, never 502 it. Proven for both the
+# OpenAI-compatible entry and a native dialect.
+
+
+@pytest.mark.anyio
+async def test_openai_compat_route_forwards_incumbent_when_candidate_key_missing(
+    async_client, async_db_session, async_provision, monkeypatch
+):
+    ws, project = await _project(async_provision, async_db_session, monkeypatch, "auth0|cross-nokey-openai")
+    # Route openai -> gemini, but the gemini key is NOT configured.
+    monkeypatch.setattr(settings, "proxy_gemini_keys", {})
+    async_db_session.add(_route_policy(project, OPENAI_MODEL, GEMINI_MODEL, "gemini"))
+    await async_db_session.flush()
+    seen: list[tuple[str, dict]] = []
+    _mock_upstreams(monkeypatch, seen)
+
+    res = await async_client.post(
+        "/v1/chat/completions",
+        headers=_b(ws["api_key"]),
+        json={"model": OPENAI_MODEL, "messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    # Served by the incumbent (OpenAI), not failed, and never sent to the keyless
+    # candidate.
+    assert res.status_code == 200
+    assert seen[-1][0] == "/v1/chat/completions"
+    assert all(not path.endswith(":generateContent") for path, _ in seen)
+    assert "X-Varsten-Routed" not in res.headers
+    # A forward is a relayed provider result, so the SDK never treats it as a
+    # Varsten-origin failure and never double-calls.
+    assert res.headers["X-Varsten-Origin"] == "provider"
+    event = await async_db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == project.id))
+    assert event is not None
+    assert event.provider == "openai"
+    assert event.model == OPENAI_MODEL
+
+
+@pytest.mark.anyio
+async def test_native_anthropic_route_forwards_incumbent_when_candidate_key_missing(
+    async_client, async_db_session, async_provision, monkeypatch
+):
+    ws, project = await _project(async_provision, async_db_session, monkeypatch, "auth0|cross-nokey-anthropic")
+    # Route anthropic -> gemini, but the gemini key is NOT configured.
+    monkeypatch.setattr(settings, "proxy_gemini_keys", {})
+    async_db_session.add(_route_policy(project, ANTHROPIC_MODEL, GEMINI_MODEL, "gemini"))
+    await async_db_session.flush()
+    seen: list[tuple[str, dict]] = []
+    _mock_upstreams(monkeypatch, seen)
+
+    res = await async_client.post(
+        "/v1/messages",
+        headers={**_b(ws["api_key"]), "anthropic-version": "2023-06-01"},
+        json=_fixture_body("anthropic_messages_request.json"),
+    )
+
+    # Served by the incumbent (Anthropic), in Anthropic shape, never sent to the
+    # keyless candidate.
+    assert res.status_code == 200
+    assert seen[-1][0] == "/v1/messages"
+    assert all(not path.endswith(":generateContent") for path, _ in seen)
+    assert "X-Varsten-Routed" not in res.headers
+    assert res.json()["type"] == "message"
+    event = await async_db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == project.id))
+    assert event is not None
+    assert event.provider == "anthropic"

@@ -20,6 +20,9 @@
   },
   "keywords": ["varsten", "openai", "llm", "fail-open", "proxy", "cost", "fallback"],
   "license": "UNLICENSED",
+  "dependencies": {
+    "@varsten/core": "*"
+  },
   "peerDependencies": {
     "openai": ">=4.20.0 <6"
   },

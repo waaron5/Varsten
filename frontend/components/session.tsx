@@ -91,13 +91,6 @@ function jwtExpiryMs(token: string): number | null {
   }
 }
 
-// Drops the cached token so the next request fetches a fresh one. Exposed for
-// callers that learn the token is bad (e.g. an API 401) before its cached expiry.
-export function invalidateAccessToken(): void {
-  cachedToken = null;
-  inFlightToken = null;
-}
-
 async function fetchAccessToken(): Promise<string> {
   const controller = new AbortController();
   let timedOut = false;
@@ -259,31 +252,104 @@ function sessionStatus({
   return error ? "error" : "ready";
 }
 
-export function SessionProvider({
-  children,
-  initialProjects,
-  initialActiveProjectId = null,
+function useAccountBootstrapEffect({
+  authTimedOut,
+  isLoading,
+  pickActive,
+  seeded,
+  setBootstrapped,
+  setError,
+  setLoadingLabel,
+  setProfile,
+  setProjects,
+  user,
 }: {
-  children: React.ReactNode;
-  // When the server bootstrap resolves projects, they seed the provider so the
-  // first paint is "ready" and the client skips its sync/projects waterfall.
-  initialProjects?: Project[];
-  initialActiveProjectId?: string | null;
+  authTimedOut: boolean;
+  isLoading: boolean;
+  pickActive: PickActiveProject;
+  seeded: boolean;
+  setBootstrapped: (value: boolean) => void;
+  setError: (value: string | null) => void;
+  setLoadingLabel: (value: string | null) => void;
+  setProfile: (value: UserProfile | null) => void;
+  setProjects: (value: Project[]) => void;
+  user: AuthUser | null | undefined;
 }) {
-  const seeded = Boolean(initialProjects && initialProjects.length > 0);
+  useEffect(() => {
+    if (seeded || isLoading || authTimedOut || !user) return;
+    let cancelled = false;
+    void bootstrapAccount({
+      email: user.email ?? "",
+      isCancelled: () => cancelled,
+      name: user.name ?? null,
+      pickActive,
+      setBootstrapped,
+      setError,
+      setLoadingLabel,
+      setProfile,
+      setProjects,
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [seeded, user, isLoading, authTimedOut, pickActive, setBootstrapped, setError, setLoadingLabel, setProfile, setProjects]);
+}
+
+function useSeededProfileEffect({
+  profile,
+  seeded,
+  setProfile,
+  user,
+}: {
+  profile: UserProfile | null;
+  seeded: boolean;
+  setProfile: (value: UserProfile | null) => void;
+  user: AuthUser | null | undefined;
+}) {
+  useEffect(() => {
+    if (!seeded || !user || profile) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const synced = await api.syncUser(await getAccessTokenWithTimeout(), {
+          email: user.email ?? "",
+          name: user.name ?? null,
+        });
+        if (!cancelled) setProfile(synced);
+      } catch {
+        // Non-fatal: header falls back to project/email until this lands.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seeded, user, profile, setProfile]);
+}
+
+function hasInitialProjects(initialProjects: Project[] | undefined): boolean {
+  return Boolean(initialProjects && initialProjects.length > 0);
+}
+
+function useAuthenticatedUser() {
   const auth = useUser();
   const e2eUser = e2eAuthUser();
-  const user = e2eUser ?? auth.user;
-  const isLoading = e2eUser ? false : auth.isLoading;
+  return {
+    isLoading: e2eUser ? false : auth.isLoading,
+    user: e2eUser ?? auth.user,
+  };
+}
+
+function useBootstrapState(seeded: boolean) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [projects, setProjects] = useState<Project[]>(initialProjects ?? []);
-  const [activeProjectId, setActive] = useState<string | null>(initialActiveProjectId);
   const [bootstrapped, setBootstrapped] = useState(seeded);
   const [error, setError] = useState<string | null>(null);
   const [loadingLabel, setLoadingLabel] = useState<string | null>(seeded ? null : "Checking session");
-  const authTimedOut = useAuthLoadingTimeout(isLoading);
+  return { bootstrapped, error, loadingLabel, profile, setBootstrapped, setError, setLoadingLabel, setProfile };
+}
 
-  const getToken = useCallback(() => getAccessTokenWithTimeout(), []);
+function useProjectSelection(initialProjects: Project[] | undefined, initialActiveProjectId: string | null) {
+  const [projects, setProjects] = useState<Project[]>(initialProjects ?? []);
+  const [activeProjectId, setActive] = useState<string | null>(initialActiveProjectId);
 
   const setActiveProjectId = useCallback((id: string) => {
     writeActiveProjectCookie(id);
@@ -308,83 +374,99 @@ export function SessionProvider({
     pickActive(list);
   }, [pickActive]);
 
+  return { activeProjectId, pickActive, projects, refreshProjects, setActiveProjectId, setProjects };
+}
+
+function bootstrapTimeoutActive({
+  authTimedOut,
+  bootstrapped,
+  isLoading,
+  seeded,
+  user,
+}: {
+  authTimedOut: boolean;
+  bootstrapped: boolean;
+  isLoading: boolean;
+  seeded: boolean;
+  user: AuthUser | null | undefined;
+}): boolean {
+  return Boolean(!seeded && !authTimedOut && !isLoading && user && !bootstrapped);
+}
+
+function visibleSessionStatus(authTimedOut: boolean, error: string | null, loadingLabel: string | null) {
+  return {
+    error: authTimedOut ? "Authentication is taking too long to load. Try signing out and signing in again." : error,
+    loadingLabel: authTimedOut ? null : loadingLabel,
+  };
+}
+
+export function SessionProvider({
+  children,
+  initialProjects,
+  initialActiveProjectId = null,
+}: {
+  children: React.ReactNode;
+  // When the server bootstrap resolves projects, they seed the provider so the
+  // first paint is "ready" and the client skips its sync/projects waterfall.
+  initialProjects?: Project[];
+  initialActiveProjectId?: string | null;
+}) {
+  const value = useSessionProviderValue(initialProjects, initialActiveProjectId);
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
+function useSessionProviderValue(initialProjects: Project[] | undefined, initialActiveProjectId: string | null): SessionValue {
+  const seeded = hasInitialProjects(initialProjects);
+  const { isLoading, user } = useAuthenticatedUser();
+  const bootstrap = useBootstrapState(seeded);
+  const projectState = useProjectSelection(initialProjects, initialActiveProjectId);
+  const authTimedOut = useAuthLoadingTimeout(isLoading);
+
+  const getToken = useCallback(() => getAccessTokenWithTimeout(), []);
   const onBootstrapTimeout = useCallback(() => {
-    setError("Account bootstrap timed out. Try resetting your session, then log in again.");
-    setBootstrapped(true);
-  }, []);
+    bootstrap.setError("Account bootstrap timed out. Try resetting your session, then log in again.");
+    bootstrap.setBootstrapped(true);
+  }, [bootstrap]);
 
   useBootstrapTimeout({
-    active: Boolean(!seeded && !authTimedOut && !isLoading && user && !bootstrapped),
+    active: bootstrapTimeoutActive({ authTimedOut, bootstrapped: bootstrap.bootstrapped, isLoading, seeded, user }),
     onTimeout: onBootstrapTimeout,
   });
+  useAccountBootstrapEffect({
+    authTimedOut,
+    isLoading,
+    pickActive: projectState.pickActive,
+    seeded,
+    setBootstrapped: bootstrap.setBootstrapped,
+    setError: bootstrap.setError,
+    setLoadingLabel: bootstrap.setLoadingLabel,
+    setProfile: bootstrap.setProfile,
+    setProjects: projectState.setProjects,
+    user,
+  });
+  useSeededProfileEffect({ profile: bootstrap.profile, seeded, setProfile: bootstrap.setProfile, user });
 
-  // On login: provision the user (sync) and load their projects. Skipped when the
-  // server already seeded projects. Logout is a full-page nav, so stale state
-  // clears on its own.
-  useEffect(() => {
-    if (seeded || isLoading || authTimedOut || !user) return;
-    let cancelled = false;
-    void bootstrapAccount({
-      email: user.email ?? "",
-      isCancelled: () => cancelled,
-      name: user.name ?? null,
-      pickActive,
-      setBootstrapped,
-      setError,
-      setLoadingLabel,
-      setProfile,
-      setProjects,
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [seeded, user, isLoading, authTimedOut, pickActive]);
+  const status = sessionStatus({
+    authTimedOut,
+    bootstrapped: bootstrap.bootstrapped,
+    error: bootstrap.error,
+    isLoading,
+    seeded,
+    userReady: Boolean(user),
+  });
+  const visible = visibleSessionStatus(authTimedOut, bootstrap.error, bootstrap.loadingLabel);
 
-  // On the seeded path the provider is already "ready", but the profile (org
-  // name, first-project orgId) still needs the user sync. Run it in the
-  // background without blocking first paint; provisioning is idempotent.
-  useEffect(() => {
-    if (!seeded || !user || profile) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const synced = await api.syncUser(await getAccessTokenWithTimeout(), {
-          email: user.email ?? "",
-          name: user.name ?? null,
-        });
-        if (!cancelled) setProfile(synced);
-      } catch {
-        // Non-fatal: header falls back to project/email until this lands.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [seeded, user, profile]);
-
-  const status = sessionStatus({ authTimedOut, bootstrapped, error, isLoading, seeded, userReady: Boolean(user) });
-  const visibleError = authTimedOut
-    ? "Authentication is taking too long to load. Try signing out and signing in again."
-    : error;
-  const visibleLoadingLabel = authTimedOut ? null : loadingLabel;
-
-  return (
-    <SessionContext.Provider
-      value={{
-        status,
-        profile,
-        projects,
-        activeProjectId,
-        setActiveProjectId,
-        refreshProjects,
-        getToken,
-        error: visibleError,
-        loadingLabel: visibleLoadingLabel,
-      }}
-    >
-      {children}
-    </SessionContext.Provider>
-  );
+  return {
+    status,
+    profile: bootstrap.profile,
+    projects: projectState.projects,
+    activeProjectId: projectState.activeProjectId,
+    setActiveProjectId: projectState.setActiveProjectId,
+    refreshProjects: projectState.refreshProjects,
+    getToken,
+    error: visible.error,
+    loadingLabel: visible.loadingLabel,
+  };
 }
 
 export function useSession(): SessionValue {

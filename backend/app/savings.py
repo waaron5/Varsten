@@ -14,7 +14,7 @@ import calendar
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session
@@ -290,18 +290,10 @@ _LEVER_KEYS = LEVER_DISPLAY_ORDER
 _SAVED = cast(UsageEvent.event_metadata["saved_usd"].astext, Numeric(20, 12))
 
 
-class WindowSavings(TypedDict):
+class WindowSavingsBase(TypedDict):
     period: str
     period_start: datetime
     period_end: datetime
-    mode: str  # "measured" | "estimated" | "spend_only" | "empty"
-    actual_spend_usd: Decimal | None
-    gross_savings_usd: Decimal | None
-    varsten_fee_usd: Decimal | None
-    net_savings_usd: Decimal | None
-    counterfactual_spend_usd: Decimal | None
-    by_lever: dict[str, Decimal]
-    by_lever_source: str  # "measured" | "estimated" | ""
     # Verified provenance (always measured, surfaced for Proof). Holdback is an
     # interval estimate and is reported here, never folded into the per-day chart.
     direct_measured_usd: Decimal
@@ -311,6 +303,17 @@ class WindowSavings(TypedDict):
     holdback_has_signal: bool
     estimated_opportunity_usd: Decimal
     fee_percent: Decimal
+
+
+class WindowSavings(WindowSavingsBase):
+    mode: str  # "measured" | "estimated" | "spend_only" | "empty"
+    actual_spend_usd: Decimal | None
+    gross_savings_usd: Decimal | None
+    varsten_fee_usd: Decimal | None
+    net_savings_usd: Decimal | None
+    counterfactual_spend_usd: Decimal | None
+    by_lever: dict[str, Decimal]
+    by_lever_source: str  # "measured" | "estimated" | ""
 
 
 def _window_request_count(db: Session, project: Project, window: PeriodWindow) -> int:
@@ -390,7 +393,7 @@ def compute_savings_for_window(
         )
     ) or Decimal("0")
 
-    base = {
+    base: WindowSavingsBase = {
         "period": window.period,
         "period_start": window.start,
         "period_end": window.end,
@@ -473,13 +476,20 @@ class SavingsWithDeltas(TypedDict):
     kpis: dict[str, KpiDelta]
 
 
+WindowSavingsKpiField = Literal[
+    "net_savings_usd",
+    "gross_savings_usd",
+    "counterfactual_spend_usd",
+    "actual_spend_usd",
+]
+
 # KPI name -> the WindowSavings field it reads. These four are the dashboard tiles.
-_KPI_FIELDS: dict[str, str] = {
-    "net_saved": "net_savings_usd",
-    "gross_saved": "gross_savings_usd",
-    "without_varsten": "counterfactual_spend_usd",
-    "actual_spend": "actual_spend_usd",
-}
+_KPI_FIELDS: tuple[tuple[str, WindowSavingsKpiField], ...] = (
+    ("net_saved", "net_savings_usd"),
+    ("gross_saved", "gross_savings_usd"),
+    ("without_varsten", "counterfactual_spend_usd"),
+    ("actual_spend", "actual_spend_usd"),
+)
 
 
 def _kpi_delta(current: Decimal | None, previous: Decimal | None) -> KpiDelta:
@@ -504,7 +514,7 @@ def compute_savings_with_deltas(
     any methodology change applies to both arms and cancels in the delta."""
     current = compute_savings_for_window(db, project, window, fee_percent)
     previous = compute_savings_for_window(db, project, window.prior(), fee_percent)
-    kpis = {name: _kpi_delta(current[field], previous[field]) for name, field in _KPI_FIELDS.items()}
+    kpis = {name: _kpi_delta(current[field], previous[field]) for name, field in _KPI_FIELDS}
     return {"current": current, "kpis": kpis}
 
 

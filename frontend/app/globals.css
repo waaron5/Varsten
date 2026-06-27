@@ -1861,6 +1861,27 @@ svg.chart { width: 100%; display: block; overflow: visible; }
   background: var(--surface-hover);
   color: var(--text-3);
 }
+.dash-coverage-card {
+  margin-top: 20px;
+}
+.dash-coverage-note {
+  margin: 0 0 16px;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.dash-coverage-card .dash-lever-item strong {
+  font-size: 14px;
+  font-weight: 680;
+}
+.dash-coverage-detail {
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .dash-lever-item-bar {
   display: flex;
   align-items: center;

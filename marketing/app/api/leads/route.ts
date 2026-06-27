@@ -18,6 +18,67 @@ type LeadPayload = {
   submittedAt: string;
 };
 
+type LeadDeliveryConfig =
+  | { kind: "webhook"; url: string }
+  | { kind: "resend"; apiKey: string; notifyEmail: string; fromEmail: string; calendlyUrl: string }
+  | { kind: "dev-log" }
+  | { kind: "missing" };
+
+class LeadValidationError extends Error {}
+
+function readString(body: Record<string, unknown>, key: string): string {
+  const value = body[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function invalidLeadResponse(message: string) {
+  return NextResponse.json({ error: message }, { status: 400 });
+}
+
+function requiredLeadString(body: Record<string, unknown>, key: string, label: string): string {
+  const value = readString(body, key);
+  if (value.length >= 2) return value;
+  throw new LeadValidationError(`invalid ${label}`);
+}
+
+function requiredEmail(body: Record<string, unknown>): string {
+  const email = readString(body, "email");
+  if (EMAIL_RE.test(email)) return email;
+  throw new LeadValidationError("invalid email");
+}
+
+function leadFromBody(body: Record<string, unknown>): LeadPayload | NextResponse {
+  try {
+    return {
+      email: requiredEmail(body),
+      fullName: requiredLeadString(body, "fullName", "full name"),
+      companyName: requiredLeadString(body, "companyName", "company name"),
+      source: readString(body, "source") || "landing",
+      submittedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return invalidLeadResponse(error instanceof Error ? error.message : "invalid lead");
+  }
+}
+
+function resendConfig(): LeadDeliveryConfig | null {
+  const config = {
+    apiKey: process.env.RESEND_API_KEY,
+    notifyEmail: process.env.LEADS_NOTIFY_EMAIL,
+    fromEmail: process.env.LEADS_FROM_EMAIL,
+    calendlyUrl: process.env.LEADS_CALENDLY_URL,
+  };
+  return Object.values(config).every(Boolean) ? { kind: "resend", ...config } as LeadDeliveryConfig : null;
+}
+
+function deliveryConfig(): LeadDeliveryConfig {
+  const webhookUrl = process.env.LEAD_WEBHOOK_URL;
+  if (webhookUrl) return { kind: "webhook", url: webhookUrl };
+  const resend = resendConfig();
+  if (resend) return resend;
+  return process.env.NODE_ENV === "production" ? { kind: "missing" } : { kind: "dev-log" };
+}
+
 async function deliverToWebhook(url: string, lead: LeadPayload): Promise<void> {
   const res = await fetch(url, {
     method: "POST",
@@ -104,64 +165,55 @@ Buyer autoresponder: sent`,
   });
 }
 
+async function deliverLead(lead: LeadPayload): Promise<NextResponse | null> {
+  const config = deliveryConfig();
+  if (config.kind === "webhook") {
+    await deliverToWebhook(config.url, lead);
+    return null;
+  }
+  if (config.kind === "resend") {
+    await deliverViaResend(config.apiKey, config.notifyEmail, config.fromEmail, config.calendlyUrl, lead);
+    return null;
+  }
+  if (config.kind === "dev-log") {
+    console.log("[dev] lead captured (no destination configured):", lead);
+    return null;
+  }
+
+  console.error(
+    "lead capture misconfigured: no LEAD_WEBHOOK_URL or complete RESEND_API_KEY/LEADS_NOTIFY_EMAIL/LEADS_FROM_EMAIL/LEADS_CALENDLY_URL set",
+  );
+  return NextResponse.json({ error: "lead capture is not configured" }, { status: 503 });
+}
+
 export async function POST(request: Request) {
-  let body: unknown;
+  const lead = await leadFromRequest(request);
+  if (lead instanceof NextResponse) return lead;
+  return leadResponse(lead);
+}
+
+async function leadResponse(lead: LeadPayload) {
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
-  }
-
-  const email = typeof (body as { email?: unknown })?.email === "string" ? (body as { email: string }).email.trim() : "";
-  if (!EMAIL_RE.test(email)) {
-    return NextResponse.json({ error: "invalid email" }, { status: 400 });
-  }
-  const fullName =
-    typeof (body as { fullName?: unknown })?.fullName === "string"
-      ? (body as { fullName: string }).fullName.trim()
-      : "";
-  if (fullName.length < 2) {
-    return NextResponse.json({ error: "invalid full name" }, { status: 400 });
-  }
-  const companyName =
-    typeof (body as { companyName?: unknown })?.companyName === "string"
-      ? (body as { companyName: string }).companyName.trim()
-      : "";
-  if (companyName.length < 2) {
-    return NextResponse.json({ error: "invalid company name" }, { status: 400 });
-  }
-
-  const lead: LeadPayload = {
-    email,
-    fullName,
-    companyName,
-    source: typeof (body as { source?: unknown })?.source === "string" ? (body as { source: string }).source : "landing",
-    submittedAt: new Date().toISOString(),
-  };
-
-  const webhookUrl = process.env.LEAD_WEBHOOK_URL;
-  const resendKey = process.env.RESEND_API_KEY;
-  const notifyEmail = process.env.LEADS_NOTIFY_EMAIL;
-  const fromEmail = process.env.LEADS_FROM_EMAIL;
-  const calendlyUrl = process.env.LEADS_CALENDLY_URL;
-
-  try {
-    if (webhookUrl) {
-      await deliverToWebhook(webhookUrl, lead);
-    } else if (resendKey && notifyEmail && fromEmail && calendlyUrl) {
-      await deliverViaResend(resendKey, notifyEmail, fromEmail, calendlyUrl, lead);
-    } else if (process.env.NODE_ENV === "production") {
-      console.error(
-        "lead capture misconfigured: no LEAD_WEBHOOK_URL or complete RESEND_API_KEY/LEADS_NOTIFY_EMAIL/LEADS_FROM_EMAIL/LEADS_CALENDLY_URL set",
-      );
-      return NextResponse.json({ error: "lead capture is not configured" }, { status: 503 });
-    } else {
-      console.log("[dev] lead captured (no destination configured):", lead);
-    }
+    const failure = await deliverLead(lead);
+    if (failure) return failure;
   } catch (err) {
     console.error("lead delivery failed:", err);
     return NextResponse.json({ error: "lead delivery failed" }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function leadFromRequest(request: Request): Promise<LeadPayload | NextResponse> {
+  const body = await requestBody(request);
+  if (body instanceof NextResponse) return body;
+  return leadFromBody(body);
+}
+
+async function requestBody(request: Request): Promise<Record<string, unknown> | NextResponse> {
+  try {
+    return (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+  }
 }

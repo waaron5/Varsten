@@ -1,0 +1,17 @@
+{
+  "name": "@varsten/sdk-workspace",
+  "private": true,
+  "description": "Varsten fail-open SDKs. Shared engine (@varsten/core) plus per-provider wrappers.",
+  "workspaces": [
+    "core",
+    "openai",
+    "anthropic",
+    "gemini"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "license": "UNLICENSED"
+}

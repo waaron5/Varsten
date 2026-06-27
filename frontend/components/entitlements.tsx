@@ -48,17 +48,23 @@ const LOCKED_FEATURES = {
 } satisfies Entitlements["features"];
 
 function entitlementsValue(data: Entitlements | null, loading: boolean): EntitlementsValue {
-  const features = data?.features ?? LOCKED_FEATURES;
-  const planTier = data?.plan_tier ?? null;
+  if (!data) return lockedEntitlementsValue(loading);
+  const planTier = data.plan_tier;
   return {
     entitlements: data,
     loading,
     planTier,
     isPerformance: planTier === "performance",
-    observeOnly: data?.observe_only === true,
-    observeOnlyReason: data?.observe_only_reason ?? null,
-    quota: data?.quota ?? null,
-    trial: data?.trial ?? null,
+    observeOnly: data.observe_only === true,
+    observeOnlyReason: data.observe_only_reason,
+    quota: data.quota,
+    trial: data.trial,
+    ...featureAccess(data.features),
+  };
+}
+
+function featureAccess(features: Entitlements["features"]) {
+  return {
     canApplyRecommendations: features.apply_recommendations,
     canEnableRouting: features.enable_routing,
     canEnableCaching: features.enable_caching,
@@ -67,6 +73,20 @@ function entitlementsValue(data: Entitlements | null, loading: boolean): Entitle
     canUseGuardrailAutomation: features.guardrail_automation,
     canUseAdvancedProof: features.advanced_proof,
     canUseAdvancedReports: features.advanced_reports,
+  };
+}
+
+function lockedEntitlementsValue(loading: boolean): EntitlementsValue {
+  return {
+    entitlements: null,
+    loading,
+    planTier: null,
+    isPerformance: false,
+    observeOnly: false,
+    observeOnlyReason: null,
+    quota: null,
+    trial: null,
+    ...featureAccess(LOCKED_FEATURES),
   };
 }
 

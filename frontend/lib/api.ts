@@ -62,26 +62,32 @@ export class ApiError extends Error {
   }
 }
 
+function apiErrorMessage(body: Record<string, unknown>, fallback: string): { detail: string; code: string | null } {
+  if (typeof body.detail === "string") return { detail: body.detail, code: null };
+  if (body.detail && typeof body.detail === "object") {
+    const obj = body.detail as { message?: unknown; code?: unknown };
+    return {
+      detail: typeof obj.message === "string" ? obj.message : JSON.stringify(body.detail),
+      code: typeof obj.code === "string" ? obj.code : null,
+    };
+  }
+  if (typeof body.message === "string") return { detail: body.message, code: null };
+  return { detail: fallback, code: null };
+}
+
+async function parseApiError(res: Response): Promise<{ detail: string; rawDetail: unknown; code: string | null }> {
+  try {
+    const body = (await res.json()) as Record<string, unknown>;
+    const parsed = apiErrorMessage(body, res.statusText);
+    return { ...parsed, rawDetail: body.detail ?? body };
+  } catch {
+    return { detail: res.statusText, rawDetail: null, code: null };
+  }
+}
+
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let detail = res.statusText;
-    let code: string | null = null;
-    let rawDetail: unknown = null;
-    try {
-      const body = await res.json();
-      rawDetail = body.detail ?? body;
-      if (typeof body.detail === "string") {
-        detail = body.detail;
-      } else if (body.detail && typeof body.detail === "object") {
-        const obj = body.detail as { message?: unknown; code?: unknown };
-        detail = typeof obj.message === "string" ? obj.message : JSON.stringify(body.detail);
-        code = typeof obj.code === "string" ? obj.code : null;
-      } else if (typeof body.message === "string") {
-        detail = body.message;
-      }
-    } catch {
-      // non-JSON error body; keep statusText
-    }
+    const { detail, rawDetail, code } = await parseApiError(res);
     throw new ApiError(res.status, detail, rawDetail, code);
   }
   return res.json() as Promise<T>;

@@ -17,6 +17,7 @@ from app.budgets import evaluate_budgets
 from app.core import ratelimit
 from app.core.audit import client_ip, record_audit
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import get_db
 from app.eval.gate import (
     EvalGateError,
@@ -54,7 +55,12 @@ from app.proxy.budget_enforcement import clear_budget_cache
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.execution import activate_execution, deactivate_execution
 from app.proxy.experiment import compute_experiment
-from app.proxy.keys import ProviderKeyStoreUnsupported, delete_provider_key_for_project, store_provider_key_for_project
+from app.proxy.keys import (
+    ProviderKeyStoreUnsupported,
+    delete_provider_key_for_project,
+    provider_key_for_project,
+    store_provider_key_for_project,
+)
 from app.proxy.provider_validation import validate_provider_key
 from app.proxy.trim import LEVER as TRIM_LEVER
 from app.recommendations import ensure_recommendations_fresh
@@ -71,6 +77,7 @@ from app.schemas.dashboard import (
     DashboardLever,
     DashboardSnapshot,
     DriverRow,
+    FallbackCoverageRow,
     KpiDeltaOut,
     ProofTrust,
     SavingsTrendBucket,
@@ -80,6 +87,7 @@ from app.schemas.eval import EvalRunSummary
 from app.schemas.recommendation import RecommendationOut, RecommendationUpdate
 
 router = APIRouter(tags=["product-sections"])
+logger = get_logger("varsten.dashboard")
 
 LEVERS = LEVER_DEFAULT_AUTOMATION
 VALID_LEVERS = {lever for lever, _ in LEVERS}
@@ -636,6 +644,65 @@ def _window_trust(db: Session, project: Project, window) -> tuple[Decimal | None
     return score, coverage, attribution
 
 
+_COVERAGE_PROVIDERS = (("openai", "OpenAI"), ("anthropic", "Anthropic"), ("gemini", "Gemini"))
+
+
+def _fallback_coverage(db: Session, project: Project, window) -> list[FallbackCoverageRow]:
+    """Per-provider fail-open readiness, derived from real traffic in the window.
+
+    A provider is "SDK enabled" when its traffic carried the fail-open SDK's
+    ``X-Varsten-Client`` marker (recorded into usage-event metadata) -- the only
+    integration with automatic direct-to-provider fallback. A provider with a key
+    but no SDK is base-URL mode (typed errors, no auto-fallback). Nothing here is
+    hardcoded; it reflects what this project actually ran. Fail-open: a lookup error
+    degrades a row to "not enabled" rather than failing the whole snapshot."""
+    try:
+        seen = dict(
+            db.execute(
+                select(
+                    UsageEvent.provider,
+                    func.max(UsageEvent.event_metadata["sdk_client"].astext),
+                )
+                .where(
+                    UsageEvent.project_id == project.id,
+                    UsageEvent.received_at >= window.start,
+                    UsageEvent.received_at < window.end,
+                    UsageEvent.event_metadata["sdk_client"].astext.isnot(None),
+                )
+                .group_by(UsageEvent.provider)
+            ).all()
+        )
+    except Exception:
+        logger.exception("fallback coverage query failed; reporting no SDK traffic")
+        seen = {}
+
+    rows: list[FallbackCoverageRow] = []
+    for provider, label in _COVERAGE_PROVIDERS:
+        sdk_client = seen.get(provider)
+        sdk_enabled = sdk_client is not None
+        try:
+            key_configured = provider_key_for_project(project.id, provider) is not None
+        except Exception:
+            key_configured = False
+        if sdk_enabled:
+            status = "SDK enabled"
+        elif key_configured:
+            status = "Key set, no SDK"
+        else:
+            status = "Not enabled"
+        rows.append(
+            FallbackCoverageRow(
+                provider=provider,
+                label=label,
+                sdk_enabled=sdk_enabled,
+                sdk_client=sdk_client,
+                key_configured=key_configured,
+                status=status,
+            )
+        )
+    return rows
+
+
 def _build_dashboard_snapshot(db: Session, project: Project, period: Period) -> DashboardSnapshot:
     """Build the whole dashboard from one PeriodWindow: KPIs (with same-window
     deltas), the reconciling lever breakdown, the savings chart, spend drivers, and
@@ -757,6 +824,7 @@ def _build_dashboard_snapshot(db: Session, project: Project, period: Period) -> 
         levers=levers,
         drivers=drivers,
         proof_trust=proof_trust,
+        fallback_coverage=_fallback_coverage(db, project, window),
     )
 
 
@@ -809,9 +877,7 @@ def _snapshot_to_csv(snapshot: DashboardSnapshot) -> str:
     writer.writerow(["Savings by lever"])
     writer.writerow(["lever", "status", "value_usd", "share", "source"])
     for lever in snapshot.levers:
-        writer.writerow(
-            [lever.lever, lever.status, _csv_num(lever.value_usd), _csv_num(lever.share), lever.source]
-        )
+        writer.writerow([lever.lever, lever.status, _csv_num(lever.value_usd), _csv_num(lever.share), lever.source])
     writer.writerow(["gross_total", "", _csv_num(snapshot.gross_savings_usd), "", ""])
     writer.writerow([])
 
@@ -826,7 +892,12 @@ def _snapshot_to_csv(snapshot: DashboardSnapshot) -> str:
     writer.writerow(["date", "optimized_usd", "saved_usd", "baseline_usd"])
     for bucket in snapshot.savings_trend:
         writer.writerow(
-            [bucket.date.isoformat(), _csv_num(bucket.optimized_usd), _csv_num(bucket.saved_usd), _csv_num(bucket.baseline_usd)]
+            [
+                bucket.date.isoformat(),
+                _csv_num(bucket.optimized_usd),
+                _csv_num(bucket.saved_usd),
+                _csv_num(bucket.baseline_usd),
+            ]
         )
 
     return buffer.getvalue()

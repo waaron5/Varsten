@@ -69,9 +69,20 @@ _HEADER_FIELDS = {
     "x-varsten-quality-threshold": "quality_threshold",
 }
 
+# The fail-open SDKs stamp this on their optimized (primary) calls so Varsten can
+# tell that traffic for a provider is running through a Varsten SDK -- the signal
+# behind the dashboard's per-provider "Fallback coverage" status. Recorded into the
+# usage-event metadata; never forwarded upstream.
+SDK_CLIENT_HEADER = "x-varsten-client"
+
 # Every Varsten control header. Used by callers that want to assert these are not
 # forwarded upstream.
-VARSTEN_REQUEST_HEADERS = ("x-varsten-metadata", *_HEADER_FIELDS.keys(), "x-varsten-task-confidence")
+VARSTEN_REQUEST_HEADERS = (
+    "x-varsten-metadata",
+    *_HEADER_FIELDS.keys(),
+    "x-varsten-task-confidence",
+    SDK_CLIENT_HEADER,
+)
 
 
 @dataclass(frozen=True)
@@ -90,12 +101,18 @@ class RequestContext:
     task_confidence: float | None = None
     risk_level: str | None = None
     quality_threshold: str | None = None
+    # The Varsten SDK that issued this optimized call, e.g. "varsten-anthropic/0.1.0".
+    sdk_client: str | None = None
     # Any additional client-supplied JSON keys, sanitized and bounded.
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_empty(self) -> bool:
-        return not any(getattr(self, f) is not None for f in (*_STRING_FIELDS, "task_confidence")) and not self.extra
+        return (
+            not any(getattr(self, f) is not None for f in (*_STRING_FIELDS, "task_confidence"))
+            and self.sdk_client is None
+            and not self.extra
+        )
 
     def task_metadata(self) -> dict[str, Any]:
         """Task/quality context to merge into the ledger's metadata JSONB. Business
@@ -110,6 +127,8 @@ class RequestContext:
             meta["risk_level"] = self.risk_level
         if self.quality_threshold is not None:
             meta["quality_threshold"] = self.quality_threshold
+        if self.sdk_client is not None:
+            meta["sdk_client"] = self.sdk_client
         if self.extra:
             meta["context"] = dict(self.extra)
         return meta
@@ -206,5 +225,6 @@ def parse_request_context(headers: dict[str, str]) -> RequestContext:
         task_confidence=confidence,
         risk_level=values["risk_level"],
         quality_threshold=values["quality_threshold"],
+        sdk_client=_sanitize_str(lower.get(SDK_CLIENT_HEADER)),
         extra=extra,
     )

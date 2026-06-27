@@ -183,6 +183,29 @@ async def test_nonstream_miss_forwards_and_records(
 
 
 @pytest.mark.anyio
+async def test_sdk_client_header_recorded_into_ledger_metadata(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
+    # The fail-open SDK stamps X-Varsten-Client on its optimized calls. The proxy
+    # records it into usage-event metadata (never forwards it upstream), which is
+    # the signal behind the dashboard's per-provider fallback-coverage status.
+    ws = await async_provision(sub="auth0|sdk-marker", email="sdk-marker@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
+
+    res = await async_client.post(
+        "/v1/chat/completions",
+        headers={**_b(ws["api_key"]), "X-Varsten-Client": "varsten-openai/0.1.0"},
+        json=body,
+    )
+    assert res.status_code == 200
+
+    event = await async_db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]))
+    assert event is not None
+    assert event.event_metadata["sdk_client"] == "varsten-openai/0.1.0"
+
+
+@pytest.mark.anyio
 async def test_streaming_miss_passes_through_and_records(
     async_client, async_db_session, async_provision, mock_openai, monkeypatch
 ):

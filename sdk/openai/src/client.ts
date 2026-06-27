@@ -52,6 +52,10 @@ export class VarstenOpenAI {
       baseURL,
       maxRetries: 0,
       timeout: varstenTotalMs,
+      // Lets Varsten record that this project's OpenAI traffic runs through the
+      // fail-open SDK, powering the dashboard's per-provider coverage status. Only
+      // on the optimized client; the direct fallback talks to the provider.
+      defaultHeaders: { "X-Varsten-Client": SDK_VERSION },
     });
 
     // Direct path. Only built when a provider key is present; the provider key

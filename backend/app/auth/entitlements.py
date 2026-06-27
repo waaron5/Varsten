@@ -33,6 +33,8 @@ FEATURE_REQUIRES_PERFORMANCE = "feature_requires_performance"
 # without a DB read every request. Short TTL plus explicit invalidation on a plan
 # change keeps it from going stale. Single-process (mirrors the provider-key cache).
 _TIER_TTL_SECONDS = 60
+
+
 class EntitlementState(NamedTuple):
     plan_tier: str
     observe_only: bool
@@ -103,11 +105,7 @@ def _entitlement_state(
     plan_tier = org.plan_tier or PLAN_FREE
     trial_ends_at = _default_trial_end(org)
     trial_expired = bool(org.subscription_status == SUBSCRIPTION_TRIALING and trial_ends_at and now >= trial_ends_at)
-    quota_exceeded = bool(
-        org.subscription_status == SUBSCRIPTION_TRIALING
-        and limit > 0
-        and monthly_requests >= limit
-    )
+    quota_exceeded = bool(org.subscription_status == SUBSCRIPTION_TRIALING and limit > 0 and monthly_requests >= limit)
 
     reason: str | None = None
     observe_only = plan_tier != PLAN_PERFORMANCE
@@ -135,7 +133,9 @@ def _entitlement_state(
 def _monthly_proxy_requests(db: Session, organization_id: uuid.UUID, now: datetime) -> int:
     return int(
         db.scalar(
-            select(func.count()).select_from(UsageEvent).where(
+            select(func.count())
+            .select_from(UsageEvent)
+            .where(
                 UsageEvent.organization_id == organization_id,
                 UsageEvent.source == "proxy",
                 UsageEvent.received_at >= _month_start(now),
@@ -147,7 +147,9 @@ def _monthly_proxy_requests(db: Session, organization_id: uuid.UUID, now: dateti
 
 async def _monthly_proxy_requests_async(db: AsyncSession, organization_id: uuid.UUID, now: datetime) -> int:
     result = await db.scalar(
-        select(func.count()).select_from(UsageEvent).where(
+        select(func.count())
+        .select_from(UsageEvent)
+        .where(
             UsageEvent.organization_id == organization_id,
             UsageEvent.source == "proxy",
             UsageEvent.received_at >= _month_start(now),

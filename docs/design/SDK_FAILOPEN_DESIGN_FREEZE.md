@@ -358,7 +358,16 @@ Until all eight pass, the product says **"automatic provider fallback (beta)"**,
 ## 10. Explicitly deferred (not Phase 1, not frozen)
 
 - Streaming implementation (frozen *behavior* in §5; built Phase 3).
-- Anthropic / Gemini SDK packages (pattern reuses `@varsten/core`).
+- ~~Anthropic / Gemini SDK packages (pattern reuses `@varsten/core`).~~ **Done.**
+  `@varsten/core` was extracted to hold the one copy of the fallback decision,
+  breaker, error taxonomy, and telemetry; `@varsten/openai`, `@varsten/anthropic`,
+  and `@varsten/gemini` are thin wrappers over it. Each provider supplies a
+  `ProviderErrorAdapter` so the contract logic stays provider-agnostic. Anthropic
+  reuses the stainless adapter (it ships `APIConnectionError` /
+  `APIConnectionTimeoutError` and exposes the origin header). Gemini needed a custom
+  adapter: its `ApiError` has no readable headers, so origin is read from the error
+  *body* and `headerlessServerErrorIsVarsten=false` makes an unattributed 5xx surface
+  rather than risk a double-bill. Telemetry markers gained a `provider` field.
 - Embeddings, batch, tool-call-specific handling beyond pass-through.
 - Server-side provider-key passthrough so Varsten never stores the provider key
   (option "b") — later, when an enterprise review demands it. v1 keeps the existing

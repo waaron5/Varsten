@@ -82,6 +82,25 @@ class ProofTrust(BaseModel):
     has_ab_holdback: bool
 
 
+class FallbackCoverageRow(BaseModel):
+    """Per-provider fail-open readiness, derived from real traffic.
+
+    ``sdk_enabled`` is true when traffic for this provider was seen carrying the
+    Varsten fail-open SDK's ``X-Varsten-Client`` marker in the window -- the only
+    integration that turns a Varsten outage into automatic direct-to-provider
+    fallback. A provider with a key but no SDK is base-URL mode: it gets typed
+    errors but no automatic fallback. Honest by construction: nothing here is
+    hardcoded, it reflects what this project actually ran.
+    """
+
+    provider: str  # openai | anthropic | gemini
+    label: str
+    sdk_enabled: bool
+    sdk_client: str | None  # the most recent SDK version string seen, if any
+    key_configured: bool
+    status: str  # "SDK enabled" | "Key set, no SDK" | "Not enabled"
+
+
 class DashboardSnapshot(BaseModel):
     period: str  # month | quarter | year
     granularity: str  # day | week | month
@@ -107,3 +126,6 @@ class DashboardSnapshot(BaseModel):
     levers: list[DashboardLever]
     drivers: DashboardDrivers
     proof_trust: ProofTrust
+    # Per-provider fail-open coverage (OpenAI / Anthropic / Gemini). Always present
+    # with one row per supported provider so the panel can show "not enabled" rows.
+    fallback_coverage: list[FallbackCoverageRow]

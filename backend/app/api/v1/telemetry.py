@@ -36,6 +36,11 @@ class FallbackMarker(BaseModel):
     model: str | None = Field(default=None, max_length=128)
     latency_ms: int | None = Field(default=None, ge=0)
     sdk_version: str | None = Field(default=None, max_length=64)
+    # The upstream provider the fallback bypassed Varsten for ("openai" |
+    # "anthropic" | "gemini"). Lets the dashboard break fallback windows down per
+    # provider without parsing sdk_version. Still allowlist-only: extra="forbid"
+    # rejects anything that looks like prompt/completion content.
+    provider: str | None = Field(default=None, max_length=32)
 
 
 class FallbackBatch(BaseModel):
@@ -68,6 +73,7 @@ async def ingest_fallback(
                 "model": ev.model,
                 "latency_ms": ev.latency_ms,
                 "sdk_version": ev.sdk_version,
+                "provider": ev.provider,
             },
         )
     return {"accepted": len(batch.events)}

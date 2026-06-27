@@ -171,25 +171,32 @@ function estimatedTextWidth(label: string): number {
   return label.length * LABEL_CHAR_WIDTH;
 }
 
+function barLabelLayout(props: BarLabelRenderProps, label: string) {
+  const { x, y, width, height } = props;
+  if (x === undefined || y === undefined || width === undefined || height === undefined) return null;
+  const xn = num(x);
+  const yn = num(y);
+  const wn = num(width);
+  const hn = num(height);
+  if (hn < LABEL_MIN_HEIGHT) return null;
+  if (wn < estimatedTextWidth(label) + LABEL_HORIZONTAL_PADDING) return null;
+  return { x: xn + wn / 2, y: yn + hn / 2 };
+}
+
 // Renders a compact whole-dollar value centered inside a bar segment when it can
 // fit cleanly. Exact daily values remain available in the tooltip for dense MTD.
 function makeBarLabel(fill: string) {
-  return function BarLabel({ x, y, width, height, value }: BarLabelRenderProps) {
-    if (x === undefined || y === undefined || width === undefined || height === undefined) {
-      return null;
-    }
+  return function BarLabel(props: BarLabelRenderProps) {
+    const { value } = props;
     const v = typeof value === "number" || typeof value === "string" ? num(value) : 0;
     const label = barLabelValue(v);
     if (!label) return null;
-    const xn = num(x);
-    const yn = num(y);
-    const wn = num(width);
-    const hn = num(height);
-    if (hn < LABEL_MIN_HEIGHT || wn < estimatedTextWidth(label) + LABEL_HORIZONTAL_PADDING) return null;
+    const layout = barLabelLayout(props, label);
+    if (!layout) return null;
     return (
       <text
-        x={xn + wn / 2}
-        y={yn + hn / 2}
+        x={layout.x}
+        y={layout.y}
         fill={fill}
         fontSize={LABEL_FONT_SIZE}
         fontWeight={600}

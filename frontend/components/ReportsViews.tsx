@@ -180,33 +180,69 @@ function ReportsBody() {
   const shareUrl = useMemo(() => (latest ? shareHref(latest) : ""), [latest]);
   return (
     <div className="view">
-      {observeOnly && (
-        <LockedNotice title="Executive reports are a Performance feature.">
-          Free includes the read-only Proof dashboards. Upgrade to generate and share board-ready reports.
-        </LockedNotice>
-      )}
-      <div className="page-head page-head-actions">
-        <div className="spacer" />
-        <button
-          className="btn primary"
-          disabled={busy || observeOnly}
-          title={observeOnly ? "Upgrade to Performance to generate reports" : undefined}
-          onClick={generate}
-          type="button"
-        >
-          {busy ? "Generating..." : "Generate current month"}
-        </button>
-      </div>
-
-      {loading || error ? (
-        <div className="card"><PageState loading={loading} error={error} /></div>
-      ) : !latest ? (
-        <div className="card"><PageState empty="No reports yet" emptyDetail="Generate the current month report to create a shareable executive link." /></div>
-      ) : (
-        <ReportsContent latest={latest} reports={reports ?? []} shareUrl={shareUrl} />
-      )}
+      <ReportsGate observeOnly={observeOnly} />
+      <ReportsActions busy={busy} observeOnly={observeOnly} onGenerate={generate} />
+      <ReportsMain error={error} latest={latest} loading={loading} reports={reports ?? []} shareUrl={shareUrl} />
     </div>
   );
+}
+
+function ReportsGate({ observeOnly }: { observeOnly: boolean }) {
+  if (!observeOnly) return null;
+  return (
+    <LockedNotice title="Executive reports are a Performance feature.">
+      Free includes the read-only Proof dashboards. Upgrade to generate and share board-ready reports.
+    </LockedNotice>
+  );
+}
+
+function ReportsActions({
+  busy,
+  observeOnly,
+  onGenerate,
+}: {
+  busy: boolean;
+  observeOnly: boolean;
+  onGenerate: () => Promise<void>;
+}) {
+  return (
+    <div className="page-head page-head-actions">
+      <div className="spacer" />
+      <button
+        className="btn primary"
+        disabled={busy || observeOnly}
+        title={observeOnly ? "Upgrade to Performance to generate reports" : undefined}
+        onClick={() => void onGenerate()}
+        type="button"
+      >
+        {busy ? "Generating..." : "Generate current month"}
+      </button>
+    </div>
+  );
+}
+
+function ReportsMain({
+  error,
+  latest,
+  loading,
+  reports,
+  shareUrl,
+}: {
+  error: string | null;
+  latest: MonthlyReport | null;
+  loading: boolean;
+  reports: MonthlyReport[];
+  shareUrl: string;
+}) {
+  if (loading || error) return <div className="card"><PageState loading={loading} error={error} /></div>;
+  if (!latest) {
+    return (
+      <div className="card">
+        <PageState empty="No reports yet" emptyDetail="Generate the current month report to create a shareable executive link." />
+      </div>
+    );
+  }
+  return <ReportsContent latest={latest} reports={reports} shareUrl={shareUrl} />;
 }
 
 export function PublicReportView({ shareToken }: { shareToken: string }) {

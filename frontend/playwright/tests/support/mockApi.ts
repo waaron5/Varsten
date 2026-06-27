@@ -57,6 +57,123 @@ function increment(state: MockState, key: string): void {
   state.calls[key] = (state.calls[key] ?? 0) + 1;
 }
 
+interface MockRouteContext {
+  route: Route;
+  request: Request;
+  pathname: string;
+  method: string;
+  state: MockState;
+}
+
+type MockApiHandler = (ctx: MockRouteContext) => Promise<boolean>;
+
+function matches(ctx: MockRouteContext, method: string, pathname: string): boolean {
+  return ctx.method === method && ctx.pathname === pathname;
+}
+
+async function handleCorsPreflight({ route, method, pathname }: MockRouteContext): Promise<boolean> {
+  if (method !== "OPTIONS" || !pathname.startsWith("/v1/")) return false;
+  await route.fulfill({ status: 204, headers: jsonHeaders() });
+  return true;
+}
+
+async function handleAuthAndProjects(ctx: MockRouteContext): Promise<boolean> {
+  const { route, request, state } = ctx;
+  if (matches(ctx, "POST", "/v1/auth/sync")) {
+    increment(state, "authSync");
+    await fulfillJson(route, state.profile);
+    return true;
+  }
+  if (matches(ctx, "GET", "/v1/projects")) {
+    increment(state, "projects");
+    await fulfillJson(route, state.projects);
+    return true;
+  }
+  if (!matches(ctx, "POST", `/v1/organizations/${ORG_ID}/projects`)) return false;
+  increment(state, "createProject");
+  const body = await postJson(request);
+  const project = createProject({ name: String(body.name ?? "Production") });
+  state.projects = [project];
+  state.onboarding = { ...state.onboarding, has_project: true, project_id: project.id, project_name: project.name };
+  await fulfillJson(route, project, 201);
+  return true;
+}
+
+async function handleOnboarding(ctx: MockRouteContext): Promise<boolean> {
+  const { route, request, state } = ctx;
+  if (matches(ctx, "GET", "/v1/onboarding/status")) {
+    increment(state, "onboardingStatus");
+    await fulfillJson(route, state.onboarding);
+    return true;
+  }
+  if (matches(ctx, "POST", "/v1/onboarding/complete")) {
+    increment(state, "completeOnboarding");
+    state.onboarding = { ...state.onboarding, onboarding_completed_at: NOW };
+    await fulfillJson(route, { onboarding_completed_at: NOW });
+    return true;
+  }
+  if (matches(ctx, "POST", `/v1/projects/${PROJECT_ID}/connections`)) {
+    increment(state, "connectProvider");
+    const body = await postJson(request);
+    await fulfillJson(route, markProviderConnected(state, String(body.provider ?? "openai")));
+    return true;
+  }
+  return false;
+}
+
+async function handleApiKeys(ctx: MockRouteContext): Promise<boolean> {
+  if (!matches(ctx, "POST", `/v1/projects/${PROJECT_ID}/api-keys`)) return false;
+  increment(ctx.state, "createApiKey");
+  ctx.state.onboarding = { ...ctx.state.onboarding, has_api_key: true };
+  await fulfillJson(ctx.route, {
+    id: "key_e2e_default",
+    project_id: PROJECT_ID,
+    name: "default",
+    key_prefix: "vk_test",
+    plaintext_key: "vk_test_e2e_first_request",
+    last_used_at: null,
+    revoked_at: null,
+    created_at: NOW,
+  }, 201);
+  return true;
+}
+
+async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
+  const reads: Record<string, [keyof MockState, string]> = {
+    "/v1/dashboard/snapshot": ["dashboardSnapshot", "dashboardSnapshot"],
+    "/v1/entitlements": ["entitlements", "entitlements"],
+    "/v1/proof/savings": ["proofSavings", "proofSavings"],
+    "/v1/usage-events": ["usageEvents", "usageEvents"],
+  };
+  const match = reads[ctx.pathname];
+  if (ctx.method !== "GET" || !match) return false;
+  const [stateKey, callKey] = match;
+  increment(ctx.state, callKey);
+  await fulfillJson(ctx.route, ctx.state[stateKey]);
+  return true;
+}
+
+async function handleProxy(ctx: MockRouteContext): Promise<boolean> {
+  const { route, request, state } = ctx;
+  if (!matches(ctx, "POST", "/v1/chat/completions")) return false;
+  increment(state, "proxy");
+  const body = await postJson(request);
+  const response = state.proxyHandler
+    ? await state.proxyHandler(request, body, state)
+    : await defaultProxyHandler(request, body, state);
+  await fulfillJson(route, response.body, response.status ?? 200, response.headers ?? {});
+  return true;
+}
+
+const MOCK_API_HANDLERS: MockApiHandler[] = [
+  handleCorsPreflight,
+  handleAuthAndProjects,
+  handleOnboarding,
+  handleApiKeys,
+  handleReadModels,
+  handleProxy,
+];
+
 export function createProject(overrides: JsonObject = {}): JsonObject {
   return {
     id: PROJECT_ID,
@@ -282,6 +399,11 @@ export function createDashboardSnapshot(overrides: JsonObject = {}): JsonObject 
       has_direct_ledger: true,
       has_ab_holdback: true,
     },
+    fallback_coverage: [
+      { provider: "openai", label: "OpenAI", sdk_enabled: true, sdk_client: "varsten-openai/0.1.0", key_configured: true, status: "SDK enabled" },
+      { provider: "anthropic", label: "Anthropic", sdk_enabled: false, sdk_client: null, key_configured: false, status: "Not enabled" },
+      { provider: "gemini", label: "Gemini", sdk_enabled: false, sdk_client: null, key_configured: false, status: "Not enabled" },
+    ],
   };
   return { ...base, ...overrides };
 }
@@ -438,114 +560,13 @@ async function defaultProxyHandler(_request: Request, body: JsonObject, state: M
 async function handleApiRoute(route: Route, state: MockState): Promise<boolean> {
   const request = route.request();
   const url = new URL(request.url());
-  const method = request.method();
-
-  if (method === "OPTIONS" && url.pathname.startsWith("/v1/")) {
-    await route.fulfill({ status: 204, headers: jsonHeaders() });
-    return true;
+  const ctx = { route, request, pathname: url.pathname, method: request.method(), state };
+  if (!ctx.pathname.startsWith("/v1/")) return false;
+  for (const handler of MOCK_API_HANDLERS) {
+    if (await handler(ctx)) return true;
   }
 
-  if (!url.pathname.startsWith("/v1/")) return false;
-
-  if (url.pathname === "/v1/auth/sync" && method === "POST") {
-    increment(state, "authSync");
-    await fulfillJson(route, state.profile);
-    return true;
-  }
-
-  if (url.pathname === "/v1/projects" && method === "GET") {
-    increment(state, "projects");
-    await fulfillJson(route, state.projects);
-    return true;
-  }
-
-  if (url.pathname === `/v1/organizations/${ORG_ID}/projects` && method === "POST") {
-    increment(state, "createProject");
-    const body = await postJson(request);
-    const project = createProject({ name: String(body.name ?? "Production") });
-    state.projects = [project];
-    state.onboarding = {
-      ...state.onboarding,
-      has_project: true,
-      project_id: project.id,
-      project_name: project.name,
-    };
-    await fulfillJson(route, project, 201);
-    return true;
-  }
-
-  if (url.pathname === "/v1/onboarding/status" && method === "GET") {
-    increment(state, "onboardingStatus");
-    await fulfillJson(route, state.onboarding);
-    return true;
-  }
-
-  if (url.pathname === "/v1/onboarding/complete" && method === "POST") {
-    increment(state, "completeOnboarding");
-    state.onboarding = { ...state.onboarding, onboarding_completed_at: NOW };
-    await fulfillJson(route, { onboarding_completed_at: NOW });
-    return true;
-  }
-
-  if (url.pathname === `/v1/projects/${PROJECT_ID}/api-keys` && method === "POST") {
-    increment(state, "createApiKey");
-    state.onboarding = { ...state.onboarding, has_api_key: true };
-    await fulfillJson(route, {
-      id: "key_e2e_default",
-      project_id: PROJECT_ID,
-      name: "default",
-      key_prefix: "vk_test",
-      plaintext_key: "vk_test_e2e_first_request",
-      last_used_at: null,
-      revoked_at: null,
-      created_at: NOW,
-    }, 201);
-    return true;
-  }
-
-  if (url.pathname === `/v1/projects/${PROJECT_ID}/connections` && method === "POST") {
-    increment(state, "connectProvider");
-    const body = await postJson(request);
-    const provider = String(body.provider ?? "openai");
-    await fulfillJson(route, markProviderConnected(state, provider));
-    return true;
-  }
-
-  if (url.pathname === "/v1/entitlements" && method === "GET") {
-    increment(state, "entitlements");
-    await fulfillJson(route, state.entitlements);
-    return true;
-  }
-
-  if (url.pathname === "/v1/dashboard/snapshot" && method === "GET") {
-    increment(state, "dashboardSnapshot");
-    await fulfillJson(route, state.dashboardSnapshot);
-    return true;
-  }
-
-  if (url.pathname === "/v1/proof/savings" && method === "GET") {
-    increment(state, "proofSavings");
-    await fulfillJson(route, state.proofSavings);
-    return true;
-  }
-
-  if (url.pathname === "/v1/usage-events" && method === "GET") {
-    increment(state, "usageEvents");
-    await fulfillJson(route, state.usageEvents);
-    return true;
-  }
-
-  if (url.pathname === "/v1/chat/completions" && method === "POST") {
-    increment(state, "proxy");
-    const body = await postJson(request);
-    const response = state.proxyHandler
-      ? await state.proxyHandler(request, body, state)
-      : await defaultProxyHandler(request, body, state);
-    await fulfillJson(route, response.body, response.status ?? 200, response.headers ?? {});
-    return true;
-  }
-
-  await fulfillJson(route, { detail: `Unhandled E2E API route: ${method} ${url.pathname}` }, 404);
+  await fulfillJson(route, { detail: `Unhandled E2E API route: ${ctx.method} ${ctx.pathname}` }, 404);
   return true;
 }
 

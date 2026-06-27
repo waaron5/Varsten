@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useUser } from "@auth0/nextjs-auth0";
 import { useSession } from "./session";
@@ -139,12 +139,50 @@ function AccountPanel({
 }) {
   const accountRef = useRef<HTMLDivElement | null>(null);
   const { loading: entitlementsLoading, planTier, isPerformance, observeOnly } = useEntitlements();
-  const showPlan = !entitlementsLoading && planTier !== null;
-  const planName = isPerformance ? "Performance" : "Free";
-  const planDetail = isPerformance && !observeOnly ? "Optimization enabled" : "Observe-only";
-  const planActionHref = isPerformance ? "/admin/billing-security" : "/upgrade";
-  const planActionLabel = isPerformance ? "Billing & plan" : "Upgrade to Performance";
+  const plan = accountPlanState({ entitlementsLoading, isPerformance, observeOnly, planTier });
+  useAccountMenuDismiss(accountOpen, accountRef, setAccountOpen);
 
+  if (isLoading) return null;
+  if (!userReady) return <a href="/auth/login" className="account-login">Log in</a>;
+  return (
+    <div className="account-wrap" ref={accountRef}>
+      <AccountButton
+        accountOpen={accountOpen}
+        displayName={displayName}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggle={() => setAccountOpen((open) => !open)}
+        orgName={orgName}
+      />
+      {accountOpen ? <AccountMenu isPerformance={isPerformance} onClose={() => setAccountOpen(false)} plan={plan} /> : null}
+    </div>
+  );
+}
+
+function accountPlanState({
+  entitlementsLoading,
+  isPerformance,
+  observeOnly,
+  planTier,
+}: {
+  entitlementsLoading: boolean;
+  isPerformance: boolean;
+  observeOnly: boolean;
+  planTier: string | null;
+}) {
+  return {
+    actionHref: isPerformance ? "/admin/billing-security" : "/upgrade",
+    actionLabel: isPerformance ? "Billing & plan" : "Upgrade to Performance",
+    detail: isPerformance && !observeOnly ? "Optimization enabled" : "Observe-only",
+    name: isPerformance ? "Performance" : "Free",
+    show: !entitlementsLoading && planTier !== null,
+  };
+}
+
+function useAccountMenuDismiss(
+  accountOpen: boolean,
+  accountRef: RefObject<HTMLDivElement | null>,
+  setAccountOpen: Dispatch<SetStateAction<boolean>>,
+) {
   useEffect(() => {
     if (!accountOpen) return;
 
@@ -164,57 +202,90 @@ function AccountPanel({
       document.removeEventListener("pointerdown", closeIfOutside, true);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [accountOpen, setAccountOpen]);
+  }, [accountOpen, accountRef, setAccountOpen]);
+}
 
-  if (isLoading) return null;
-  if (!userReady) return <a href="/auth/login" className="account-login">Log in</a>;
+function AccountButton({
+  accountOpen,
+  displayName,
+  isSidebarCollapsed,
+  onToggle,
+  orgName,
+}: {
+  accountOpen: boolean;
+  displayName: string;
+  isSidebarCollapsed: boolean;
+  onToggle: () => void;
+  orgName: string;
+}) {
   return (
-    <div className="account-wrap" ref={accountRef}>
-      <button
-        className="account-button"
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={accountOpen}
-        aria-label={`Account: ${displayName}`}
-        title={isSidebarCollapsed ? `Account: ${displayName}` : undefined}
-        onClick={() => setAccountOpen((open) => !open)}
-      >
-        <span className="account-avatar">{initials(displayName)}</span>
-        <span className="account-copy">
-          <span className="account-name">{displayName}</span>
-          <span className="account-org">{orgName}</span>
-        </span>
-        <svg className="account-options-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
-        </svg>
-      </button>
-      {accountOpen ? (
-        <div className="account-menu" role="menu">
-          {showPlan ? (
-            <>
-              <div className="account-menu-section" role="group" aria-label="Workspace">
-                <div className="account-menu-kicker">Workspace</div>
-                <div className="account-plan" role="presentation">
-                  <span className="account-plan-label">Plan: {planName}</span>
-                  <span className="account-plan-detail">{planDetail}</span>
-                </div>
-              </div>
-              <Link
-                href={planActionHref}
-                className={`account-menu-item${isPerformance ? "" : " upgrade"}`}
-                role="menuitem"
-                onClick={() => setAccountOpen(false)}
-              >
-                {planActionLabel}
-              </Link>
-              <div className="account-menu-divider" role="separator" />
-            </>
-          ) : null}
-          {/* Auth routes must use <a>, not <Link>, to avoid client-side routing. */}
-          <a href="/auth/logout" className="account-menu-item" role="menuitem">Log out</a>
-        </div>
-      ) : null}
+    <button
+      className="account-button"
+      type="button"
+      aria-haspopup="menu"
+      aria-expanded={accountOpen}
+      aria-label={`Account: ${displayName}`}
+      title={isSidebarCollapsed ? `Account: ${displayName}` : undefined}
+      onClick={onToggle}
+    >
+      <span className="account-avatar">{initials(displayName)}</span>
+      <span className="account-copy">
+        <span className="account-name">{displayName}</span>
+        <span className="account-org">{orgName}</span>
+      </span>
+      <svg className="account-options-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
+      </svg>
+    </button>
+  );
+}
+
+function AccountMenu({
+  isPerformance,
+  onClose,
+  plan,
+}: {
+  isPerformance: boolean;
+  onClose: () => void;
+  plan: ReturnType<typeof accountPlanState>;
+}) {
+  return (
+    <div className="account-menu" role="menu">
+      {plan.show ? <AccountPlanMenuItem isPerformance={isPerformance} onClose={onClose} plan={plan} /> : null}
+      {/* Auth routes must use <a>, not <Link>, to avoid client-side routing. */}
+      <a href="/auth/logout" className="account-menu-item" role="menuitem">Log out</a>
     </div>
+  );
+}
+
+function AccountPlanMenuItem({
+  isPerformance,
+  onClose,
+  plan,
+}: {
+  isPerformance: boolean;
+  onClose: () => void;
+  plan: ReturnType<typeof accountPlanState>;
+}) {
+  return (
+    <>
+      <div className="account-menu-section" role="group" aria-label="Workspace">
+        <div className="account-menu-kicker">Workspace</div>
+        <div className="account-plan" role="presentation">
+          <span className="account-plan-label">Plan: {plan.name}</span>
+          <span className="account-plan-detail">{plan.detail}</span>
+        </div>
+      </div>
+      <Link
+        href={plan.actionHref}
+        className={`account-menu-item${isPerformance ? "" : " upgrade"}`}
+        role="menuitem"
+        onClick={onClose}
+      >
+        {plan.actionLabel}
+      </Link>
+      <div className="account-menu-divider" role="separator" />
+    </>
   );
 }
 

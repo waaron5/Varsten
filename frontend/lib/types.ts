@@ -1,7 +1,7 @@
 // Mirrors the FastAPI Pydantic response models. Numeric money/token fields that
 // the backend serializes as Decimal arrive as strings; parse at the edge.
 
-import type { LeverName as CanonicalLeverName } from "./levers";
+import { LEVER_LABELS } from "./levers";
 
 export interface UsageEvent {
   id: string;
@@ -179,6 +179,15 @@ export interface DashboardProofTrust {
   has_ab_holdback: boolean;
 }
 
+export interface FallbackCoverageRow {
+  provider: string; // openai | anthropic | gemini
+  label: string;
+  sdk_enabled: boolean;
+  sdk_client: string | null;
+  key_configured: boolean;
+  status: string; // "SDK enabled" | "Key set, no SDK" | "Not enabled"
+}
+
 export interface DashboardSnapshot {
   period: string;
   granularity: string;
@@ -194,6 +203,7 @@ export interface DashboardSnapshot {
   levers: DashboardLever[];
   drivers: DashboardDrivers;
   proof_trust: DashboardProofTrust;
+  fallback_coverage: FallbackCoverageRow[];
 }
 
 // Dashboard narrative 2: proxy traffic health.
@@ -311,7 +321,7 @@ export interface UsageEventFilters {
 
 export type RecommendationStatus = "open" | "applied" | "dismissed" | "rolled_back";
 
-export type LeverName = CanonicalLeverName;
+export type LeverName = keyof typeof LEVER_LABELS;
 
 export type AutomationMode = "auto" | "approve";
 

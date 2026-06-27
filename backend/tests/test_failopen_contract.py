@@ -209,10 +209,34 @@ async def test_fallback_telemetry_accepts_allowlisted_marker(async_client, async
 
 
 @pytest.mark.anyio
+async def test_fallback_telemetry_accepts_provider_field(async_client, async_provision):
+    # The per-provider wrappers stamp `provider` so the dashboard can attribute a
+    # fallback window to OpenAI / Anthropic / Gemini. It is on the allowlist.
+    ws = await async_provision(sub="auth0|o", email="o@example.com")
+    payload = {
+        "events": [
+            {
+                "reason_code": "circuit_open",
+                "phase": "pre-request",
+                "model": CHAT,
+                "latency_ms": 12,
+                "provider": "anthropic",
+                "sdk_version": "varsten-anthropic/0.1.0",
+            }
+        ]
+    }
+    res = await async_client.post("/v1/telemetry/fallback", headers=_b(ws["api_key"]), json=payload)
+    assert res.status_code == 202
+    assert res.json() == {"accepted": 1}
+
+
+@pytest.mark.anyio
 async def test_fallback_telemetry_rejects_content(async_client, async_provision):
     ws = await async_provision(sub="auth0|o", email="o@example.com")
     # A client that tries to smuggle prompt content gets a 422, never silent storage.
-    payload = {"events": [{"reason_code": "x", "phase": "pre-request", "messages": [{"role": "user", "content": "secret"}]}]}
+    payload = {
+        "events": [{"reason_code": "x", "phase": "pre-request", "messages": [{"role": "user", "content": "secret"}]}]
+    }
     res = await async_client.post("/v1/telemetry/fallback", headers=_b(ws["api_key"]), json=payload)
     assert res.status_code == 422
 
@@ -299,7 +323,9 @@ def capturing_openai(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_idempotency_key_propagated_on_verbatim_forward(async_client, async_provision, capturing_openai, monkeypatch):
+async def test_idempotency_key_propagated_on_verbatim_forward(
+    async_client, async_provision, capturing_openai, monkeypatch
+):
     ws = await async_provision(sub="auth0|o", email="o@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     headers = {**_b(ws["api_key"]), "Idempotency-Key": "varsten-abc123"}

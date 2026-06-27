@@ -42,7 +42,8 @@ const PROVIDERS = [
   { id: "gemini", label: "Gemini", placeholder: "AIza..." },
 ];
 
-type ProviderBusy = { provider: string; action: "save" | "disconnect" } | null;
+type ProviderBusyAction = "save" | "disconnect";
+type ProviderBusy = { provider: string; action: ProviderBusyAction } | null;
 
 function providerStatusTone(status: string): string {
   if (status === "connected") return "green";
@@ -262,47 +263,155 @@ function ProviderConnectionRow({
   onSave: (event: FormEvent, provider: string) => void;
   provider: { id: string; label: string; placeholder: string };
 }) {
-  const status = connection?.status ?? "not_connected";
-  const saving = busy?.provider === provider.id && busy.action === "save";
-  const disconnecting = busy?.provider === provider.id && busy.action === "disconnect";
-  const disabled = !!busy || !activeProjectId;
+  const state = providerConnectionRowState({ activeProjectId, busy, connection, keyDraft, providerId: provider.id });
   return (
     <tr>
+      <ProviderNameCell connection={connection} label={provider.label} />
       <td>
-        <div className="name">{provider.label}</div>
-        <div className="muted">{connection?.connection_method ? titleize(connection.connection_method) : "Secrets Manager"}</div>
+        <ProviderConnectionStatus connection={connection} status={state.status} />
       </td>
+      <td>{state.lastVerified}</td>
       <td>
-        <span className={`pill ${providerStatusTone(status)}`}>{titleize(status)}</span>
-        {connection?.last_error ? <div className="form-error">{connection.last_error}</div> : null}
-      </td>
-      <td>{connection?.last_verified_at ? relativeTime(connection.last_verified_at) : "-"}</td>
-      <td>
-        <form className="inline-form" onSubmit={(event) => onSave(event, provider.id)}>
-          <input
-            className="input"
-            type="password"
-            autoComplete="off"
-            placeholder={provider.placeholder}
-            value={keyDraft}
-            onChange={(event) => onKeyDraft(provider.id, event.target.value)}
-          />
-          <button className="btn primary" disabled={disabled || !keyDraft.trim()} type="submit">
-            {saving ? "Saving..." : connection?.key_vaulted ? "Rotate" : "Connect"}
-          </button>
-        </form>
+        <ProviderKeyInlineForm
+          disabled={state.disabled}
+          keyDraft={keyDraft}
+          onKeyDraft={(value) => onKeyDraft(provider.id, value)}
+          onSave={(event) => onSave(event, provider.id)}
+          placeholder={provider.placeholder}
+          saving={state.saving}
+          vaulted={state.vaulted}
+        />
       </td>
       <td className="r">
-        <button
-          className="btn danger"
-          disabled={disabled || !connection?.key_vaulted}
-          onClick={() => onDisconnect(provider.id)}
-          type="button"
-        >
-          {disconnecting ? "Disconnecting..." : "Disconnect"}
-        </button>
+        <DisconnectProviderButton
+          disabled={state.disabled}
+          disconnecting={state.disconnecting}
+          onDisconnect={() => onDisconnect(provider.id)}
+          vaulted={state.vaulted}
+        />
       </td>
     </tr>
+  );
+}
+
+function providerConnectionRowState({
+  activeProjectId,
+  busy,
+  connection,
+  keyDraft,
+  providerId,
+}: {
+  activeProjectId: string | null;
+  busy: ProviderBusy;
+  connection: ProviderConnection | null;
+  keyDraft: string;
+  providerId: string;
+}) {
+  const action = busyActionForProvider(busy, providerId);
+  return {
+    disabled: providerActionDisabled(activeProjectId, busy),
+    disconnecting: action === "disconnect",
+    lastVerified: lastVerifiedLabel(connection),
+    saving: action === "save",
+    status: connectionStatus(connection),
+    vaulted: connection?.key_vaulted === true,
+  };
+}
+
+function busyActionForProvider(busy: ProviderBusy, providerId: string): ProviderBusyAction | null {
+  return busy?.provider === providerId ? busy.action : null;
+}
+
+function providerActionDisabled(activeProjectId: string | null, busy: ProviderBusy): boolean {
+  return Boolean(busy) || !activeProjectId;
+}
+
+function lastVerifiedLabel(connection: ProviderConnection | null): string {
+  return connection?.last_verified_at ? relativeTime(connection.last_verified_at) : "-";
+}
+
+function connectionStatus(connection: ProviderConnection | null): string {
+  return connection?.status ?? "not_connected";
+}
+
+function ProviderNameCell({ connection, label }: { connection: ProviderConnection | null; label: string }) {
+  return (
+    <td>
+      <div className="name">{label}</div>
+      <div className="muted">{connection?.connection_method ? titleize(connection.connection_method) : "Secrets Manager"}</div>
+    </td>
+  );
+}
+
+function ProviderConnectionStatus({
+  connection,
+  status,
+}: {
+  connection: ProviderConnection | null;
+  status: string;
+}) {
+  return (
+    <>
+      <span className={`pill ${providerStatusTone(status)}`}>{titleize(status)}</span>
+      {connection?.last_error ? <div className="form-error">{connection.last_error}</div> : null}
+    </>
+  );
+}
+
+function ProviderKeyInlineForm({
+  disabled,
+  keyDraft,
+  onKeyDraft,
+  onSave,
+  placeholder,
+  saving,
+  vaulted,
+}: {
+  disabled: boolean;
+  keyDraft: string;
+  onKeyDraft: (value: string) => void;
+  onSave: (event: FormEvent) => void;
+  placeholder: string;
+  saving: boolean;
+  vaulted: boolean;
+}) {
+  return (
+    <form className="inline-form" onSubmit={onSave}>
+      <input
+        className="input"
+        type="password"
+        autoComplete="off"
+        placeholder={placeholder}
+        value={keyDraft}
+        onChange={(event) => onKeyDraft(event.target.value)}
+      />
+      <button className="btn primary" disabled={disabled || !keyDraft.trim()} type="submit">
+        {saving ? "Saving..." : vaulted ? "Rotate" : "Connect"}
+      </button>
+    </form>
+  );
+}
+
+function DisconnectProviderButton({
+  disabled,
+  disconnecting,
+  onDisconnect,
+  vaulted,
+}: {
+  disabled: boolean;
+  disconnecting: boolean;
+  onDisconnect: () => void;
+  vaulted: boolean;
+}) {
+  return (
+    <button
+      className="btn danger"
+      disabled={disabled || !vaulted}
+      onClick={onDisconnect}
+      type="button"
+    >
+      {disconnecting ? "Disconnecting..." : "Disconnect"}
+    </button>
   );
 }
 

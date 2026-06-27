@@ -20,6 +20,7 @@ import type {
   DashboardLever,
   DashboardPeriod,
   DashboardProofTrust,
+  FallbackCoverageRow,
   SavingsTrendBucket,
   TrendStats,
 } from "@/lib/types";
@@ -345,19 +346,10 @@ function ProofMetric({
 }
 
 function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
-  const score = num(proof.score);
-  const scoreDisplay = score === null ? "—" : String(Math.round(score * 100));
   const coverage = num(proof.pricing_coverage);
   const attribution = num(proof.attribution_share);
   const measured = num(proof.measured_share);
-  const covBadge = coverageBadge(coverage);
-  const attrBadge = attributionBadge(attribution);
-
-  const measuredPct = measured === null ? 0 : Math.round(measured * 100);
-  const verifiedDesc =
-    proof.claimed_savings_usd === null
-      ? "Verified savings appear once measured optimizations run."
-      : `Savings are traced to real cache hits, routing events, and batch records — ${measuredPct}% recorded, ${100 - measuredPct}% modeled.`;
+  const hero = proofHeroValues(proof);
 
   return (
     <section className="dash-card dash-proof-card">
@@ -376,7 +368,7 @@ function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
           </div>
         </div>
         <div className="dash-proof-hero-score">
-          <b>{scoreDisplay}</b>
+          <b>{hero.scoreDisplay}</b>
           <span>/ 100</span>
         </div>
       </div>
@@ -384,7 +376,7 @@ function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
       <div className="dash-proof-metrics">
         <ProofMetric
           name="Pricing coverage"
-          badge={covBadge}
+          badge={coverageBadge(coverage)}
           value={pct(proof.pricing_coverage, 0)}
           valueCls={coverage !== null && coverage >= 0.9 ? "confidence" : "amber"}
           desc="All spend is priced against official provider catalogs or your organization's negotiated rates — never estimated or self-reported."
@@ -394,15 +386,63 @@ function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
           badge={measured !== null && measured > 0 ? { text: "Ledger-Backed", cls: "confidence" } : { text: "Modeled", cls: "amber" }}
           value={proof.claimed_savings_usd === null ? "—" : `${money(proof.verified_savings_usd)} of ${money(proof.claimed_savings_usd)}`}
           valueCls="confidence"
-          desc={verifiedDesc}
+          desc={hero.verifiedDesc}
         />
         <ProofMetric
           name="Spend attribution"
-          badge={attrBadge}
+          badge={attributionBadge(attribution)}
           value={pct(proof.attribution_share, 1)}
           valueCls={attribution !== null && attribution >= 0.9 ? "confidence" : "amber"}
           desc="Every request is tagged to a team or feature, so all spend is fully accountable and owned."
         />
+      </div>
+    </section>
+  );
+}
+
+function proofHeroValues(proof: DashboardProofTrust) {
+  const score = num(proof.score);
+  const measured = num(proof.measured_share);
+  const measuredPct = measured === null ? 0 : Math.round(measured * 100);
+  return {
+    scoreDisplay: score === null ? "—" : String(Math.round(score * 100)),
+    verifiedDesc: proof.claimed_savings_usd === null
+      ? "Verified savings appear once measured optimizations run."
+      : `Savings are traced to real cache hits, routing events, and batch records — ${measuredPct}% recorded, ${100 - measuredPct}% modeled.`,
+  };
+}
+
+function FallbackCoveragePanel({ coverage }: { coverage: FallbackCoverageRow[] }) {
+  return (
+    <section className="dash-card dash-coverage-card">
+      <div className="dash-card-head">
+        <h2>Fallback Coverage</h2>
+        <Link href="/admin/connections" className="dash-head-link">Connect SDKs →</Link>
+      </div>
+      <p className="dash-coverage-note">
+        The fail-open SDK keeps your app running when Varsten is unavailable by calling your
+        provider directly — an outage costs savings, not uptime. Base-URL mode returns typed
+        errors but has no automatic fallback, so the SDK is the safe production path.
+      </p>
+      <div className="dash-levers-list">
+        {coverage.map((row) => {
+          const detail = row.sdk_enabled
+            ? (row.sdk_client ?? "SDK active")
+            : row.key_configured
+              ? "Key set · base-URL mode (no auto-fallback)"
+              : "Not integrated";
+          return (
+            <div className={`dash-lever-item${row.sdk_enabled ? "" : " dim"}`} key={row.provider}>
+              <div className="dash-lever-item-head">
+                <div className="dash-lever-item-name">
+                  <strong>{row.label}</strong>
+                  <span className={`dash-lever-badge ${row.sdk_enabled ? "active" : "off"}`}>{row.status}</span>
+                </div>
+                <span className="dash-coverage-detail">{detail}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -431,6 +471,7 @@ export function SavingsDashboard() {
         <TopSpendDriversPanel drivers={data.drivers} />
         <ProofTrustPanel proof={data.proof_trust} />
       </div>
+      <FallbackCoveragePanel coverage={data.fallback_coverage} />
     </div>
   );
 }

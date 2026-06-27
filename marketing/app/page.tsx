@@ -189,6 +189,70 @@ function anchorScrollOffset(): number {
   return Number.isFinite(offset) ? offset : 0;
 }
 
+function isPlainPrimaryClick(event: globalThis.MouseEvent): boolean {
+  const modifierPressed = [event.metaKey, event.ctrlKey, event.shiftKey, event.altKey].some(Boolean);
+  return event.button === 0 && !event.defaultPrevented && !modifierPressed;
+}
+
+function hashAnchorFromTarget(target: EventTarget | null): HTMLAnchorElement | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLAnchorElement>('a[href^="#"]');
+}
+
+function isSamePageAnchor(anchor: HTMLAnchorElement | null): anchor is HTMLAnchorElement {
+  return Boolean(anchor && anchor.origin === window.location.origin && anchor.pathname === window.location.pathname);
+}
+
+function samePageHashAnchor(event: globalThis.MouseEvent): HTMLAnchorElement | null {
+  if (!isPlainPrimaryClick(event)) return null;
+  const anchor = hashAnchorFromTarget(event.target);
+  return isSamePageAnchor(anchor) ? anchor : null;
+}
+
+function scrollDuration(anchor: HTMLAnchorElement): number | null {
+  const duration = Number.parseInt(anchor.dataset.scrollDuration ?? "", 10);
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function animateScrollTo(top: number, duration: number) {
+  const start = window.scrollY;
+  const distance = top - start;
+  const startTime = window.performance.now();
+  const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+  function frame(now: number) {
+    const progress = Math.min(1, (now - startTime) / duration);
+    window.scrollTo({ top: start + distance * ease(progress), behavior: "auto" });
+    if (progress < 1) window.requestAnimationFrame(frame);
+  }
+
+  window.requestAnimationFrame(frame);
+}
+
+function anchorScrollPlan(anchor: HTMLAnchorElement) {
+  const target = hashTarget(anchor.hash);
+  if (!target) return null;
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - anchorScrollOffset());
+  return { duration: scrollDuration(anchor), prefersReducedMotion, top };
+}
+
+type AnchorScrollPlan = NonNullable<ReturnType<typeof anchorScrollPlan>>;
+
+function executeAnchorScroll(plan: AnchorScrollPlan) {
+  if (!plan.prefersReducedMotion && plan.duration) {
+    animateScrollTo(plan.top, plan.duration);
+    return;
+  }
+  window.scrollTo({ top: plan.top, behavior: plan.prefersReducedMotion ? "auto" : "smooth" });
+}
+
+function beginAnchorScroll(anchor: HTMLAnchorElement, anchorScrollingRef: { current: boolean }) {
+  anchorScrollingRef.current = true;
+  window.dispatchEvent(new Event("lp:anchor-scroll-start"));
+  window.history.pushState(null, "", `${window.location.pathname}${window.location.search}${anchor.hash}`);
+}
+
 function useSmoothHashLinks() {
   const anchorScrollingRef = useRef(false);
   const finishTimerRef = useRef<number | null>(null);
@@ -211,40 +275,15 @@ function useSmoothHashLinks() {
     }
 
     function onClick(event: globalThis.MouseEvent) {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (!(event.target instanceof Element)) return;
-      const anchor = event.target.closest<HTMLAnchorElement>('a[href^="#"]');
-      if (!anchor || anchor.origin !== window.location.origin || anchor.pathname !== window.location.pathname) return;
-      const target = hashTarget(anchor.hash);
-      if (!target) return;
+      const anchor = samePageHashAnchor(event);
+      if (!anchor) return;
+      const plan = anchorScrollPlan(anchor);
+      if (!plan) return;
 
       event.preventDefault();
-      anchorScrollingRef.current = true;
-      window.dispatchEvent(new Event("lp:anchor-scroll-start"));
-      window.history.pushState(null, "", `${window.location.pathname}${window.location.search}${anchor.hash}`);
-
-      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - anchorScrollOffset());
-      const duration = Number.parseInt(anchor.dataset.scrollDuration ?? "", 10);
-
-      if (!prefersReducedMotion && Number.isFinite(duration) && duration > 0) {
-        const start = window.scrollY;
-        const distance = top - start;
-        const startTime = window.performance.now();
-        const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-
-        function frame(now: number) {
-          const progress = Math.min(1, (now - startTime) / duration);
-          window.scrollTo({ top: start + distance * ease(progress), behavior: "auto" });
-          if (progress < 1) window.requestAnimationFrame(frame);
-        }
-
-        window.requestAnimationFrame(frame);
-      } else {
-        window.scrollTo({ top, behavior: prefersReducedMotion ? "auto" : "smooth" });
-      }
-
-      if (prefersReducedMotion) finishAnchorScroll();
+      beginAnchorScroll(anchor, anchorScrollingRef);
+      executeAnchorScroll(plan);
+      if (plan.prefersReducedMotion) finishAnchorScroll();
       else scheduleFinish();
     }
 
@@ -370,22 +409,7 @@ function DashboardShot() {
           </div>
           <div className="vds-panels">
             <div className="vds-panel">
-              <div className="vds-panel-head">
-                <div>
-                  <h5>Daily Savings</h5>
-                  <p>Projected cost split into paid spend and saved dollars.</p>
-                </div>
-                <div className="vds-legend">
-                  <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
-                  <span><i style={{ background: "var(--brand)" }} />Savings</span>
-                </div>
-              </div>
-              <SavingsChart />
-              <div className="vds-stats">
-                <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
-                <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
-                <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
-              </div>
+              <SavingsPanelContent subtitle="Projected cost split into paid spend and saved dollars." title="Daily Savings" />
             </div>
             <div className="vds-panel">
               <div className="vds-panel-head">
@@ -405,27 +429,7 @@ function DashboardShot() {
               </div>
             </div>
             <div className="vds-panel vds-panel-drivers">
-              <div className="vds-panel-head">
-                <div>
-                  <h5>Spend Drivers</h5>
-                  <p>Where $42,610 of actual spend was allocated.</p>
-                </div>
-                <span className="meta">By team</span>
-              </div>
-              <div className="vdrivers-bar">
-                {DRIVERS.map((d) => (
-                  <i key={d.team} style={{ width: `${d.pct}%`, background: d.color }} />
-                ))}
-              </div>
-              <div className="vdriver-rows">
-                {DRIVERS.map((d) => (
-                  <div className="vdriver" key={d.team}>
-                    <span className="d-name"><i style={{ background: d.color }} />{d.team}</span>
-                    <span className="d-amt">{d.amount}</span>
-                    <span className="d-pct">{d.pct.toFixed(1)}%</span>
-                  </div>
-                ))}
-              </div>
+              <SpendDriversContent meta="By team" subtitle="Where $42,610 of actual spend was allocated." title="Spend Drivers" />
             </div>
             <div className="vds-panel vds-panel-proof">
               <div className="vds-panel-head">
@@ -461,6 +465,63 @@ function DashboardShot() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SavingsStats() {
+  return (
+    <div className="vds-stats">
+      <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
+      <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
+      <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
+    </div>
+  );
+}
+
+function SavingsPanelContent({ subtitle, title }: { subtitle: string; title: string }) {
+  return (
+    <>
+      <div className="vds-panel-head">
+        <div>
+          <h5>{title}</h5>
+          <p>{subtitle}</p>
+        </div>
+        <div className="vds-legend">
+          <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
+          <span><i style={{ background: "var(--brand)" }} />Savings</span>
+        </div>
+      </div>
+      <SavingsChart />
+      <SavingsStats />
+    </>
+  );
+}
+
+function SpendDriversContent({ meta, subtitle, title }: { meta?: string; subtitle: string; title: string }) {
+  return (
+    <>
+      <div className="vds-panel-head">
+        <div>
+          <h5>{title}</h5>
+          <p>{subtitle}</p>
+        </div>
+        {meta ? <span className="meta">{meta}</span> : null}
+      </div>
+      <div className="vdrivers-bar">
+        {DRIVERS.map((d) => (
+          <i key={d.team} style={{ width: `${d.pct}%`, background: d.color }} />
+        ))}
+      </div>
+      <div className="vdriver-rows">
+        {DRIVERS.map((d) => (
+          <div className="vdriver" key={d.team}>
+            <span className="d-name"><i style={{ background: d.color }} />{d.team}</span>
+            <span className="d-amt">{d.amount}</span>
+            <span className="d-pct">{d.pct.toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -672,45 +733,11 @@ function ProductInside() {
           </div>
           <div className="lp-product-grid">
             <div className="lp-card">
-              <div className="vds-panel-head">
-                <div>
-                  <h5>Savings</h5>
-                  <p>Daily. Each bar is what you&apos;d have paid, split into spend &amp; savings.</p>
-                </div>
-                <div className="vds-legend">
-                  <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
-                  <span><i style={{ background: "var(--brand)" }} />Savings</span>
-                </div>
-              </div>
-              <SavingsChart />
+              <SavingsPanelContent subtitle="Daily. Each bar is what you'd have paid, split into spend & savings." title="Savings" />
               <div className="vchart-x"><span>1</span><span>5</span><span>10</span><span>15</span><span>19</span></div>
-              <div className="vds-stats">
-                <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
-                <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
-                <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
-              </div>
             </div>
             <div className="lp-card">
-              <div className="vds-panel-head">
-                <div>
-                  <h5>Spend drivers</h5>
-                  <p>Where $42,610 of actual spend went, by team.</p>
-                </div>
-              </div>
-              <div className="vdrivers-bar">
-                {DRIVERS.map((d) => (
-                  <i key={d.team} style={{ width: `${d.pct}%`, background: d.color }} />
-                ))}
-              </div>
-              <div className="vdriver-rows">
-                {DRIVERS.map((d) => (
-                  <div className="vdriver" key={d.team}>
-                    <span className="d-name"><i style={{ background: d.color }} />{d.team}</span>
-                    <span className="d-amt">{d.amount}</span>
-                    <span className="d-pct">{d.pct.toFixed(1)}%</span>
-                  </div>
-                ))}
-              </div>
+              <SpendDriversContent subtitle="Where $42,610 of actual spend went, by team." title="Spend drivers" />
             </div>
           </div>
         </div>
