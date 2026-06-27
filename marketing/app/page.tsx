@@ -409,12 +409,11 @@ function DashboardShot() {
           </div>
           <div className="vds-panels">
             <div className="vds-panel">
-              <SavingsPanelContent subtitle="Projected cost split into paid spend and saved dollars." title="Daily Savings" />
+              <SavingsPanelContent title="Daily Savings" />
             </div>
             <div className="vds-panel">
               <div className="vds-panel-head">
                 <div><h5>Savings by lever</h5></div>
-                <span className="meta">4 active</span>
               </div>
               <div className="vlever-rows">
                 {LEVER_ROWS.slice(0, 4).map((l) => (
@@ -429,36 +428,30 @@ function DashboardShot() {
               </div>
             </div>
             <div className="vds-panel vds-panel-drivers">
-              <SpendDriversContent meta="By team" subtitle="Where $42,610 of actual spend was allocated." title="Spend Drivers" />
+              <SpendDriversContent meta="By team" title="Spend Drivers" />
             </div>
-            <div className="vds-panel vds-panel-proof">
-              <div className="vds-panel-head">
-                <div><h5>Data Integrity</h5></div>
-                <span className="meta">Audit-ready</span>
-              </div>
-              <div className="vproof-hero">
-                <div className="vproof-main">
-                  <span className="vproof-check"><Check /></span>
+            <div className="vds-panel vds-panel-proof lp-conf-card">
+              <div className="lp-conf-label-row">Data integrity</div>
+              <div className="lp-conf-top">
+                <div className="lp-conf-badge">
+                  <span className="lp-conf-check"><Check /></span>
                   <div>
-                    <p className="vproof-kicker">Confidence Score</p>
-                    <b>High Confidence</b>
+                    <h3>High confidence</h3>
                   </div>
                 </div>
-                <div className="vproof-score"><strong>98</strong><span>/100</span></div>
+                <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
               </div>
-              <div className="vproof-rows">
-                <div className="vproof-row">
-                  <span>Pricing coverage</span>
-                  <b>100%</b>
-                </div>
-                <div className="vproof-row">
-                  <span>Verified savings</span>
-                  <b>{LEVER_GROSS_SAVED_LABEL}</b>
-                </div>
-                <div className="vproof-row">
-                  <span>Spend attribution</span>
-                  <b>96.7%</b>
-                </div>
+              <div className="lp-conf-row">
+                <span className="name">Pricing coverage</span>
+                <span className="stat">100%</span>
+              </div>
+              <div className="lp-conf-row">
+                <span className="name">Spend attribution</span>
+                <span className="stat">96.7%</span>
+              </div>
+              <div className="lp-conf-row">
+                <span className="name">Holdback test</span>
+                <span className="stat">Live</span>
               </div>
             </div>
           </div>
@@ -478,13 +471,13 @@ function SavingsStats() {
   );
 }
 
-function SavingsPanelContent({ subtitle, title }: { subtitle: string; title: string }) {
+function SavingsPanelContent({ subtitle, title }: { subtitle?: string; title: string }) {
   return (
     <>
       <div className="vds-panel-head">
         <div>
           <h5>{title}</h5>
-          <p>{subtitle}</p>
+          {subtitle ? <p>{subtitle}</p> : null}
         </div>
         <div className="vds-legend">
           <span><i style={{ background: "var(--chart-spend)" }} />Actual spend</span>
@@ -497,15 +490,22 @@ function SavingsPanelContent({ subtitle, title }: { subtitle: string; title: str
   );
 }
 
-function SpendDriversContent({ meta, subtitle, title }: { meta?: string; subtitle: string; title: string }) {
+function SpendDriversContent({ meta, subtitle, title }: { meta?: string; subtitle?: string; title: string }) {
   return (
     <>
       <div className="vds-panel-head">
         <div>
           <h5>{title}</h5>
-          <p>{subtitle}</p>
+          {subtitle ? <p>{subtitle}</p> : null}
         </div>
-        {meta ? <span className="meta">{meta}</span> : null}
+        {meta ? (
+          <span className="meta meta-select">
+            {meta}
+            <svg aria-hidden="true" viewBox="0 0 16 16">
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </span>
+        ) : null}
       </div>
       <div className="vdrivers-bar">
         {DRIVERS.map((d) => (
@@ -564,7 +564,6 @@ function ProblemSpendChart() {
       <div className="lp-problem-chart-head">
         <div>
           <h3>Monthly AI spend</h3>
-          <p>Climbing into your margin</p>
         </div>
         <div className="lp-problem-chart-value">
           <strong>$74,180</strong>
@@ -733,11 +732,10 @@ function ProductInside() {
           </div>
           <div className="lp-product-grid">
             <div className="lp-card">
-              <SavingsPanelContent subtitle="Daily. Each bar is what you'd have paid, split into spend & savings." title="Savings" />
-              <div className="vchart-x"><span>1</span><span>5</span><span>10</span><span>15</span><span>19</span></div>
+              <SavingsPanelContent title="Daily savings" />
             </div>
             <div className="lp-card">
-              <SpendDriversContent subtitle="Where $42,610 of actual spend went, by team." title="Spend drivers" />
+              <SpendDriversContent title="Spend drivers" />
             </div>
           </div>
         </div>
@@ -837,7 +835,7 @@ function HowItWorks() {
             <p className="lp-eyebrow">Installation</p>
             <h2 className="lp-section-title">Simple integration</h2>
             <p className="lp-section-sub">
-              Start sending traffic through Varsten with a base URL change.
+              Start sending traffic through Varsten with a base URL change. For production-safe fail-open behavior, use the SDK wrapper instead.
             </p>
           </div>
           <div className="lp-code-page">

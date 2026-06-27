@@ -447,6 +447,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .vds-panel-head h5 { font-size: 14px; font-weight: 800; }
 .vds-panel-head p { color: var(--ink-3); font-size: 11px; margin-top: 2px; }
 .vds-panel-head .meta { color: var(--ink-3); font-size: 11px; font-weight: 700; }
+.vds-panel-head .meta-select { display: inline-flex; align-items: center; gap: 4px; }
+.vds-panel-head .meta-select svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .vds-legend { display: flex; gap: 12px; }
 .vds-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 11px; }
 .vds-legend i { width: 9px; height: 9px; border-radius: 2px; }
@@ -490,55 +492,6 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .vdriver .d-name i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
 .vdriver .d-amt { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .vdriver .d-pct { color: var(--ink-3); font-size: 11px; font-weight: 700; width: 44px; text-align: right; }
-
-/* Data integrity / confidence */
-.vproof-hero {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 12px 13px;
-  border-left: 3px solid var(--confidence);
-  border-radius: var(--radius-sm);
-  background: var(--confidence-faint);
-}
-.vproof-main { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-.vproof-check {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-pill);
-  background: var(--confidence);
-  color: #fff;
-  flex: none;
-}
-.vproof-check .lp-check { color: #fff; margin-top: 0; }
-.vproof-kicker {
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-.vproof-main b { display: block; margin-top: 5px; font-size: 13px; line-height: 1.15; }
-.vproof-score { display: flex; align-items: baseline; gap: 2px; color: var(--ink-3); flex: none; }
-.vproof-score strong { color: var(--confidence-strong); font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
-.vproof-score span { font-size: 11px; font-weight: 700; }
-.vproof-rows { margin-top: 10px; border-top: 1px solid var(--line); }
-.vproof-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--line);
-}
-.vproof-row:last-child { border-bottom: 0; padding-bottom: 0; }
-.vproof-row span { color: var(--ink-2); font-size: 12px; font-weight: 650; }
-.vproof-row b { color: var(--ink); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
 
 /* ── Problem ─────────────────────────────────────────────────── */
 .lp-problem-section {
@@ -1081,6 +1034,46 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .lp-conf-row .stat { color: var(--ink); font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; align-self: center; }
 .lp-conf-row .desc { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
 .lp-conf-card .vstate.on { background: var(--conf-soft); color: var(--conf-strong); }
+.vds-panel-proof.lp-conf-card {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+.vds-panel-proof .lp-conf-label-row {
+  padding-bottom: 12px;
+  border-bottom: 0;
+  font-size: 14px;
+}
+.vds-panel-proof .lp-conf-label-row + .lp-conf-top {
+  padding-top: 12px;
+}
+.vds-panel-proof .lp-conf-top {
+  gap: 12px;
+  padding-bottom: 13px;
+}
+.vds-panel-proof .lp-conf-badge {
+  gap: 9px;
+}
+.vds-panel-proof .lp-conf-check {
+  width: 30px;
+  height: 30px;
+}
+.vds-panel-proof .lp-conf-badge h3 {
+  font-size: 15px;
+}
+.vds-panel-proof .lp-conf-score b {
+  font-size: 24px;
+}
+.vds-panel-proof .lp-conf-score span {
+  font-size: 11px;
+}
+.vds-panel-proof .lp-conf-row {
+  padding: 9px 0;
+}
+.vds-panel-proof .lp-conf-row .name,
+.vds-panel-proof .lp-conf-row .stat {
+  font-size: 12px;
+}
 
 /* ── How it works ────────────────────────────────────────────── */
 .lp-how-layout {
