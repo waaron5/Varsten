@@ -136,6 +136,23 @@ function Check({ className = "lp-check" }: { className?: string }) {
   );
 }
 
+function ConfidenceCardHeader() {
+  return (
+    <>
+      <div className="lp-conf-label-row">Data integrity</div>
+      <div className="lp-conf-top">
+        <div className="lp-conf-badge">
+          <span className="lp-conf-check"><Check /></span>
+          <div>
+            <h3>High confidence</h3>
+          </div>
+        </div>
+        <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
+      </div>
+    </>
+  );
+}
+
 const PROVIDER_LOGOS = {
   openai: { src: "/openai.svg", alt: "OpenAI", width: 512, height: 126 },
   anthropic: { src: "/anthropic.svg", alt: "Anthropic", width: 512, height: 58 },
@@ -431,16 +448,7 @@ function DashboardShot() {
               <SpendDriversContent meta="By team" title="Spend Drivers" />
             </div>
             <div className="vds-panel vds-panel-proof lp-conf-card">
-              <div className="lp-conf-label-row">Data integrity</div>
-              <div className="lp-conf-top">
-                <div className="lp-conf-badge">
-                  <span className="lp-conf-check"><Check /></span>
-                  <div>
-                    <h3>High confidence</h3>
-                  </div>
-                </div>
-                <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
-              </div>
+              <ConfidenceCardHeader />
               <div className="lp-conf-row">
                 <span className="name">Pricing coverage</span>
                 <span className="stat">100%</span>
@@ -792,16 +800,7 @@ function Ledger() {
           </div>
           <div className="lp-ledger-grid">
             <div className="lp-conf-card">
-              <div className="lp-conf-label-row">Data integrity</div>
-              <div className="lp-conf-top">
-                <div className="lp-conf-badge">
-                  <span className="lp-conf-check"><Check /></span>
-                  <div>
-                    <h3>High confidence</h3>
-                  </div>
-                </div>
-                <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
-              </div>
+              <ConfidenceCardHeader />
               <div className="lp-conf-row">
                 <span className="name">Pricing coverage <span className="vstate on">Catalog-verified</span></span>
                 <span className="stat">100%</span>

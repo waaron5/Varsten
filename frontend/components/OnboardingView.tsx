@@ -86,14 +86,26 @@ function OnboardingBody() {
     return () => window.clearInterval(id);
   }, [data, firstSeen, reload]);
 
+  const recordEvent = useCallback(
+    async (event: "snippet_viewed" | "dashboard_entered") => {
+      try {
+        await api.onboardingEvent(await getToken(), activeProjectId ?? undefined, event);
+      } catch {
+        // Checklist events are best-effort; never block the funnel on them.
+      }
+    },
+    [activeProjectId, getToken],
+  );
+
   const finish = useCallback(async () => {
     try {
+      await recordEvent("dashboard_entered");
       await api.completeOnboarding(await getToken(), activeProjectId ?? undefined);
     } catch {
       // Completion is best-effort; the dashboard still works if it fails.
     }
     router.push("/dashboard");
-  }, [activeProjectId, getToken, router]);
+  }, [activeProjectId, getToken, recordEvent, router]);
 
   if (loading && !data) {
     return (
@@ -128,7 +140,7 @@ function OnboardingBody() {
 
       <ApiKeyStep status={data} />
       <ProviderStep status={data} onChanged={() => void reload()} />
-      <IntegrateStep />
+      <IntegrateStep done={data.integration_snippet_viewed} onSnippetViewed={() => void recordEvent("snippet_viewed")} />
       <TestStep status={data} />
 
       <div className="empty-actions" style={{ marginTop: 16 }}>
@@ -159,7 +171,7 @@ function StepCard({ n, title, done, children }: { n: number; title: string; done
   );
 }
 
-function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
+function CopyButton({ value, label = "Copy", onCopy }: { value: string; label?: string; onCopy?: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -172,6 +184,7 @@ function CopyButton({ value, label = "Copy" }: { value: string; label?: string }
         } catch {
           /* clipboard unavailable; the value is selectable in the block */
         }
+        onCopy?.();
       }}
     >
       {copied ? "Copied" : label}
@@ -464,9 +477,9 @@ const PROVIDER_SNIPPETS = [
   { label: "Gemini", value: `baseURL: "${PROXY_BASE}/v1beta"` },
 ];
 
-function IntegrateStep() {
+function IntegrateStep({ done, onSnippetViewed }: { done: boolean; onSnippetViewed: () => void }) {
   return (
-    <StepCard n={3} title="Point your code at Varsten" done={false}>
+    <StepCard n={3} title="Point your code at Varsten" done={done}>
       <div className="es">Swap your provider base URL for Varsten and use your Varsten key. Your provider key stays in the Varsten vault.</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginTop: 8 }}>
         {PROVIDER_SNIPPETS.map((snippet) => (
@@ -477,13 +490,13 @@ function IntegrateStep() {
         ))}
       </div>
       <pre style={CODE_STYLE}>{SNIPPET_TS}</pre>
-      <CopyButton value={SNIPPET_TS} label="Copy snippet" />
+      <CopyButton value={SNIPPET_TS} label="Copy snippet" onCopy={onSnippetViewed} />
       <div className="es" style={{ marginTop: 12 }}>
         Optional but recommended: label requests so Varsten can break spend and savings down by
         workflow, task, customer, and team.
       </div>
       <pre style={CODE_STYLE}>{SNIPPET_METADATA}</pre>
-      <CopyButton value={SNIPPET_METADATA} label="Copy with metadata" />
+      <CopyButton value={SNIPPET_METADATA} label="Copy with metadata" onCopy={onSnippetViewed} />
     </StepCard>
   );
 }

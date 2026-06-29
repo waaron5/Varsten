@@ -21,10 +21,12 @@ def test_plan_switch_is_audited(client, db_session, monkeypatch):
     synced = _sync_user(client, "auth0|op", "op@example.com").json()
     org_id = synced["organizations"][0]["id"]
 
+    # A fresh signup is on a Performance trial, so exercise an audited transition
+    # off it (Performance -> Free) rather than a no-op.
     resp = client.post(
         f"/v1/operator/organizations/{org_id}/plan",
         headers=auth_headers("auth0|op"),
-        json={"plan_tier": "performance"},
+        json={"plan_tier": "free"},
     )
     assert resp.status_code == 200
 
@@ -33,8 +35,8 @@ def test_plan_switch_is_audited(client, db_session, monkeypatch):
     assert len(plan_events) == 1
     e = plan_events[0]
     assert e.actor_email == "op@example.com"
-    assert e.before["plan_tier"] == "free"
-    assert e.after["plan_tier"] == "performance"
+    assert e.before["plan_tier"] == "performance"
+    assert e.after["plan_tier"] == "free"
     assert e.target_id == org_id
 
 

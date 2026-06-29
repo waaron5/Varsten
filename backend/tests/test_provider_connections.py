@@ -93,6 +93,32 @@ def test_project_provider_connection_endpoint_vaults_key_without_returning_secre
     assert calls == [(ws["project_id"], "gemini", "AIza-test")]
 
 
+def test_provider_connection_updates_onboarding_status(client, provision, monkeypatch):
+    """Connecting a provider key must flip the onboarding checklist's
+    has_provider_connection, since that state is derived from the connection row."""
+    ws = provision(sub="auth0|onboard-provider", email="onboard-provider@example.com")
+    monkeypatch.setattr(
+        project_routes,
+        "store_provider_key_for_project",
+        lambda project_id, provider, api_key: f"varsten/test/{project_id}/{provider}",
+    )
+
+    before = client.get(f"/v1/onboarding/status?project_id={ws['project_id']}", headers=_bearer(ws["token"])).json()
+    assert before["has_provider_connection"] is False
+
+    res = client.post(
+        _project_connection_path(ws["project_id"]),
+        headers=_bearer(ws["token"]),
+        json={"provider": "openai", "api_key": "sk-test"},
+    )
+    assert res.status_code == 200
+
+    after = client.get(f"/v1/onboarding/status?project_id={ws['project_id']}", headers=_bearer(ws["token"])).json()
+    assert after["has_provider_connection"] is True
+    checklist = {item["key"]: item["complete"] for item in after["checklist"]}
+    assert checklist["has_provider_connection"] is True
+
+
 def test_project_provider_connection_reports_manual_setup_capability(
     client,
     provision,

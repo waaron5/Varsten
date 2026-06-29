@@ -11,7 +11,8 @@ Everything here is metadata only and tenant-scoped through resolve_project.
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -28,6 +29,17 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
+
+# Onboarding events that are not derivable from other tables, so they are stamped
+# on the org. First write wins; re-firing is a no-op.
+_EVENT_COLUMNS = {
+    "snippet_viewed": "integration_snippet_viewed_at",
+    "dashboard_entered": "dashboard_entered_at",
+}
+
+
+class OnboardingEvent(BaseModel):
+    event: str
 
 
 def _metadata_quality(task_type: str | None, feature: str | None, workflow: str | None) -> dict:
@@ -112,6 +124,20 @@ def onboarding_status(
 
     first_request = _first_request(db, project)
 
+    has_api_key = active_keys > 0
+    snippet_viewed = bool(org and org.integration_snippet_viewed_at)
+    dashboard_entered = bool(org and org.dashboard_entered_at)
+
+    # The backend-record-driven checklist. Each item is a fact, not UI state: three
+    # are derived live (key, provider, first request) and two are stamped events.
+    checklist = [
+        {"key": "has_api_key", "complete": has_api_key},
+        {"key": "has_provider_connection", "complete": has_provider},
+        {"key": "integration_snippet_viewed", "complete": snippet_viewed},
+        {"key": "first_request", "complete": first_request["seen"]},
+        {"key": "dashboard_entered", "complete": dashboard_entered},
+    ]
+
     return {
         "project_id": str(project.id),
         "project_name": project.name,
@@ -119,11 +145,35 @@ def onboarding_status(
         "observe_only": entitlement.observe_only,
         "onboarding_completed_at": org.onboarding_completed_at if org else None,
         "has_project": True,
-        "has_api_key": active_keys > 0,
+        "has_api_key": has_api_key,
         "has_provider_connection": has_provider,
+        "integration_snippet_viewed": snippet_viewed,
+        "dashboard_entered": dashboard_entered,
         "provider_connections": provider_connections,
         "first_request": first_request,
+        "checklist": checklist,
     }
+
+
+@router.post("/event")
+def onboarding_event(
+    payload: OnboardingEvent,
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Stamp a non-derivable onboarding event (snippet viewed, dashboard entered).
+    First write wins so the timestamp reflects when the step first happened."""
+    column = _EVENT_COLUMNS.get(payload.event)
+    if column is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"event must be one of {sorted(_EVENT_COLUMNS)}",
+        )
+    org = db.get(Organization, project.organization_id)
+    if org is not None and getattr(org, column) is None:
+        setattr(org, column, datetime.now(UTC))
+        db.commit()
+    return {"event": payload.event, "recorded_at": getattr(org, column) if org else None}
 
 
 @router.post("/complete")

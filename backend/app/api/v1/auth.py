@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_token_claims, require_user
 from app.db.session import get_db
 from app.models import Organization, OrgMembership, User
+from app.provisioning import provision_new_organization
 from app.schemas import AuthSyncRequest, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -62,10 +63,10 @@ def sync_user(
                 user = User(email=email, name=name, auth_provider_subject=sub)
                 db.add(user)
                 db.flush()
-                org = Organization(name=_default_org_name(email))
-                db.add(org)
-                db.flush()
-                db.add(OrgMembership(user_id=user.id, organization_id=org.id, role="owner"))
+                # New signup: a Performance-trialing org with a ready-to-use default
+                # project, so the 14-day trial is live and onboarding has somewhere to
+                # mint an API key without asking the user to create a project first.
+                provision_new_organization(db, name=_default_org_name(email), owner_user_id=user.id)
             else:
                 user.auth_provider_subject = sub
                 user.name = name or user.name

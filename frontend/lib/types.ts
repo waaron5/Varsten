@@ -796,8 +796,16 @@ export interface OnboardingStatus {
   has_project: boolean;
   has_api_key: boolean;
   has_provider_connection: boolean;
+  integration_snippet_viewed: boolean;
+  dashboard_entered: boolean;
   provider_connections: OnboardingProviderConnection[];
   first_request: OnboardingFirstRequest;
+  checklist: OnboardingChecklistItem[];
+}
+
+export interface OnboardingChecklistItem {
+  key: string;
+  complete: boolean;
 }
 
 export interface Entitlements {

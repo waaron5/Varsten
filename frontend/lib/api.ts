@@ -197,6 +197,28 @@ export const api = {
       { method: "POST" },
     ),
 
+  onboardingEvent: (
+    token: string,
+    projectId: string | undefined,
+    event: "snippet_viewed" | "dashboard_entered",
+  ) =>
+    request<{ event: string; recorded_at: string | null }>(
+      readPath("/onboarding/event", projectId),
+      token,
+      { method: "POST", body: JSON.stringify({ event }) },
+    ),
+
+  // --- self-serve upgrade (Stripe). Org-level, not project-scoped. ---
+  billingCheckoutSession: (token: string, orgId: string) =>
+    request<{ url: string }>(`/organizations/${orgId}/billing/checkout-session`, token, {
+      method: "POST",
+    }),
+
+  billingPortalSession: (token: string, orgId: string) =>
+    request<{ url: string }>(`/organizations/${orgId}/billing/portal-session`, token, {
+      method: "POST",
+    }),
+
   spendTrend: (token: string, projectId: string | undefined, days = 30) =>
     request<SpendTrend>(readPath("/metrics/spend-trend", projectId, { days }), token),
 

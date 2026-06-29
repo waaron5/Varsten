@@ -46,6 +46,16 @@ def test_sync_is_idempotent(client):
     assert len(second["organizations"]) == 1  # no duplicate org on re-sync
 
 
+def test_sync_creates_default_production_project(client):
+    """Signup provisions a default Production project so onboarding never has to ask
+    the user to create one before minting an API key."""
+    sync(client, "auth0|frank", "frank@example.com")
+    res = client.get("/v1/projects", headers=bearer("auth0|frank"))
+    assert res.status_code == 200
+    names = [p["name"] for p in res.json()]
+    assert names == ["Production"]
+
+
 def test_list_my_projects(client):
     user = sync(client, "auth0|carol", "carol@example.com").json()
     org_id = user["organizations"][0]["id"]
@@ -57,7 +67,10 @@ def test_list_my_projects(client):
 
     res = client.get("/v1/projects", headers=bearer("auth0|carol"))
     assert res.status_code == 200
-    assert [p["id"] for p in res.json()] == [proj["id"]]
+    # The default Production project plus the one just created, both in this org.
+    ids = {p["id"] for p in res.json()}
+    assert proj["id"] in ids
+    assert len(ids) == 2
 
 
 def test_session_read_requires_project_id(client):

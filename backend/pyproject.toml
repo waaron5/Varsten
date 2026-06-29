@@ -20,6 +20,7 @@ dependencies = [
     "botocore>=1.43.24",
     "cachetools>=7.1.4",
     "redis>=5.2.0",
+    "stripe>=11.0.0",
 ]
 
 [dependency-groups]

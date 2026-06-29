@@ -94,3 +94,64 @@ def test_status_tenant_isolation(client, provision, db_session):
     # B's status must not see A's traffic.
     assert _status(client, b)["first_request"]["seen"] is False
     assert _status(client, a)["first_request"]["seen"] is True
+
+
+def _checklist(status: dict) -> dict:
+    return {item["key"]: item["complete"] for item in status["checklist"]}
+
+
+def test_status_exposes_full_checklist(client, provision, db_session):
+    p = provision()
+    cl = _checklist(_status(client, p))
+    assert set(cl) == {
+        "has_api_key",
+        "has_provider_connection",
+        "integration_snippet_viewed",
+        "first_request",
+        "dashboard_entered",
+    }
+    assert cl["has_api_key"] is True  # provision creates one
+    assert cl["integration_snippet_viewed"] is False
+    assert cl["dashboard_entered"] is False
+
+
+def test_event_marks_snippet_viewed_and_dashboard_entered(client, provision, db_session):
+    p = provision()
+    for event in ("snippet_viewed", "dashboard_entered"):
+        resp = client.post(
+            f"/v1/onboarding/event?project_id={p['project_id']}",
+            headers=auth_headers(p["token"]),
+            json={"event": event},
+        )
+        assert resp.status_code == 200
+    s = _status(client, p)
+    assert s["integration_snippet_viewed"] is True
+    assert s["dashboard_entered"] is True
+    cl = _checklist(s)
+    assert cl["integration_snippet_viewed"] is True
+    assert cl["dashboard_entered"] is True
+
+
+def test_event_is_first_write_wins(client, provision, db_session):
+    p = provision()
+    first = client.post(
+        f"/v1/onboarding/event?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+        json={"event": "snippet_viewed"},
+    ).json()["recorded_at"]
+    second = client.post(
+        f"/v1/onboarding/event?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+        json={"event": "snippet_viewed"},
+    ).json()["recorded_at"]
+    assert first == second  # the timestamp does not move on re-fire
+
+
+def test_event_rejects_unknown_event(client, provision, db_session):
+    p = provision()
+    resp = client.post(
+        f"/v1/onboarding/event?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+        json={"event": "bogus"},
+    )
+    assert resp.status_code == 422

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_org_member, require_user
 from app.db.session import get_db
 from app.models import Organization, OrgMembership, User
+from app.provisioning import provision_new_organization
 from app.schemas import OrganizationCreate, OrganizationOut
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -16,15 +17,13 @@ def create_organization(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ) -> Organization:
-    # The creator becomes the owner. Without this an org would have no members and
-    # be unreachable through every membership-scoped read.
-    org = Organization(
-        name=payload.name,
-        monthly_spend_budget_usd=payload.monthly_spend_budget_usd,
-    )
-    db.add(org)
-    db.flush()
-    db.add(OrgMembership(organization_id=org.id, user_id=user.id, role="owner"))
+    # The creator becomes the owner and the org gets a default Production project so
+    # it is never a dead end. An additional workspace created through the API does
+    # NOT start a fresh trial (that would let one user farm unlimited Performance
+    # trials); the self-serve trial is granted once, at signup.
+    org, _project = provision_new_organization(db, name=payload.name, owner_user_id=user.id, start_trial=False)
+    if payload.monthly_spend_budget_usd is not None:
+        org.monthly_spend_budget_usd = payload.monthly_spend_budget_usd
     db.commit()
     db.refresh(org)
     return org

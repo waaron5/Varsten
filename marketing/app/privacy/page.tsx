@@ -10,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <ContentPage
       eyebrow="Privacy"
-      title="How Varsten handles your data."
+      title="How Varsten handles your data"
       description="Last updated June 13, 2026. This page explains the data Varsten expects to handle across the website, the app, and the proxy."
     >
       <ContentSection title="Information we collect">

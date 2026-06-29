@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { RequireSession } from "@/components/RequireSession";
 import { useEntitlements } from "@/components/entitlements";
+import { useSession } from "@/components/session";
+import { ApiError, api } from "@/lib/api";
 
 const CONTACT_HREF = "mailto:mail@varsten.ai?subject=Upgrade%20to%20Varsten%20Performance";
 
@@ -84,13 +87,55 @@ function PlanSummary({ isPerformance }: { isPerformance: boolean }) {
           <li key={item} className="es" style={{ listStyle: "disc" }}>{item}</li>
         ))}
       </ul>
-      <div className="empty-actions" style={{ justifyContent: "flex-start", marginTop: 16 }}>
-        <a className="btn primary" href={CONTACT_HREF}>Talk to us about Performance</a>
-      </div>
+      <UpgradeActions />
       <div className="es" style={{ marginTop: 10 }}>
         Varsten Performance is billed as a percentage of verified savings — if Varsten saves
         nothing, you pay nothing.
       </div>
+    </>
+  );
+}
+
+function useActiveOrgId(): string | null {
+  const { projects, activeProjectId } = useSession();
+  const project = projects.find((p) => p.id === activeProjectId) ?? projects[0];
+  return project?.organization_id ?? null;
+}
+
+function UpgradeActions() {
+  const { getToken } = useSession();
+  const orgId = useActiveOrgId();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const startCheckout = async () => {
+    if (!orgId) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const { url } = await api.billingCheckoutSession(await getToken(), orgId);
+      window.location.href = url;
+    } catch (e) {
+      // Self-serve billing may be disabled (503); fall back to a contact path.
+      if (e instanceof ApiError && e.status === 503) {
+        setErr("Self-serve checkout is not available yet. Reach out and we will set you up.");
+      } else {
+        setErr(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="empty-actions" style={{ justifyContent: "flex-start", marginTop: 16 }}>
+        <button className="btn primary" disabled={busy || !orgId} onClick={() => void startCheckout()}>
+          {busy ? "Starting checkout…" : "Add payment method & activate Performance"}
+        </button>
+        <a className="btn" href={CONTACT_HREF}>Talk to us</a>
+      </div>
+      {err && <div className="es" style={{ color: "var(--neg)", marginTop: 8 }}>{err}</div>}
     </>
   );
 }

@@ -180,10 +180,10 @@ def test_scheduler_start_stop_lifecycle():
         sched = Scheduler()
         sched.start()
         # drift sweep + batch poll + cache purge + alert sweep.
-        assert len(sched._tasks) == 4
+        assert len(sched._tasks) == 5
         # Starting again is idempotent.
         sched.start()
-        assert len(sched._tasks) == 4
+        assert len(sched._tasks) == 5
         await sched.stop()
         assert sched._tasks == []
 

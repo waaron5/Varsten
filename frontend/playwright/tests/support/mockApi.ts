@@ -17,6 +17,11 @@ export interface MockState {
   usageEvents: JsonObject;
   calls: Record<string, number>;
   upstreamFailures: JsonObject[];
+  // Self-serve billing toggle: mirrors SELF_SERVE_BILLING_ENABLED on the backend.
+  // false -> checkout/portal return 503 (frontend shows the contact fallback).
+  billingEnabled: boolean;
+  checkoutUrl: string;
+  portalUrl: string;
   proxyHandler?: (request: Request, body: JsonObject, state: MockState) => Promise<MockProxyResponse> | MockProxyResponse;
 }
 
@@ -118,7 +123,34 @@ async function handleOnboarding(ctx: MockRouteContext): Promise<boolean> {
     await fulfillJson(route, markProviderConnected(state, String(body.provider ?? "openai")));
     return true;
   }
+  if (matches(ctx, "POST", "/v1/onboarding/event")) {
+    increment(state, "onboardingEvent");
+    const body = await postJson(request);
+    const field = body.event === "dashboard_entered" ? "dashboard_entered" : "integration_snippet_viewed";
+    state.onboarding = { ...state.onboarding, [field]: true };
+    increment(state, `event:${String(body.event)}`);
+    await fulfillJson(route, { event: body.event, recorded_at: NOW });
+    return true;
+  }
   return false;
+}
+
+async function handleBilling(ctx: MockRouteContext): Promise<boolean> {
+  const { route, state } = ctx;
+  const checkout = matches(ctx, "POST", `/v1/organizations/${ORG_ID}/billing/checkout-session`);
+  const portal = matches(ctx, "POST", `/v1/organizations/${ORG_ID}/billing/portal-session`);
+  if (!checkout && !portal) return false;
+  increment(state, checkout ? "billingCheckout" : "billingPortal");
+  if (!state.billingEnabled) {
+    await fulfillJson(
+      route,
+      { detail: { code: "billing_disabled", message: "Self-serve billing is not enabled." } },
+      503,
+    );
+    return true;
+  }
+  await fulfillJson(route, { url: checkout ? state.checkoutUrl : state.portalUrl });
+  return true;
 }
 
 async function handleApiKeys(ctx: MockRouteContext): Promise<boolean> {
@@ -169,6 +201,7 @@ const MOCK_API_HANDLERS: MockApiHandler[] = [
   handleCorsPreflight,
   handleAuthAndProjects,
   handleOnboarding,
+  handleBilling,
   handleApiKeys,
   handleReadModels,
   handleProxy,
@@ -245,6 +278,8 @@ export function createOnboardingStatus(overrides: JsonObject = {}): JsonObject {
     has_project: true,
     has_api_key: false,
     has_provider_connection: false,
+    integration_snippet_viewed: false,
+    dashboard_entered: false,
     provider_connections: [],
     first_request: {
       seen: false,
@@ -254,6 +289,13 @@ export function createOnboardingStatus(overrides: JsonObject = {}): JsonObject {
         message: "Add metadata headers to make savings attribution board-ready.",
       },
     },
+    checklist: [
+      { key: "has_api_key", complete: false },
+      { key: "has_provider_connection", complete: false },
+      { key: "integration_snippet_viewed", complete: false },
+      { key: "first_request", complete: false },
+      { key: "dashboard_entered", complete: false },
+    ],
     ...overrides,
   };
 }
@@ -469,6 +511,9 @@ export function createMockState(overrides: Partial<MockState> = {}): MockState {
       has_more: false,
     },
     upstreamFailures: [],
+    billingEnabled: false,
+    checkoutUrl: "/upgrade?checkout=stripe-redirect",
+    portalUrl: "/upgrade?portal=stripe-redirect",
     calls: {},
     ...overrides,
   };

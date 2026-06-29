@@ -17,10 +17,10 @@ export default function SecurityPage() {
   return (
     <ContentPage
       eyebrow="Security"
-      title="Built for AI traffic that has to keep serving."
+      title="Built for AI traffic that has to keep serving"
       description="Varsten is an inline proxy with careful controls around data handling, access, provider routing, and reliability."
     >
-      <ContentSection eyebrow="Data handling" title="Keep request data scoped to the route's purpose.">
+      <ContentSection eyebrow="Data handling" title="Keep request data scoped to the route's purpose">
         <ContentGrid>
           <ContentCard title="Route-level policy">
             <p>
@@ -43,7 +43,7 @@ export default function SecurityPage() {
         </ContentGrid>
       </ContentSection>
 
-      <ContentSection eyebrow="Controls" title="Access and reliability controls stay clear.">
+      <ContentSection eyebrow="Controls" title="Access and reliability controls stay clear">
         <ul className="lp-content-list">
           <li>Use scoped API keys for production traffic instead of shared personal credentials.</li>
           <li>Pass requests through to the original provider when an internal optimization step fails, and use a circuit breaker with strict timeouts so a failing upstream cannot stall traffic.</li>
@@ -53,7 +53,7 @@ export default function SecurityPage() {
         </ul>
       </ContentSection>
 
-      <ContentSection eyebrow="Compliance" title="A clear posture, with no inflated claims.">
+      <ContentSection eyebrow="Compliance" title="A clear posture, with no inflated claims">
         <p>
           Varsten does not claim SOC 2, ISO 27001, HIPAA, or other formal certifications on this page until signed
           reports or agreements are in place. You can handle enterprise security reviews, DPA requests, and deployment

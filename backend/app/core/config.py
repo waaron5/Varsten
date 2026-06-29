@@ -155,6 +155,10 @@ class Settings(BaseSettings):
     # downshifts the proxy into observe-only mode and surfaces warning headers/UI.
     free_monthly_request_limit: int = 100_000
     free_trial_days: int = 14
+    # How often the trial sweep downgrades unpaid, elapsed Performance trials to Free
+    # observe-only. The entitlement read path also does this lazily, so the sweep is
+    # the durable-state backstop, not the only mechanism; hourly is plenty.
+    trial_sweep_interval_seconds: int = 3600
     # Global kill switch. When true, every project's traffic bypasses all Varsten
     # optimization and forwards straight to OpenAI (still metered). The operator's
     # emergency lever; a per-project switch lives on the project row.
@@ -283,6 +287,22 @@ class Settings(BaseSettings):
     # APP_ENV=production in the real environment.
     app_env: str = "development"
 
+    # --- Self-serve billing (Stripe) ---
+    # Master switch for the Stripe upgrade path. Off by default so the app boots and
+    # the trial works without any Stripe config; production turns it on once keys are
+    # set. When off, the checkout/portal endpoints return 503 and the webhook 404,
+    # but trials, entitlements, and the sweep are unaffected.
+    self_serve_billing_enabled: bool = False
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    # Signing secret for the Stripe webhook endpoint. Required to verify that an
+    # inbound event genuinely came from Stripe before it can change a plan.
+    stripe_webhook_secret: str = ""
+    # Where Stripe Checkout returns the user after success/cancel (the dashboard
+    # billing page). {CHECKOUT_SESSION_ID} is substituted by Stripe on success.
+    billing_success_url: str = "https://app.varsten.ai/admin/billing-security?checkout=success"
+    billing_cancel_url: str = "https://app.varsten.ai/admin/billing-security?checkout=cancel"
+
 
 def _localhost_origin(origin: str) -> bool:
     o = origin.lower()
@@ -310,6 +330,13 @@ def validate_production(s: "Settings") -> list[str]:
         problems.append(f"CORS_ORIGINS must not include a localhost origin in production: {s.cors_origins}.")
     if not s.sentry_dsn:
         problems.append("SENTRY_DSN must be set in production so errors are visible.")
+    if s.self_serve_billing_enabled:
+        # Only enforce Stripe config when self-serve billing is actually turned on, so
+        # a deploy can run safely with billing temporarily disabled.
+        if not s.stripe_secret_key:
+            problems.append("STRIPE_SECRET_KEY must be set when SELF_SERVE_BILLING_ENABLED=true.")
+        if not s.stripe_webhook_secret:
+            problems.append("STRIPE_WEBHOOK_SECRET must be set when SELF_SERVE_BILLING_ENABLED=true.")
     return problems
 
 

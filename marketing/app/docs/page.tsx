@@ -11,83 +11,200 @@ import {
 
 export const metadata: Metadata = {
   title: "Docs — Varsten",
-  description: "Quickstart documentation for routing AI traffic through the Varsten proxy.",
+  description: "Production installation steps for routing AI traffic through Varsten with fail-open SDK fallback.",
 };
 
-const quickstartCode = `from openai import OpenAI
-import os
+const installCode = `# OpenAI
+npm install @varsten/openai openai
 
-client = OpenAI(
-    base_url="https://proxy.varsten.ai/v1",
-    api_key=os.environ["VARSTEN_API_KEY"],
-)
+# Anthropic
+npm install @varsten/anthropic @anthropic-ai/sdk
 
-stream = client.chat.completions.create(
-    model="gpt-4o",
-    messages=messages,
-    stream=True,
-)`;
+# Gemini
+npm install @varsten/gemini @google/genai`;
+
+const envCode = `VARSTEN_API_KEY=vk_...
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=AIza...
+
+# Optional. Defaults to https://api.varsten.ai/v1
+VARSTEN_BASE_URL=https://api.varsten.ai/v1`;
+
+const openaiCode = `import { VarstenOpenAI } from "@varsten/openai";
+
+const client = new VarstenOpenAI({
+  varstenApiKey: process.env.VARSTEN_API_KEY,
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  onFallback: (event) => {
+    console.warn("varsten fallback", event.reasonCode);
+  },
+});
+
+const response = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages,
+});`;
+
+const providerCode = `// Anthropic
+import { VarstenAnthropic } from "@varsten/anthropic";
+
+const anthropic = new VarstenAnthropic({
+  varstenApiKey: process.env.VARSTEN_API_KEY,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+await anthropic.messages.create({
+  model: "claude-3-5-sonnet-20241022",
+  max_tokens: 256,
+  messages,
+});
+
+// Gemini
+import { VarstenGemini } from "@varsten/gemini";
+
+const gemini = new VarstenGemini({
+  varstenApiKey: process.env.VARSTEN_API_KEY,
+  geminiApiKey: process.env.GEMINI_API_KEY,
+});
+
+await gemini.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents,
+});`;
+
+const verifyCode = `const result = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "Say hello in five words." }],
+});
+
+console.log(result._varsten?.servedBy);
+// "varsten" or "provider-fallback"`;
+
+const fallbackTestCode = `# In a non-production shell only:
+VARSTEN_BASE_URL=http://127.0.0.1:1 npm run your-ai-test
+
+# The request should still complete through the provider.
+# Your fallback log should print the reason code.`;
+
+const evaluationCode = `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.VARSTEN_API_KEY,
+  baseURL: "https://api.varsten.ai/v1",
+});`;
 
 export default function DocsPage() {
   return (
     <ContentPage
       eyebrow="Docs"
-      title="Send your AI traffic through Varsten."
-      description="Varsten sits between your app and your model providers. You can reuse safe responses, route to lower-priced models, and confirm your savings. You do not have to rewrite your product to do it."
+      title="Setup Instructions"
+      description="The production install uses the Varsten SDK wrapper. Your normal provider SDK still does the work, but the wrapper sends healthy traffic through Varsten and falls back directly to your provider when Varsten is unavailable."
     >
-      <ContentSection eyebrow="Quickstart" title="Add the proxy without changing your provider SDK.">
+      <ContentSection eyebrow="Production path" title="What you are changing">
         <ContentGrid>
-          <ContentCard title="1. Create a Varsten key">
-            <p>Make a Varsten API key for the route you want to watch or optimize.</p>
+          <ContentCard title="1. Add one Varsten package">
+            <p>Install the wrapper for the provider you already use. Keep the official provider SDK installed.</p>
           </ContentCard>
-          <ContentCard title="2. Change the base URL">
-            <p>Point your current client at https://proxy.varsten.ai/v1.</p>
+          <ContentCard title="2. Keep both keys in your app">
+            <p>Use a Varsten key for the optimized path and your provider key for direct fallback.</p>
           </ContentCard>
-          <ContentCard title="3. Keep your app as it is">
-            <p>Streaming, tool calls, messages, and provider-compatible responses all keep working.</p>
+          <ContentCard title="3. Replace the client constructor">
+            <p>Swap the provider client for the Varsten wrapper. Your request call sites should stay the same.</p>
           </ContentCard>
         </ContentGrid>
-        <ContentCode>{quickstartCode}</ContentCode>
       </ContentSection>
 
-      <ContentCallout title="Evaluation vs production fail-open">
+      <ContentSection eyebrow="Step 1" title="Install the SDK package">
+        <p>Install the package for each provider you want to route through Varsten.</p>
+        <ContentCode>{installCode}</ContentCode>
+      </ContentSection>
+
+      <ContentSection eyebrow="Step 2" title="Set environment variables">
         <p>
-          The base-URL change is the fastest way to evaluate Varsten and is a good fit for
-          development and low-risk workloads. It keeps Varsten in your request path, so a Varsten
-          outage would interrupt requests to it. Service-level fallback that calls your provider
-          directly when Varsten is unavailable ships with the Varsten SDK, which is in development.
+          Set the provider key for the provider you use. The Varsten key is sent to Varsten. The
+          provider key stays in your app and is used only when the SDK needs to call the provider directly.
         </p>
-      </ContentCallout>
+        <ContentCode>{envCode}</ContentCode>
+      </ContentSection>
 
-      <ContentSection eyebrow="Core concepts" title="What Varsten does in the request path.">
+      <ContentSection eyebrow="Step 3" title="Replace the provider client">
+        <p>
+          Start with one route or service. Do not rewrite prompts, request bodies, streaming loops,
+          or tool handling as part of the first install.
+        </p>
+        <ContentCode>{openaiCode}</ContentCode>
+      </ContentSection>
+
+      <ContentSection eyebrow="Other providers" title="Use the matching wrapper">
+        <p>Anthropic and Gemini use the same pattern: Varsten key plus local provider key.</p>
+        <ContentCode>{providerCode}</ContentCode>
+      </ContentSection>
+
+      <ContentSection eyebrow="Step 4" title="Verify one normal request">
+        <p>
+          Run one request in development or staging and log the `_varsten` marker. It is attached to
+          the response and does not show up in serialized output.
+        </p>
+        <ContentCode>{verifyCode}</ContentCode>
+      </ContentSection>
+
+      <ContentSection eyebrow="Step 5" title="Test fallback before rollout">
+        <p>
+          In a non-production environment, point `VARSTEN_BASE_URL` at a dead local port. The same
+          request should still complete through the provider if the provider key is configured.
+        </p>
+        <ContentCode>{fallbackTestCode}</ContentCode>
+      </ContentSection>
+
+      <ContentSection eyebrow="Rollout" title="Ship it in one narrow place first">
+        <ul className="lp-content-list">
+          <li>Start with one route, job, or service that already has stable provider traffic.</li>
+          <li>Keep your existing provider key in the same secret store you use today.</li>
+          <li>Log `onFallback` events to the same place you log provider errors.</li>
+          <li>Watch the Varsten dashboard for request volume, savings proof, and fallback coverage.</li>
+          <li>Expand route by route after the first route behaves normally.</li>
+        </ul>
+      </ContentSection>
+
+      <ContentSection eyebrow="Fallback rules" title="What the SDK does and does not do">
         <ContentGrid>
-          <ContentCard title="Response reuse">
+          <ContentCard title="Falls back on Varsten failures">
             <p>
-              When the same request comes in again, Varsten can serve a stored response if reuse is safe for that route.
-              Turn on near-duplicate matching only for workloads that have clear rules about what counts as close enough.
+              DNS, connection failures, Varsten-origin 5xx errors, Varsten rate limits, and local
+              circuit-breaker bypass can call the provider directly.
             </p>
           </ContentCard>
-          <ContentCard title="Routing and evals">
+          <ContentCard title="Does not hide provider errors">
             <p>
-              Before a new model takes over a route, Varsten checks it against real traffic and your quality gates. If
-              quality drops below your limits, the route can roll back.
+              If the provider returns an error and Varsten relays it, the SDK returns that provider
+              error. Retrying direct would usually double bill or hit the same problem.
             </p>
           </ContentCard>
-          <ContentCard title="Savings proof">
+          <ContentCard title="Does not restart mid-stream">
             <p>
-              Billable savings are tied to known avoided model cost, batch price differences, or approved routing tests.
-              Each one has a baseline you can audit.
+              Streaming can fall back before output starts. Once tokens are flowing, a mid-stream
+              error is surfaced instead of silently restarting the request.
             </p>
           </ContentCard>
         </ContentGrid>
       </ContentSection>
 
-      <ContentSection eyebrow="Operational defaults" title="Set up routes so safety is clear.">
+      <ContentSection eyebrow="Evaluation only" title="Use base URL changes only for low-risk trials">
+        <p>
+          A base-URL-only setup is useful when you want to see whether traffic reaches Varsten before
+          adding the production wrapper. It does not provide direct-to-provider fallback if Varsten is
+          unavailable.
+        </p>
+        <ContentCode>{evaluationCode}</ContentCode>
+      </ContentSection>
+
+      <ContentSection eyebrow="Before you finish" title="Check the boring things">
         <ul className="lp-content-list">
-          <li>Begin with read-only monitoring if you want to see spend before you optimize anything inline.</li>
-          <li>Use separate routes for workloads with different quality needs or retention rules.</li>
-          <li>Rely on the circuit breaker and strict timeouts so a struggling provider fails fast instead of tying up your connections.</li>
-          <li>Check the Proof dashboard before you turn a recommendation into an automatic policy.</li>
+          <li>The app has `VARSTEN_API_KEY` and the provider key in every deployed environment.</li>
+          <li>Your fallback log does not include prompts, completions, or customer content.</li>
+          <li>Your team knows that a fallback means Varsten savings and analytics may be missing for that request.</li>
+          <li>Your first rollout is small enough that you can compare provider behavior before and after.</li>
         </ul>
       </ContentSection>
 

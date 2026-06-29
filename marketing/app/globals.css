@@ -76,6 +76,7 @@
   --button-press-transition: 80ms;
   --anchor-scroll-offset: 82px;
   --lp-standard-section-min: 880px;
+  --lp-content-width: 984px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -298,7 +299,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 /* ── Hero ────────────────────────────────────────────────────── */
 .lp-hero {
   position: relative;
-  overflow: clip;
+  overflow: visible;
   padding: 72px 0 96px;
   background: var(--cream);
 }
@@ -385,7 +386,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 2px 6px rgba(40, 33, 24, 0.06), 0 24px 50px rgba(40, 33, 24, 0.13), 0 52px 104px rgba(40, 33, 24, 0.18), 0 0 0 1px rgba(40, 33, 24, 0.03);
+  box-shadow: 0 2px 6px rgba(40, 33, 24, 0.06), 0 24px 50px rgba(40, 33, 24, 0.13), 0 46px 92px rgba(40, 33, 24, 0.14), 0 0 0 1px rgba(40, 33, 24, 0.03);
 }
 .vds-bar {
   display: grid;
@@ -1094,21 +1095,12 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   min-width: 300px;
   max-width: 620px;
   margin-left: auto;
-  padding: 28px 0 0 22px;
+  padding: 52px 0 0 22px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--support-blue);
-  box-shadow: var(--shadow-float);
-}
-.lp-code-page::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 18px 12px, rgba(250, 248, 240, 0.18), transparent 36px),
-    repeating-radial-gradient(ellipse at 0 0, transparent 0 11px, rgba(40, 33, 24, 0.055) 11px 13px, transparent 13px 27px);
-  pointer-events: none;
+  border-radius: 0;
+  background: #B8CED8;
+  box-shadow: none;
 }
 .lp-code {
   position: relative;
@@ -1116,17 +1108,32 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   width: 100%;
   min-height: 326px;
   overflow: hidden;
-  border-radius: var(--radius-md) 0 0 0;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  box-shadow: none;
+  border: 1px solid rgba(31, 41, 55, 0.28);
+  border-radius: 14px 0 0 0;
+  background: #fbfbfb;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.52) inset,
+    -10px -10px 22px rgba(31, 41, 55, 0.12);
 }
-.lp-code-head { display: flex; align-items: center; gap: 7px; padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
-.lp-code-head > span:not(.lp-code-file) { width: 11px; height: 11px; border-radius: 50%; background: var(--line-strong); }
-.lp-code-head span.r { background: #e0625a; }
-.lp-code-head span.y { background: #e3b341; }
-.lp-code-head span.g { background: var(--brand); }
-.lp-code-file { margin-left: 8px; color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; }
+.lp-code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.14);
+  background: linear-gradient(180deg, #f6f7f8 0%, #eceff2 100%);
+}
+.lp-code-head > span:not(.lp-code-file) {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(31, 41, 55, 0.16) inset;
+}
+.lp-code-head span.r { background: #ff5f57; }
+.lp-code-head span.y { background: #febc2e; }
+.lp-code-head span.g { background: #28c840; }
+.lp-code-file { margin-left: 8px; color: rgba(31, 41, 55, 0.62); font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
 .lp-code pre { margin: 0; overflow-x: auto; padding: 22px 24px; color: var(--ink-2); font-family: var(--font-mono); font-size: 13px; line-height: 1.85; }
 .lp-code .kw { color: #5a4fa3; }
 .lp-code .str { color: var(--brand-press); }
@@ -1298,7 +1305,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   background: var(--dark);
   color: var(--on-dark);
 }
-.lp-content-hero .lp-container { max-width: 1016px; }
+.lp-content-hero .lp-container,
+.lp-content-body .lp-container { max-width: var(--lp-content-width); }
 .lp-content-hero h1 { max-width: 760px; margin-top: 16px; color: var(--on-dark); font-size: 52px; font-weight: 800; line-height: 1.04; letter-spacing: -0.02em; }
 .lp-content-hero p:not(.lp-eyebrow) { max-width: 680px; margin-top: 20px; color: var(--on-dark-2); font-size: 18px; line-height: 1.62; }
 .lp-content-body { padding: 64px 0 96px; }
@@ -1349,6 +1357,15 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .lp-hero-sub { max-width: 620px; font-size: 16px; }
   .lp-section-title, .lp-final h2 { font-size: 34px; }
   .lp-grid-3, .lp-plans { grid-template-columns: 1fr; }
+  .lp-content-hero { padding: 72px 0 56px; }
+  .lp-content-hero h1 { font-size: 40px; line-height: 1.08; }
+  .lp-content-hero p:not(.lp-eyebrow) { font-size: 16px; }
+  .lp-content-body { padding: 48px 0 72px; }
+  .lp-content-section + .lp-content-section { margin-top: 48px; }
+  .lp-content-section h2 { font-size: 28px; line-height: 1.14; }
+  .lp-content-grid { grid-template-columns: 1fr; }
+  .lp-content-card, .lp-content-callout { padding: 20px; }
+  .lp-content-callout { margin-top: 48px; }
   .lp-problem-cards { grid-template-columns: 1fr; }
   .lp-faq-list { margin-top: 34px; }
   .lp-faq-item summary { padding: 20px; }
@@ -1370,6 +1387,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .lp-nav .lp-btn { padding: 9px 10px; font-size: 12px; }
   .lp-nav-right .lp-link { display: none; }
   .lp-hero-title { font-size: 34px; }
+  .lp-content-hero h1 { font-size: 34px; }
+  .lp-content-section h2 { font-size: 26px; }
   .lp-problem-chart-head { flex-direction: column; }
   .lp-problem-chart-value { text-align: left; }
   .lp-problem-question-card, .lp-problem-chart-card { padding-right: 16px; padding-left: 16px; }

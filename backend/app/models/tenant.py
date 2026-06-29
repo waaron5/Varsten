@@ -19,17 +19,23 @@ PLAN_FREE = "free"
 PLAN_PERFORMANCE = "performance"
 PLAN_TIERS = (PLAN_FREE, PLAN_PERFORMANCE)
 
-# Subscription lifecycle, independent of the entitlement tier. Manual today
-# (operator-set); a Stripe webhook drives these later. Default active.
+# Subscription lifecycle, independent of the entitlement tier. A new self-serve
+# workspace starts `trialing` on Performance; Stripe activation drives it to
+# `active`; an unpaid trial that runs out is swept to `expired`. Operator config
+# can still set these directly.
 SUBSCRIPTION_TRIALING = "trialing"
 SUBSCRIPTION_ACTIVE = "active"
 SUBSCRIPTION_PAST_DUE = "past_due"
 SUBSCRIPTION_CANCELED = "canceled"
+# Trial window elapsed without a payment method; the org has been downgraded to
+# Free observe-only. Distinct from `canceled` (a paid plan the customer ended).
+SUBSCRIPTION_EXPIRED = "expired"
 SUBSCRIPTION_STATUSES = (
     SUBSCRIPTION_TRIALING,
     SUBSCRIPTION_ACTIVE,
     SUBSCRIPTION_PAST_DUE,
     SUBSCRIPTION_CANCELED,
+    SUBSCRIPTION_EXPIRED,
 )
 
 # Varsten's default share of verified savings (gain-share). Per-org overridable.
@@ -57,7 +63,20 @@ class Organization(Base, TimestampMixin):
         String(24), nullable=False, server_default=text(f"'{SUBSCRIPTION_ACTIVE}'")
     )
     plan_effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Self-serve trial window. Set when the workspace is provisioned; trial_ends_at
+    # is the hard stop after which an unpaid org falls back to Free observe-only.
+    trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Stripe linkage for self-serve upgrade. The customer is created on first
+    # checkout; the subscription id is set once a payment method activates
+    # Performance. Their presence is what tells the trial sweep an org has paid.
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Onboarding funnel events that are NOT derivable from other tables. Everything
+    # else (api key, provider connection, first request) is derived live. First
+    # write wins; these only mark that the step happened, never un-happen.
+    integration_snippet_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dashboard_entered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Gain-share billing config. The fee is this fraction of VERIFIED savings, with
     # a monthly floor; the floor is always capped at the savings so net stays >= 0.
     gain_share_percent: Mapped[Decimal] = mapped_column(

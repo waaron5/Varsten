@@ -10,7 +10,7 @@ export default function TermsPage() {
   return (
     <ContentPage
       eyebrow="Terms"
-      title="The terms for using Varsten."
+      title="The terms for using Varsten"
       description="Last updated June 13, 2026. These terms set the basic rules for the Varsten website, app, proxy, and related services."
     >
       <ContentSection title="The service">

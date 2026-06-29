@@ -68,18 +68,51 @@ def auth_headers(token: str) -> dict:
 
 
 @pytest.fixture
-def provision(client):
+def provision(client, db_session):
     """Provision an authenticated workspace: sync a user (which bootstraps their
     personal org), then create a project and an API key in it, all through the
-    real authenticated endpoints. Returns the identifiers tests need."""
+    real authenticated endpoints. Returns the identifiers tests need.
+
+    Signup now grants a 14-day Performance trial, but the bulk of the suite asserts
+    Free observe-only behaviour, so this fixture resets the org to a Free/active
+    baseline by default. Pass plan="performance" (active) or "trialing" to exercise
+    the trial path; dedicated trial tests drive the sync endpoint directly instead.
+    """
+    import uuid as _uuid
+
+    from app import billing_lifecycle
+    from app.models import (
+        PLAN_FREE,
+        PLAN_PERFORMANCE,
+        SUBSCRIPTION_ACTIVE,
+        Organization,
+    )
+
+    def _baseline(org_id: str, plan: str) -> None:
+        org = db_session.get(Organization, _uuid.UUID(org_id))
+        if plan == "trialing":
+            billing_lifecycle.start_trial(org)
+        elif plan == "performance":
+            org.plan_tier = PLAN_PERFORMANCE
+            org.subscription_status = SUBSCRIPTION_ACTIVE
+            org.trial_started_at = None
+            org.trial_ends_at = None
+        else:  # free
+            org.plan_tier = PLAN_FREE
+            org.subscription_status = SUBSCRIPTION_ACTIVE
+            org.trial_started_at = None
+            org.trial_ends_at = None
+        db_session.commit()
 
     def _provision(
         sub: str = "auth0|owner",
         email: str = "owner@example.com",
         project_name: str = "prod",
+        plan: str = "free",
     ) -> dict:
         user = client.post("/v1/auth/sync", headers=auth_headers(sub), json={"email": email, "name": None}).json()
         org_id = user["organizations"][0]["id"]
+        _baseline(org_id, plan)
         project = client.post(
             f"/v1/organizations/{org_id}/projects",
             headers=auth_headers(sub),

@@ -31,6 +31,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app import alerts as alerts_mod
+from app import billing_lifecycle
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal, engine
@@ -103,6 +104,9 @@ class Scheduler:
             ),
             asyncio.create_task(
                 self._loop("alert-sweep", settings.alert_sweep_interval_seconds, self._run_alert_sweep)
+            ),
+            asyncio.create_task(
+                self._loop("trial-sweep", settings.trial_sweep_interval_seconds, self._run_trial_sweep)
             ),
         ]
         logger.info("scheduler started", extra={"jobs": len(self._tasks)})
@@ -198,6 +202,20 @@ class Scheduler:
         deleted = await asyncio.to_thread(work)
         if deleted:
             logger.info("cache purge removed expired entries", extra={"deleted": deleted})
+
+    async def _run_trial_sweep(self) -> None:
+        # Downgrade unpaid, elapsed Performance trials to Free observe-only. Pure DB
+        # work; run it off the event loop. Never touches traffic or the proxy.
+        def work() -> list:
+            db = SessionLocal()
+            try:
+                return billing_lifecycle.sweep_expired_trials(db)
+            finally:
+                db.close()
+
+        expired = await asyncio.to_thread(work)
+        if expired:
+            logger.info("trial sweep downgraded expired trials", extra={"organizations": [str(o) for o in expired]})
 
     async def _run_alert_sweep(self) -> None:
         # Budget/alert evaluation + delivery is synchronous DB + I/O work; run it off

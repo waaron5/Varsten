@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1 import api_router
+from app.api.v1.billing import webhook_router as stripe_webhook_router
 from app.core.config import assert_production_ready, settings
 from app.core.logging import configure_logging, get_logger
 from app.core.observability import RequestContextMiddleware, SecurityHeadersMiddleware, init_sentry
@@ -53,6 +54,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
 app.include_router(api_router)
 app.include_router(proxy_beta_router)
+# Mounted at the app root (not under /v1): Stripe posts to a fixed, unauthenticated
+# but signature-verified URL.
+app.include_router(stripe_webhook_router)
 
 
 @app.get("/health")

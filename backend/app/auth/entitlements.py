@@ -24,8 +24,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app import billing_lifecycle
 from app.core.config import settings
-from app.models import PLAN_FREE, PLAN_PERFORMANCE, SUBSCRIPTION_TRIALING, Organization, Project, UsageEvent
+from app.models import (
+    PLAN_FREE,
+    PLAN_PERFORMANCE,
+    SUBSCRIPTION_CANCELED,
+    SUBSCRIPTION_EXPIRED,
+    SUBSCRIPTION_PAST_DUE,
+    SUBSCRIPTION_TRIALING,
+    Organization,
+    Project,
+    UsageEvent,
+)
 
 FEATURE_REQUIRES_PERFORMANCE = "feature_requires_performance"
 
@@ -110,8 +121,17 @@ def _entitlement_state(
     reason: str | None = None
     observe_only = plan_tier != PLAN_PERFORMANCE
     if trial_expired:
+        # Unpaid trial ran out. The durable downgrade is done by the sweep / lazy
+        # read; this read-time gate holds even before that row write lands.
         observe_only = True
         reason = "trial_expired"
+    elif org.subscription_status == SUBSCRIPTION_PAST_DUE:
+        # Payment failed; lock optimization until a retry reactivates. Traffic flows.
+        observe_only = True
+        reason = "past_due"
+    elif org.subscription_status in (SUBSCRIPTION_CANCELED, SUBSCRIPTION_EXPIRED):
+        observe_only = True
+        reason = org.subscription_status
     elif quota_exceeded:
         observe_only = True
         reason = "monthly_request_limit_exceeded"
@@ -160,6 +180,12 @@ async def _monthly_proxy_requests_async(db: AsyncSession, organization_id: uuid.
 
 def _entitlement_state_for_org(db: Session, org: Organization | None) -> EntitlementState:
     now = datetime.now(UTC)
+    # Lazy expiry: correct an elapsed unpaid trial the next time the org is read on
+    # the control plane, so the durable state is right without waiting on the sweep.
+    # The async proxy hot path deliberately does not write here (it stays read-only
+    # and fail-open); its state still reports observe-only via trial_expired.
+    if org is not None and billing_lifecycle.maybe_expire(org, now=now):
+        db.commit()
     monthly_requests = _monthly_proxy_requests(db, org.id, now) if org is not None else 0
     return _entitlement_state(monthly_requests=monthly_requests, now=now, org=org)
 

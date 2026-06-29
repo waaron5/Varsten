@@ -3,16 +3,31 @@ preview of this month's billable amount, and invoice history. Operator-only
 billing mutations (config, invoice generation) live in the operator router.
 """
 
-from fastapi import APIRouter, Depends
+import json
+
+import stripe
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import billing as billing_service
-from app.api.deps import resolve_project
+from app import stripe_billing
+from app.api.deps import require_org_member, require_user, resolve_project
+from app.core.logging import get_logger
 from app.db.session import get_db
-from app.models import Invoice, Organization, Project
+from app.models import Invoice, Organization, Project, User
+
+logger = get_logger("varsten.api.billing")
 
 router = APIRouter(tags=["billing"])
+
+
+def _require_billing_enabled() -> None:
+    if not stripe_billing.enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "billing_disabled", "message": "Self-serve billing is not enabled."},
+        )
 
 
 @router.get("/admin/billing", response_model=None)
@@ -71,3 +86,74 @@ def admin_billing_invoices(
             .limit(capped)
         )
     ]
+
+
+# --- Self-serve upgrade (Stripe). Org-level: billing is per workspace, not per
+# project, so these are authorized by org membership, not a project_id. ----------
+
+
+@router.post("/organizations/{organization_id}/billing/checkout-session", response_model=None)
+def create_checkout_session(
+    org: Organization = Depends(require_org_member),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Start a Stripe Checkout (setup mode) to add a payment method and activate
+    Performance. Returns the hosted Checkout URL for the client to redirect to."""
+    _require_billing_enabled()
+    try:
+        customer_id = stripe_billing.ensure_customer(db, org, email=user.email)
+        url = stripe_billing.create_checkout_session(org, customer_id=customer_id)
+        db.commit()
+    except stripe_billing.BillingDisabled as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="billing disabled") from exc
+    except stripe.error.StripeError as exc:
+        logger.warning("stripe checkout failed", extra={"organization_id": str(org.id), "error": str(exc)})
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="could not start checkout") from exc
+    return {"url": url}
+
+
+@router.post("/organizations/{organization_id}/billing/portal-session", response_model=None)
+def create_portal_session(
+    org: Organization = Depends(require_org_member),
+    db: Session = Depends(get_db),
+) -> dict:
+    """A Stripe Billing Portal session so the customer can manage their payment
+    method. Requires an existing Stripe customer (created during checkout)."""
+    _require_billing_enabled()
+    if not org.stripe_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "no_stripe_customer", "message": "Add a payment method first."},
+        )
+    try:
+        url = stripe_billing.create_portal_session(org, customer_id=org.stripe_customer_id)
+    except stripe_billing.BillingDisabled as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="billing disabled") from exc
+    except stripe.error.StripeError as exc:
+        logger.warning("stripe portal failed", extra={"organization_id": str(org.id), "error": str(exc)})
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="could not open billing portal") from exc
+    return {"url": url}
+
+
+# The webhook is unauthenticated (Stripe calls it) but signature-verified. Kept on
+# its own router with no auth dependency so it never inherits session auth.
+webhook_router = APIRouter(tags=["billing"])
+
+
+@webhook_router.post("/webhooks/stripe", response_model=None)
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dict:
+    """Receive Stripe events, verify the signature, and apply billing-state changes.
+    A forged or unverifiable event is rejected before it can touch any plan."""
+    if not stripe_billing.enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    try:
+        stripe_billing.construct_event(payload, sig_header)  # verify signature only
+    except (stripe.error.SignatureVerificationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid signature") from exc
+    # The signature is verified against the exact raw bytes, so parsing them as JSON
+    # gives a plain nested dict without Stripe's lazy typed wrappers.
+    handled = stripe_billing.handle_event(db, json.loads(payload))
+    return {"received": True, "handled": handled}
