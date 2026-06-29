@@ -878,7 +878,7 @@ function PlanChecks({ items }: { items: string[] }) {
 
 function Pricing({ onStart }: { onStart: () => void }) {
   return (
-    <section className="lp-section lp-section-cream-2 lp-reveal" id="pricing">
+    <section className="lp-section lp-section-cream-2" id="pricing">
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">Pricing</p>
@@ -912,7 +912,7 @@ function Pricing({ onStart }: { onStart: () => void }) {
 /* ── FAQ ─────────────────────────────────────────────────────── */
 function FAQ() {
   return (
-    <section className="lp-section lp-faq-section lp-reveal" id="faq">
+    <section className="lp-section lp-faq-section" id="faq">
       <div className="lp-container">
         <div className="lp-section-head center">
           <p className="lp-eyebrow">FAQ</p>
