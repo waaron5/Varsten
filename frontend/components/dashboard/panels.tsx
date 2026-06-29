@@ -228,7 +228,7 @@ function ActiveLeversPanel({ levers, gross, mode }: { levers: DashboardLever[]; 
             ))}
           </div>
           <div className="dash-levers-foot">
-            <span>Total gross savings</span>
+            <span>Gross savings</span>
             <b>{money(gross)}</b>
           </div>
         </>

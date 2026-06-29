@@ -23,7 +23,7 @@ const NAV_GROUPS: {
     label: "Operate",
     items: [
       { href: "/dashboard", match: "/dashboard", label: "Dashboard", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
-      { href: "/engine/recommendations", match: "/engine", label: "Engine", icon: "M9 9h6v6H9z M9 2v3 M15 2v3 M9 19v3 M15 19v3 M2 9h3 M2 15h3 M19 9h3 M19 15h3 M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" },
+      { href: "/engine/levers", match: "/engine", label: "Engine", icon: "M9 9h6v6H9z M9 2v3 M15 2v3 M9 19v3 M15 19v3 M2 9h3 M2 15h3 M19 9h3 M19 15h3 M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" },
       { href: "/guardrails/quality", match: "/guardrails", label: "Guardrails", icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" },
       { href: "/proof/savings", match: "/proof", label: "Proof", icon: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8.5 12.5l2.5 2.5 4.5-5" },
     ],
@@ -40,7 +40,7 @@ const NAV_GROUPS: {
 
 const ROUTE_LABELS: Record<string, { title: string; crumb: string }> = {
   "/dashboard": { title: "Savings Overview", crumb: "Overview" },
-  "/engine": { title: "Engine", crumb: "Engine / Recommendations" },
+  "/engine": { title: "Engine", crumb: "Engine / Levers" },
   "/engine/recommendations": { title: "Engine", crumb: "Engine / Recommendations" },
   "/engine/levers": { title: "Engine", crumb: "Engine / Levers" },
   "/engine/automation": { title: "Engine", crumb: "Engine / Automation" },

@@ -670,8 +670,8 @@ function Problem() {
               <p className="lp-eyebrow">The problem</p>
               <h2 className="lp-section-title">AI spend is now COGS</h2>
               <p className="lp-section-sub">
-                It scales with usage, hits gross margin, and lands in board decks. The problem isn&apos;t
-                just that the bill is high. It&apos;s that teams can&apos;t
+                It scales with usage and hits gross margin. The problem isn&apos;t
+                just that the bill is high. It&apos;s that you can&apos;t
                 see what drives it, cut it safely, or prove the savings.
               </p>
             </div>
@@ -734,8 +734,8 @@ function ProductInside() {
             <p className="lp-eyebrow">Inside the product</p>
             <h2 className="lp-section-title">Every view in one place</h2>
             <p className="lp-section-sub">
-              Each dollar of spend is attributed to a model, route, feature, team, and
-              pricing source. No estimating. The full picture.
+              Every dollar is attributed to a model, route, feature, team, and
+              pricing source. No estimating. You get the full picture.
             </p>
           </div>
           <div className="lp-product-grid">
@@ -762,8 +762,9 @@ function Levers() {
             <p className="lp-eyebrow">Savings levers</p>
             <h2 className="lp-section-title">Cost cutting in five unique ways</h2>
             <p className="lp-section-sub">
-              Each Lever runs behind the same rule: if it risks your quality or latency guardrails, it doesn&apos;t run.
-              You don&apos;t pay for levers that aren&apos;t actively cutting costs.
+              Each lever uses a different cost cutting technique. They only run when you want them to, 
+              and only when they don&apos;t risk quality or latency.
+              You don&apos;t pay for levers that aren&apos;t actively saving you money.
             </p>
           </div>
           <div className="lp-lever-list">
@@ -794,8 +795,8 @@ function Ledger() {
             <p className="lp-eyebrow">The ledger</p>
             <h2 className="lp-section-title">Continuous self-auditing</h2>
             <p className="lp-section-sub">
-              The ledger shows exactly what changed, how much you saved, and how the number was
-              calculated. Usable in finance reviews, board decks, and budget decisions.
+              The ledger shows you how trustworthy the numbers are.
+              It won&apos;t lie. It calculates continuously, and evaluates against provider pricing and a holdback test.
             </p>
           </div>
           <div className="lp-ledger-grid">
@@ -946,7 +947,7 @@ function Security() {
           <div className="lp-section-head lp-sec-head">
             <p className="lp-eyebrow">Security &amp; trust</p>
             <h2 className="lp-section-title">Production safe rollout</h2>
-            <p className="lp-section-sub">Our approach to safety is this: keep your app running smoothly even if varsten goes down, measure savings without storing your data, and verify changes work before they go live.</p>
+            <p className="lp-section-sub">Our approach aims to keep your app running smoothly even if varsten goes down. We don&apos;t store your data, and we verify working changes before they go live.</p>
           </div>
           <div className="lp-sec-content">
             <div className="lp-sec-grid">
@@ -979,7 +980,7 @@ function FinalCta({ onStart }: { onStart: () => void }) {
         <h2>Cut your AI spend,<br /> automate the entire process</h2>
         <p>
           Start free in observe-only mode and find out where your money actually goes. Automate when
-          you&apos;re ready, and let the ledger make it&apos;s case.
+          you&apos;re ready, and see how much you can save.
         </p>
         <div className="lp-final-cta">
           <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onStart}>Start your 14-day free trial</button>
