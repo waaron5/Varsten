@@ -9,6 +9,7 @@ import { useSession } from "./session";
 // project creation to keep the first-run flow moving.
 export function RequireSession({ children }: { children: React.ReactNode }) {
   const { status, profile, projects, error, loadingLabel } = useSession();
+  const loginHref = currentLoginHref();
 
   if (status === "loading") {
     return (
@@ -27,7 +28,7 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
         <div className="empty">
           <div className="et">Sign in to view your dashboard</div>
           <div className="es">Varsten uses your account to scope spend and usage to your projects.</div>
-          <a href="/auth/login" className="btn primary">Log in</a>
+          <a href={loginHref} className="btn primary">Log in</a>
         </div>
       </div>
     );
@@ -41,7 +42,7 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
           <div className="es">{error}</div>
           <div className="empty-actions">
             <a href="/auth/logout" className="btn">Reset session</a>
-            <a href="/auth/login" className="btn primary">Log in</a>
+            <a href={loginHref} className="btn primary">Log in</a>
           </div>
         </div>
       </div>
@@ -53,6 +54,12 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+function currentLoginHref(): string {
+  if (typeof window === "undefined") return "/auth/login";
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  return `/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 function FirstProject({ orgId }: { orgId: string | undefined }) {

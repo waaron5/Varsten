@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { APP_URL, CONTACT_EMAIL, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
+import { APP_URL, CONTACT_EMAIL, DPA_REQUEST_HREF, START_OBSERVE_HREF, START_TRIAL_HREF } from "./site-links";
 
 /* ── Static data for the dashboard product shot (decorative, fixed numbers) ── */
 const LEVER_GROSS_SAVED = 31570;
@@ -353,7 +353,7 @@ function useSectionReveal() {
 }
 
 /* ── Nav ─────────────────────────────────────────────────────── */
-function Nav({ onStart }: { onStart: () => void }) {
+function Nav() {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -377,7 +377,7 @@ function Nav({ onStart }: { onStart: () => void }) {
         <div className="lp-nav-right">
           <a className="lp-link" href={APP_URL}>Sign in</a>
           <a className="lp-btn lp-btn-ghost" href={`mailto:${CONTACT_EMAIL}`}>Contact sales</a>
-          <button className="lp-btn lp-btn-primary" onClick={onStart}>Start free</button>
+          <a className="lp-btn lp-btn-primary" href={START_TRIAL_HREF}>Start free</a>
         </div>
       </div>
     </header>
@@ -534,7 +534,7 @@ function SpendDriversContent({ meta, subtitle, title }: { meta?: string; subtitl
 }
 
 /* ── Hero ────────────────────────────────────────────────────── */
-function Hero({ onStart }: { onStart: () => void }) {
+function Hero() {
   return (
     <section className="lp-hero lp-reveal">
       <div className="lp-container lp-hero-copy">
@@ -547,7 +547,7 @@ function Hero({ onStart }: { onStart: () => void }) {
           lowering your AI spend without sacrificing output quality.
         </p>
         <div className="lp-hero-cta">
-          <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onStart}>Start your 14-day free trial</button>
+          <a className="lp-btn lp-btn-primary lp-btn-lg" href={START_TRIAL_HREF}>Start your 14-day free trial</a>
           <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#levers">See how it works</a>
         </div>
         <div className="lp-works-with">
@@ -877,7 +877,7 @@ function PlanChecks({ items }: { items: string[] }) {
   );
 }
 
-function Pricing({ onStart }: { onStart: () => void }) {
+function Pricing() {
   return (
     <section className="lp-section lp-section-cream-2" id="pricing">
       <div className="lp-container">
@@ -894,7 +894,7 @@ function Pricing({ onStart }: { onStart: () => void }) {
             <div className="lp-plan-price">$0 <span>/mo</span></div>
             <p className="lp-plan-body">See where the waste is before automating savings.</p>
             <PlanChecks items={OBSERVE_FEATURES} />
-            <button className="lp-btn lp-btn-ghost" onClick={onStart}>Explore observe-only mode</button>
+            <a className="lp-btn lp-btn-ghost" href={START_OBSERVE_HREF}>Explore observe-only mode</a>
           </div>
           <div className="lp-plan featured">
             <span className="lp-plan-tag">RECOMMENDED</span>
@@ -902,7 +902,7 @@ function Pricing({ onStart }: { onStart: () => void }) {
             <div className="lp-plan-price">25% <span>of verified savings</span></div>
             <p className="lp-plan-body">Automate savings. Billed monthly in arrears.</p>
             <PlanChecks items={PERFORMANCE_FEATURES} />
-            <button className="lp-btn lp-btn-primary" onClick={onStart}>Start your 14-day free trial</button>
+            <a className="lp-btn lp-btn-primary" href={START_TRIAL_HREF}>Start your 14-day free trial</a>
           </div>
         </div>
       </div>
@@ -973,7 +973,7 @@ function Security() {
 }
 
 /* ── Final CTA ───────────────────────────────────────────────── */
-function FinalCta({ onStart }: { onStart: () => void }) {
+function FinalCta() {
   return (
     <section className="lp-final">
       <div className="lp-container">
@@ -983,8 +983,8 @@ function FinalCta({ onStart }: { onStart: () => void }) {
           you&apos;re ready, and see how much you can save.
         </p>
         <div className="lp-final-cta">
-          <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onStart}>Start your 14-day free trial</button>
-          <button className="lp-btn lp-btn-ghost lp-btn-lg" onClick={onStart}>Explore observe-only mode</button>
+          <a className="lp-btn lp-btn-primary lp-btn-lg" href={START_TRIAL_HREF}>Start your 14-day free trial</a>
+          <a className="lp-btn lp-btn-ghost lp-btn-lg" href={START_OBSERVE_HREF}>Explore observe-only mode</a>
         </div>
         <p className="lp-final-note">Pay 25% of verified savings. If we save you nothing, you pay nothing.</p>
       </div>
@@ -1022,7 +1022,7 @@ function Footer() {
           <FooterCol title="Company">
             <Link href="/docs">Docs</Link>
             <a href="#how-it-works">How it works</a>
-            <a href="mailto:mail@varsten.ai">Contact</a>
+            <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
           </FooterCol>
           <FooterCol title="Legal">
             <Link href="/privacy">Privacy</Link>
@@ -1043,14 +1043,11 @@ function Footer() {
 export default function LandingPage() {
   useSmoothHashLinks();
   useSectionReveal();
-  const startFree = () => {
-    window.location.href = START_FREE_HREF;
-  };
 
   return (
     <main className="lp-page">
-      <Nav onStart={startFree} />
-      <Hero onStart={startFree} />
+      <Nav />
+      <Hero />
       <Problem />
       <Solution />
       <ProductInside />
@@ -1058,9 +1055,9 @@ export default function LandingPage() {
       <Ledger />
       <HowItWorks />
       <Security />
-      <Pricing onStart={startFree} />
+      <Pricing />
       <FAQ />
-      <FinalCta onStart={startFree} />
+      <FinalCta />
       <Footer />
     </main>
   );

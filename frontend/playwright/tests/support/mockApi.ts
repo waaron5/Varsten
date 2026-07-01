@@ -86,6 +86,10 @@ async function handleAuthAndProjects(ctx: MockRouteContext): Promise<boolean> {
   const { route, request, state } = ctx;
   if (matches(ctx, "POST", "/v1/auth/sync")) {
     increment(state, "authSync");
+    const body = await postJson(request);
+    if (typeof body.onboarding_intent === "string") {
+      increment(state, `authSync:${body.onboarding_intent}`);
+    }
     await fulfillJson(route, state.profile);
     return true;
   }

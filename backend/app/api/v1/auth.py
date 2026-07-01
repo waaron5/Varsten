@@ -3,9 +3,10 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import billing_lifecycle
 from app.api.deps import get_token_claims, require_user
 from app.db.session import get_db
-from app.models import Organization, OrgMembership, User
+from app.models import PLAN_FREE, SUBSCRIPTION_ACTIVE, Organization, OrgMembership, User
 from app.provisioning import provision_new_organization
 from app.schemas import AuthSyncRequest, UserOut
 
@@ -66,13 +67,19 @@ def sync_user(
                 # New signup: a Performance-trialing org with a ready-to-use default
                 # project, so the 14-day trial is live and onboarding has somewhere to
                 # mint an API key without asking the user to create a project first.
-                provision_new_organization(db, name=_default_org_name(email), owner_user_id=user.id)
+                provision_new_organization(
+                    db,
+                    name=_default_org_name(email),
+                    owner_user_id=user.id,
+                    start_trial=payload.onboarding_intent != "observe",
+                )
             else:
                 user.auth_provider_subject = sub
                 user.name = name or user.name
         else:
             user.email = email
             user.name = name
+        _apply_onboarding_intent(db, user, payload.onboarding_intent)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -93,3 +100,33 @@ def me(user: User = Depends(require_user), db: Session = Depends(get_db)) -> Use
 def _default_org_name(email: str) -> str:
     local = email.split("@", 1)[0] if "@" in email else email
     return f"{local}'s workspace"
+
+
+def _apply_onboarding_intent(db: Session, user: User, intent: str | None) -> None:
+    if intent != "trial":
+        return
+    org = _primary_org_for_user(db, user)
+    if org is None:
+        return
+    if not _can_start_self_serve_trial(org):
+        return
+    billing_lifecycle.start_trial(org)
+
+
+def _primary_org_for_user(db: Session, user: User) -> Organization | None:
+    return db.scalar(
+        select(Organization)
+        .join(OrgMembership, OrgMembership.organization_id == Organization.id)
+        .where(OrgMembership.user_id == user.id)
+        .order_by(Organization.created_at.asc())
+        .limit(1)
+    )
+
+
+def _can_start_self_serve_trial(org: Organization) -> bool:
+    return (
+        org.plan_tier == PLAN_FREE
+        and org.subscription_status == SUBSCRIPTION_ACTIVE
+        and org.trial_started_at is None
+        and org.stripe_subscription_id is None
+    )

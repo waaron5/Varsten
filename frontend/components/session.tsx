@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useUser } from "@auth0/nextjs-auth0";
 import { api } from "@/lib/api";
+import { currentOnboardingIntent } from "@/lib/onboardingIntent";
 import { readActiveProjectCookie, writeActiveProjectCookie } from "@/lib/projectCookie";
 import type { Project, UserProfile } from "@/lib/types";
 const AUTH_LOADING_TIMEOUT_MS = 12000;
@@ -210,7 +211,7 @@ async function bootstrapAccount({
     const token = await getAccessTokenWithTimeout();
     if (isCancelled()) return;
     setLoadingLabel("Syncing account");
-    const profile = await api.syncUser(token, { email, name });
+    const profile = await api.syncUser(token, { email, name, onboarding_intent: currentOnboardingIntent() });
     if (isCancelled()) return;
     setLoadingLabel("Loading projects");
     const list = await api.projects(token);
@@ -314,6 +315,7 @@ function useSeededProfileEffect({
         const synced = await api.syncUser(await getAccessTokenWithTimeout(), {
           email: user.email ?? "",
           name: user.name ?? null,
+          onboarding_intent: currentOnboardingIntent(),
         });
         if (!cancelled) setProfile(synced);
       } catch {

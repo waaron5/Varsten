@@ -46,6 +46,7 @@ import type {
   UsageEventPage,
   UserProfile,
 } from "./types";
+import type { OnboardingIntent } from "./onboardingIntent";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 const REQUEST_TIMEOUT_MS = 15000;
@@ -165,7 +166,7 @@ function readPath(
 
 export const api = {
   // --- session bootstrap (Auth0 token) ---
-  syncUser: (token: string, body: { email: string; name: string | null }) =>
+  syncUser: (token: string, body: { email: string; name: string | null; onboarding_intent?: OnboardingIntent }) =>
     request<UserProfile>("/auth/sync", token, {
       method: "POST",
       body: JSON.stringify(body),

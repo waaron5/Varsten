@@ -132,11 +132,7 @@ function OnboardingBody() {
 
   return (
     <div className="view" style={{ maxWidth: 860 }}>
-      <NoticeCard badge="Observe-only" title="Connect Varsten" style={{ marginBottom: 12 }}>
-        Send your AI traffic through Varsten to see spend, tokens, latency, and savings
-        opportunities. Varsten is observing only — no production behavior is changed until you
-        enable Performance.
-      </NoticeCard>
+      <OnboardingIntro status={data} />
 
       <ApiKeyStep status={data} />
       <ProviderStep status={data} onChanged={() => void reload()} />
@@ -151,6 +147,26 @@ function OnboardingBody() {
         <a className="btn" href={SETUP_CALL_HREF}>Book setup call</a>
       </div>
     </div>
+  );
+}
+
+function OnboardingIntro({ status }: { status: OnboardingStatus }) {
+  if (status.observe_only) {
+    return (
+      <NoticeCard badge="Free" title="Connect Varsten in observe-only mode" style={{ marginBottom: 12 }}>
+        Send your AI traffic through Varsten to see spend, tokens, latency, and savings
+        opportunities. Varsten is observing only — no production behavior is changed until you
+        enable Performance.
+      </NoticeCard>
+    );
+  }
+
+  return (
+    <NoticeCard badge="Performance" title="Connect Varsten with Performance access" style={{ marginBottom: 12 }}>
+      Send your AI traffic through Varsten to measure spend and unlock optimization controls. You
+      can start by observing traffic, then enable routing, caching, trimming, and batching when you
+      are ready.
+    </NoticeCard>
   );
 }
 

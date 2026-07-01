@@ -1,4 +1,5 @@
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +12,7 @@ class AuthSyncRequest(BaseModel):
     # itself does not carry namespaced email/name claims.
     email: str = Field(min_length=3, max_length=320)
     name: str | None = Field(default=None, max_length=255)
+    onboarding_intent: Literal["trial", "observe"] | None = None
 
 
 class UserOut(BaseModel):

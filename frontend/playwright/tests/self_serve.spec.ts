@@ -2,6 +2,7 @@ import { expect, test } from "playwright/test";
 import {
   API_BASE,
   createEntitlements,
+  createOnboardingStatus,
   createMockState,
   installMockApi,
   watchClientErrors,
@@ -91,6 +92,31 @@ test("self-serve: /start lands on onboarding with an active project and reaches 
   await expect(page).toHaveURL(/\/dashboard/);
   await expect(page.getByText("Net Realized Savings")).toBeVisible();
   expect(clientErrors).toEqual([]);
+});
+
+test("self-serve: trial start intent is preserved and shows Performance onboarding copy", async ({ page }) => {
+  const state = createMockState();
+  await installMockApi(page, state);
+
+  await page.goto("/start?intent=trial");
+  await expect.poll(() => state.calls["authSync:trial"] ?? 0).toBeGreaterThanOrEqual(1);
+  await expect(page).toHaveURL(/\/onboarding/);
+  await expect(page.getByText("Connect Varsten with Performance access")).toBeVisible();
+  await expect(page.getByText(/Varsten is observing only/)).toHaveCount(0);
+});
+
+test("self-serve: observe-only start intent is preserved and shows Free onboarding copy", async ({ page }) => {
+  const state = createMockState({
+    onboarding: createOnboardingStatus({ plan_tier: "free", observe_only: true }),
+    entitlements: freeObserveOnly(),
+  });
+  await installMockApi(page, state);
+
+  await page.goto("/start?intent=observe");
+  await expect.poll(() => state.calls["authSync:observe"] ?? 0).toBeGreaterThanOrEqual(1);
+  await expect(page).toHaveURL(/\/onboarding/);
+  await expect(page.getByText("Connect Varsten in observe-only mode")).toBeVisible();
+  await expect(page.getByText(/Varsten is observing only/)).toBeVisible();
 });
 
 test("self-serve: trial mode shows Performance unlocked with a trial end date", async ({ page }) => {

@@ -12,6 +12,7 @@ from app import billing_lifecycle
 from app.models import (
     PLAN_FREE,
     PLAN_PERFORMANCE,
+    SUBSCRIPTION_ACTIVE,
     SUBSCRIPTION_EXPIRED,
     SUBSCRIPTION_TRIALING,
     Organization,
@@ -26,6 +27,14 @@ def _org(db, org_id: str) -> Organization:
 
 def _sync(client, sub="auth0|trial", email="trial@example.com"):
     return client.post("/v1/auth/sync", headers=auth_headers(sub), json={"email": email, "name": None}).json()
+
+
+def _sync_with_intent(client, *, intent: str, sub="auth0|intent", email="intent@example.com"):
+    return client.post(
+        "/v1/auth/sync",
+        headers=auth_headers(sub),
+        json={"email": email, "name": None, "onboarding_intent": intent},
+    ).json()
 
 
 def _entitlements(client, p) -> dict:
@@ -47,6 +56,69 @@ def test_new_signup_is_performance_trialing_with_default_project(client, db_sess
     projects = list(db_session.scalars(select(Project).where(Project.organization_id == org.id)))
     assert len(projects) == 1
     assert projects[0].name == "Production"
+
+
+def test_new_signup_with_observe_intent_is_free_observe_only(client, db_session):
+    body = _sync_with_intent(client, intent="observe", sub="auth0|observe", email="observe@example.com")
+    org_id = body["organizations"][0]["id"]
+    org = _org(db_session, org_id)
+    assert org.plan_tier == PLAN_FREE
+    assert org.subscription_status == SUBSCRIPTION_ACTIVE
+    assert org.trial_started_at is None
+    assert org.trial_ends_at is None
+    projects = list(db_session.scalars(select(Project).where(Project.organization_id == org.id)))
+    assert len(projects) == 1
+    ent = _entitlements(client, {"project_id": str(projects[0].id), "token": "auth0|observe"})
+    assert ent["plan_tier"] == PLAN_FREE
+    assert ent["observe_only"] is True
+    assert ent["features"]["enable_caching"] is False
+
+
+def test_existing_free_user_with_trial_intent_starts_unused_trial(client, db_session):
+    body = _sync_with_intent(client, intent="observe", sub="auth0|observe-to-trial", email="upgrade@example.com")
+    org = _org(db_session, body["organizations"][0]["id"])
+    assert org.plan_tier == PLAN_FREE
+    assert org.trial_started_at is None
+
+    _sync_with_intent(client, intent="trial", sub="auth0|observe-to-trial", email="upgrade@example.com")
+    db_session.refresh(org)
+    assert org.plan_tier == PLAN_PERFORMANCE
+    assert org.subscription_status == SUBSCRIPTION_TRIALING
+    assert org.trial_started_at is not None
+    assert org.trial_ends_at is not None
+
+
+def test_observe_intent_does_not_downgrade_existing_trial(client, db_session):
+    body = _sync(client, sub="auth0|trial-stays", email="trial-stays@example.com")
+    org = _org(db_session, body["organizations"][0]["id"])
+    started = org.trial_started_at
+
+    _sync_with_intent(client, intent="observe", sub="auth0|trial-stays", email="trial-stays@example.com")
+    db_session.refresh(org)
+    assert org.plan_tier == PLAN_PERFORMANCE
+    assert org.subscription_status == SUBSCRIPTION_TRIALING
+    assert org.trial_started_at == started
+
+
+def test_trial_intent_does_not_restart_expired_trial(client, db_session):
+    body = _sync(client, sub="auth0|expired-trial", email="expired@example.com")
+    org = _org(db_session, body["organizations"][0]["id"])
+    org.trial_ends_at = datetime.now(UTC) - timedelta(hours=1)
+    db_session.commit()
+    billing_lifecycle._invalidate(org.id)
+
+    projects = list(db_session.scalars(select(Project).where(Project.organization_id == org.id)))
+    _entitlements(client, {"project_id": str(projects[0].id), "token": "auth0|expired-trial"})
+    db_session.refresh(org)
+    assert org.plan_tier == PLAN_FREE
+    assert org.subscription_status == SUBSCRIPTION_EXPIRED
+    expired_started = org.trial_started_at
+
+    _sync_with_intent(client, intent="trial", sub="auth0|expired-trial", email="expired@example.com")
+    db_session.refresh(org)
+    assert org.plan_tier == PLAN_FREE
+    assert org.subscription_status == SUBSCRIPTION_EXPIRED
+    assert org.trial_started_at == expired_started
 
 
 def test_trialing_org_has_performance_entitlements(client, db_session, provision):

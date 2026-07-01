@@ -298,7 +298,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .lp-hero {
   position: relative;
   overflow: visible;
-  padding: 72px 0 96px;
+  padding: 72px 0 128px;
   background: var(--cream);
 }
 .lp-hero-copy { max-width: 980px; margin: 0 auto; text-align: center; }
@@ -1348,7 +1348,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .lp-nav .lp-logo-img { width: 108px; }
   .lp-nav .lp-btn { padding: 10px 12px; font-size: 13px; }
   .lp-nav .lp-link { font-size: 13px; }
-  .lp-hero { padding: 40px 0 72px; }
+  .lp-hero { padding: 40px 0 96px; }
   .lp-hero-title { font-size: 40px; }
   .lp-hero-sub { max-width: 620px; font-size: 16px; }
   .lp-section-title, .lp-final h2 { font-size: 34px; }
