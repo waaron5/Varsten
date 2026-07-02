@@ -1,10 +1,11 @@
-"""Tool-call fidelity through the proxy assembly, cache, and serialization layer.
+"""Tool-call fidelity through the proxy assembly and serialization layer.
 
 The target ICP is agent/tool-heavy traffic, so a tool-calling completion must
-survive streaming reassembly, exact-hash caching, and being served back over both
-the JSON and SSE paths without losing its tool_calls. These tests pin that
-round-trip. Pure-function tests need no DB; the end-to-end tests drive the real
-proxy with a MockTransport upstream.
+survive streaming reassembly and JSON/SSE rendering without losing its
+tool_calls. Runtime proxy caching intentionally skips tool-dependent traffic; the
+pure serialization test still pins cached replay shape for migration/backfill
+compatibility. Pure-function tests need no DB; the end-to-end tests drive the
+real proxy with a MockTransport upstream.
 """
 
 import json
@@ -182,71 +183,81 @@ def _b(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _low_risk_headers(token: str) -> dict:
+    return {
+        **_b(token),
+        "X-Varsten-Metadata": json.dumps({"task_type": "agent.lookup", "task_confidence": 0.95, "risk_level": "low"}),
+    }
+
+
 @pytest.fixture(autouse=True)
 def exact_hash_only(monkeypatch):
-    """Day One posture: exact-hash cache, semantic off (no embedding latency)."""
+    """Exact-hash cache available, semantic off (no embedding latency)."""
     monkeypatch.setattr(settings, "semantic_cache_enabled", False)
 
 
 @pytest.mark.anyio
-async def test_streaming_tool_call_miss_caches_with_tool_calls(
+async def test_streaming_tool_call_miss_records_without_caching(
     async_client, async_db_session, async_provision, mock_tool_openai, monkeypatch
 ):
     ws = await async_provision(sub="auth0|tool", email="tool@example.com")
     monkeypatch.setattr(settings, "proxy_openai_keys", {ws["project_id"]: "sk-test"})
     body = {
         "model": "gpt-4o",
-        "messages": [{"role": "user", "content": "weather in Paris?"}],
+        "messages": [{"role": "user", "content": "Look up Paris with the available tool."}],
         "tools": [{"type": "function", "function": {"name": "get_weather"}}],
         "stream": True,
     }
 
-    res = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+    res = await async_client.post("/v1/chat/completions", headers=_low_risk_headers(ws["api_key"]), json=body)
     assert res.status_code == 200
+    assert res.headers["x-varsten-cache"] == "miss"
     # The tool call streamed through to the client verbatim.
     assert "get_weather" in res.text and "[DONE]" in res.text
 
-    # The call was metered (not dropped) ...
+    # The call was metered (not dropped), but tool-dependent traffic is no longer
+    # stored for exact-cache replay.
     events = (await async_db_session.scalars(select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]))).all()
     assert len(events) == 1 and events[0].output_tokens == 8
-    # ... and cached, with the tool_calls intact in the stored payload.
     entry = await async_db_session.scalar(select(ProxyCacheEntry).where(ProxyCacheEntry.project_id == ws["project_id"]))
-    assert entry is not None
-    stored_call = entry.response_payload["choices"][0]["message"]["tool_calls"][0]
-    assert stored_call["function"]["name"] == "get_weather"
-    assert json.loads(stored_call["function"]["arguments"]) == {"city": "Paris"}
+    assert entry is None
 
 
 @pytest.mark.anyio
-async def test_cached_tool_call_served_nonstream_and_stream(
+async def test_tool_call_requests_forward_each_time_instead_of_cache_hits(
     async_client, async_db_session, async_provision, mock_tool_openai, monkeypatch
 ):
     ws = await async_provision(sub="auth0|tool", email="tool@example.com")
     monkeypatch.setattr(settings, "proxy_openai_keys", {ws["project_id"]: "sk-test"})
     base = {
         "model": "gpt-4o",
-        "messages": [{"role": "user", "content": "weather in Paris?"}],
+        "messages": [{"role": "user", "content": "Look up Paris with the available tool."}],
         "tools": [{"type": "function", "function": {"name": "get_weather"}}],
     }
+    headers = _low_risk_headers(ws["api_key"])
 
-    # Prime the cache with a non-streaming miss.
-    first = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=base)
+    # First non-streaming request forwards and preserves tool_calls.
+    first = await async_client.post("/v1/chat/completions", headers=headers, json=base)
     assert first.status_code == 200
+    assert first.headers["x-varsten-cache"] == "miss"
     assert first.json()["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "get_weather"
     assert mock_tool_openai["completions"] == 1
 
-    # Non-streaming hit: tool_calls preserved, no upstream call.
-    hit = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=base)
-    assert hit.status_code == 200
-    assert hit.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"city":"Paris"}'
-    assert mock_tool_openai["completions"] == 1
+    # Identical tool request still forwards; no exact-cache hit is served.
+    second = await async_client.post("/v1/chat/completions", headers=headers, json=base)
+    assert second.status_code == 200
+    assert second.headers["x-varsten-cache"] == "miss"
+    assert second.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"city":"Paris"}'
+    assert mock_tool_openai["completions"] == 2
 
-    # Streaming hit on the same cached entry: tool_calls survive the SSE path.
-    stream_hit = await async_client.post(
-        "/v1/chat/completions", headers=_b(ws["api_key"]), json={**base, "stream": True}
-    )
-    assert stream_hit.status_code == 200
-    assert "get_weather" in stream_hit.text
-    sse = openai_ops.parse_sse_events(stream_hit.text)
+    # Streaming follows the same policy while preserving the SSE tool-call shape.
+    stream = await async_client.post("/v1/chat/completions", headers=headers, json={**base, "stream": True})
+    assert stream.status_code == 200
+    assert stream.headers["x-varsten-cache"] == "miss"
+    assert "get_weather" in stream.text
+    sse = openai_ops.parse_sse_events(stream.text)
     assert sse[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "get_weather"
-    assert mock_tool_openai["completions"] == 1
+    assert mock_tool_openai["completions"] == 3
+
+    entry = await async_db_session.scalar(select(ProxyCacheEntry).where(ProxyCacheEntry.project_id == ws["project_id"]))
+    assert entry is None

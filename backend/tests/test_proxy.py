@@ -134,6 +134,10 @@ def _b(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _low_risk_metadata() -> dict:
+    return {"X-Varsten-Metadata": ('{"task_type":"classification.intent","task_confidence":0.95,"risk_level":"low"}')}
+
+
 def _msg(content="hi"):
     return {"model": CHAT, "messages": [{"role": "user", "content": content}]}
 
@@ -238,6 +242,7 @@ async def test_cache_hit_served_without_upstream(
 
     second = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
     assert second.status_code == 200
+    assert second.headers.get("X-Varsten-Request-Id")
     assert second.json()["choices"][0]["message"]["content"] == "Hello world"
     # No second upstream call: served from cache.
     assert mock_openai["completions"] == 1
@@ -253,6 +258,38 @@ async def test_cache_hit_served_without_upstream(
     assert sources == {"miss", "hit"}
     hit = next(e for e in events if e.event_metadata["cache"] == "hit")
     assert hit.cost_usd == 0
+
+
+@pytest.mark.anyio
+async def test_multimodal_request_skips_exact_cache_lookup_and_store(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
+    ws = await async_provision(sub="auth0|image", email="image@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    headers = {**_b(ws["api_key"]), **_low_risk_metadata()}
+    body = {
+        "model": CHAT,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this product label."},
+                    {"type": "image_url", "image_url": {"url": "https://example.invalid/label.png"}},
+                ],
+            }
+        ],
+    }
+
+    first = await async_client.post("/v1/chat/completions", headers=headers, json=body)
+    second = await async_client.post("/v1/chat/completions", headers=headers, json=body)
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert second.headers["x-varsten-cache"] == "miss"
+    assert mock_openai["completions"] == 2
+    cached = await async_db_session.scalar(
+        select(func.count()).select_from(ProxyCacheEntry).where(ProxyCacheEntry.project_id == ws["project_id"])
+    )
+    assert cached == 0
 
 
 @pytest.mark.anyio
@@ -414,6 +451,7 @@ async def test_cache_hit_served_while_circuit_open(async_client, async_provision
     res = await async_client.post("/v1/chat/completions", headers=hdr, json=body)
     assert res.status_code == 200
     assert res.headers["x-varsten-cache"] == "hit"
+    assert res.headers.get("X-Varsten-Request-Id")
     assert controllable_openai["completions"] == primed_calls  # upstream never touched
 
 
@@ -424,33 +462,66 @@ async def test_cache_hit_served_while_circuit_open(async_client, async_provision
 async def test_semantic_hit_on_near_duplicate(async_client, async_provision, mock_openai, monkeypatch):
     ws = await async_provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
-    hdr = _b(ws["api_key"])
+    hdr = {**_b(ws["api_key"]), **_low_risk_metadata()}
     monkeypatch.setattr(settings, "semantic_cache_enabled", True)
 
     # First phrasing: a miss, forwarded, embedded, and cached.
-    first = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather today?"))
+    first = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("classify capital letters"))
     assert first.status_code == 200
     assert first.headers["x-varsten-cache"] == "miss"
 
     # Different wording, same meaning (same embedding keyword) -> semantic hit, no
     # second upstream completion.
-    second = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("tell me about the weather please"))
+    second = await async_client.post(
+        "/v1/chat/completions", headers=hdr, json=_msg("capital letter classification please")
+    )
     assert second.status_code == 200
     assert second.headers["x-varsten-cache"] == "semantic"
+    assert second.headers.get("X-Varsten-Request-Id")
     assert second.json()["choices"][0]["message"]["content"] == "Hello world"
     assert mock_openai["completions"] == 1  # only the first call reached OpenAI
+
+
+@pytest.mark.anyio
+async def test_semantic_cache_unknown_task_skips_embedding_and_forwards(
+    async_client, async_provision, mock_openai, monkeypatch
+):
+    ws = await async_provision(sub="auth0|s-unknown", email="s-unknown@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    monkeypatch.setattr(settings, "semantic_cache_enabled", True)
+
+    # Prime semantic cache with an explicitly low-risk route.
+    first = await async_client.post(
+        "/v1/chat/completions",
+        headers={**_b(ws["api_key"]), **_low_risk_metadata()},
+        json=_msg("classify capital letters"),
+    )
+    assert first.status_code == 200 and first.headers["x-varsten-cache"] == "miss"
+    assert mock_openai["embeddings"] == 1
+
+    # Same semantic neighborhood but no task/risk metadata: exact miss, semantic
+    # lookup skipped by the enforced cache gate, then forwarded normally.
+    second = await async_client.post(
+        "/v1/chat/completions",
+        headers=_b(ws["api_key"]),
+        json=_msg("capital letter classification please"),
+    )
+    assert second.status_code == 200
+    assert second.headers["x-varsten-cache"] == "miss"
+    assert mock_openai["completions"] == 2
+    assert mock_openai["embeddings"] == 1
 
 
 @pytest.mark.anyio
 async def test_semantic_miss_below_threshold(async_client, async_provision, mock_openai, monkeypatch):
     ws = await async_provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
-    hdr = _b(ws["api_key"])
+    hdr = {**_b(ws["api_key"]), **_low_risk_metadata()}
     monkeypatch.setattr(settings, "semantic_cache_enabled", True)
 
     # Unrelated prompts embed to orthogonal vectors -> no match, both forwarded.
-    await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather?"))
-    res = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the stock price?"))
+    await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("classify capital letters"))
+    res = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("summarize a paragraph"))
     assert res.headers["x-varsten-cache"] == "miss"
     assert mock_openai["completions"] == 2
 
@@ -459,9 +530,9 @@ async def test_semantic_miss_below_threshold(async_client, async_provision, mock
 async def test_exact_repeat_skips_embedding(async_client, async_provision, mock_openai, monkeypatch):
     ws = await async_provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
-    hdr = _b(ws["api_key"])
+    hdr = {**_b(ws["api_key"]), **_low_risk_metadata()}
     monkeypatch.setattr(settings, "semantic_cache_enabled", True)
-    body = _msg("what is the weather?")
+    body = _msg("classify capital letters")
 
     await async_client.post("/v1/chat/completions", headers=hdr, json=body)  # miss: 1 embed + 1 completion
     res = await async_client.post("/v1/chat/completions", headers=hdr, json=body)  # exact hit: no embed
@@ -475,7 +546,7 @@ async def test_exact_repeat_skips_embedding(async_client, async_provision, mock_
 async def test_embedding_failure_fails_open(async_client, async_provision, mock_openai, monkeypatch):
     ws = await async_provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
-    hdr = _b(ws["api_key"])
+    hdr = {**_b(ws["api_key"]), **_low_risk_metadata()}
     monkeypatch.setattr(settings, "semantic_cache_enabled", True)
 
     async def no_embedding(text, client_key):
@@ -484,7 +555,7 @@ async def test_embedding_failure_fails_open(async_client, async_provision, mock_
     monkeypatch.setattr(proxy_router, "embed", no_embedding)
 
     # Embedding is down: semantic lookup is skipped and the request forwards.
-    first = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("what is the weather?"))
+    first = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("classify capital letters"))
     assert first.status_code == 200
     assert first.headers["x-varsten-cache"] == "miss"
 

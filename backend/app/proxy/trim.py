@@ -40,6 +40,8 @@ _BLANKLINES = re.compile(r"\n{3,}")
 class TrimDecision(NamedTuple):
     holdback_percent: Decimal
     params: dict
+    policy_id: uuid.UUID | None = None
+    source_recommendation_id: uuid.UUID | None = None
 
 
 async def resolve_trim(db: AsyncSession, project_id: uuid.UUID, requested_model: str) -> TrimDecision | None:
@@ -63,7 +65,12 @@ async def resolve_trim(db: AsyncSession, project_id: uuid.UUID, requested_model:
         ).first()
         if policy is None:
             return None
-        return TrimDecision(policy.holdback_percent or Decimal("0"), policy.params or {})
+        return TrimDecision(
+            policy.holdback_percent or Decimal("0"),
+            policy.params or {},
+            policy_id=policy.id,
+            source_recommendation_id=policy.source_recommendation_id,
+        )
     except Exception:
         logger.exception("trim lookup failed; forwarding untrimmed", extra={"project_id": str(project_id)})
         return None

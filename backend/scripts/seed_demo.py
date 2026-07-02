@@ -46,7 +46,7 @@ from app.models import (
 )
 from app.pricing.service import price_usage_event
 from app.recommendations import refresh_recommendations
-from app.savings import month_end, month_start, record_applied_savings
+from app.savings import record_applied_savings
 
 DEMO_ORG_NAME = "Varsten Demo Co"
 DEMO_PROJECT_NAME = "Production AI"
@@ -740,6 +740,17 @@ def _upsert_customer_economics(db: Session, org: Organization, project: Project)
         ("cust_nova", "Nova Labs", Decimal("96000.00")),
         ("cust_zenith", "Zenith Analytics", Decimal("72000.00")),
     ]
+    expected_customer_ids = {customer_id for customer_id, _, _ in rows}
+    db.execute(
+        delete(CustomerEconomics).where(
+            CustomerEconomics.project_id == project.id,
+            (
+                (CustomerEconomics.period_start != start)
+                | (CustomerEconomics.period_end != end)
+                | CustomerEconomics.customer_id.notin_(expected_customer_ids)
+            ),
+        )
+    )
     for customer_id, name, revenue in rows:
         econ = db.scalar(
             select(CustomerEconomics).where(
@@ -803,23 +814,15 @@ def _apply_demo_recommendations(db: Session, project: Project, now: datetime) ->
     Idempotent: re-seeding clears prior demo attributions/actions first, then
     re-applies against the freshly recomputed recommendations.
     """
-    start = month_start(now)
-    end = month_end(now)
     # Reset to a clean slate so re-seeding is deterministic and never accumulates
     # or double-counts applied cuts across runs: reopen prior resolutions, drop
-    # this period's attributions and apply-actions, then re-apply from scratch.
+    # prior demo attributions and apply-actions, then re-apply from scratch.
     db.execute(
         update(Recommendation)
         .where(Recommendation.project_id == project.id, Recommendation.status != "open")
         .values(status="open", resolved_at=None)
     )
-    db.execute(
-        delete(SavingsAttribution).where(
-            SavingsAttribution.project_id == project.id,
-            SavingsAttribution.period_start == start,
-            SavingsAttribution.period_end == end,
-        )
-    )
+    db.execute(delete(SavingsAttribution).where(SavingsAttribution.project_id == project.id))
     db.execute(
         delete(RecommendationAction).where(
             RecommendationAction.project_id == project.id,

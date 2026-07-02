@@ -52,6 +52,15 @@ def _b(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _low_risk_headers(token: str) -> dict:
+    return {
+        **_b(token),
+        "X-Varsten-Metadata": json.dumps(
+            {"task_type": "classification.intent", "task_confidence": 0.95, "risk_level": "low"}
+        ),
+    }
+
+
 def _sse_payloads(body: str) -> list[dict]:
     payloads = []
     for block in body.replace("\r\n", "\n").split("\n\n"):
@@ -152,7 +161,7 @@ async def test_openai_compatible_request_routes_to_cross_provider_gemini(
 
     res = await async_client.post(
         "/v1/chat/completions",
-        headers=_b(ws["api_key"]),
+        headers=_low_risk_headers(ws["api_key"]),
         json={"model": OPENAI_MODEL, "messages": [{"role": "user", "content": "hi"}]},
     )
 
@@ -180,7 +189,7 @@ async def test_anthropic_native_request_routes_to_gemini_and_returns_anthropic_s
 
     res = await async_client.post(
         "/v1/messages",
-        headers={**_b(ws["api_key"]), "anthropic-version": "2023-06-01"},
+        headers={**_low_risk_headers(ws["api_key"]), "anthropic-version": "2023-06-01"},
         json=_fixture_body("anthropic_messages_request.json"),
     )
 
@@ -212,7 +221,7 @@ async def test_gemini_native_request_routes_to_openai_and_returns_gemini_shape(
 
     res = await async_client.post(
         f"/v1beta/models/{GEMINI_MODEL}:generateContent",
-        headers=_b(ws["api_key"]),
+        headers=_low_risk_headers(ws["api_key"]),
         json=_fixture_body("gemini_generate_content_request.json"),
     )
 
@@ -245,7 +254,7 @@ async def test_anthropic_native_stream_routes_to_gemini_and_returns_anthropic_ss
 
     res = await async_client.post(
         "/v1/messages",
-        headers={**_b(ws["api_key"]), "anthropic-version": "2023-06-01"},
+        headers={**_low_risk_headers(ws["api_key"]), "anthropic-version": "2023-06-01"},
         json=body,
     )
 
@@ -278,7 +287,7 @@ async def test_gemini_native_stream_routes_to_openai_and_returns_gemini_sse(
 
     res = await async_client.post(
         f"/v1beta/models/{GEMINI_MODEL}:streamGenerateContent?alt=sse",
-        headers=_b(ws["api_key"]),
+        headers=_low_risk_headers(ws["api_key"]),
         json=_fixture_body("gemini_generate_content_request.json"),
     )
 
@@ -326,7 +335,7 @@ async def test_anthropic_native_tool_stream_routes_to_openai_and_returns_tool_us
 
     res = await async_client.post(
         "/v1/messages",
-        headers={**_b(ws["api_key"]), "anthropic-version": "2023-06-01"},
+        headers={**_low_risk_headers(ws["api_key"]), "anthropic-version": "2023-06-01"},
         json=body,
     )
 
@@ -366,7 +375,7 @@ async def test_gemini_native_tool_stream_routes_to_openai_and_returns_function_c
 
     res = await async_client.post(
         f"/v1beta/models/{GEMINI_MODEL}:streamGenerateContent?alt=sse",
-        headers=_b(ws["api_key"]),
+        headers=_low_risk_headers(ws["api_key"]),
         json=_fixture_body("gemini_function_call_request.json"),
     )
 
@@ -500,7 +509,7 @@ async def test_openai_compat_route_forwards_incumbent_when_candidate_key_missing
 
     res = await async_client.post(
         "/v1/chat/completions",
-        headers=_b(ws["api_key"]),
+        headers=_low_risk_headers(ws["api_key"]),
         json={"model": OPENAI_MODEL, "messages": [{"role": "user", "content": "hi"}]},
     )
 
@@ -533,7 +542,7 @@ async def test_native_anthropic_route_forwards_incumbent_when_candidate_key_miss
 
     res = await async_client.post(
         "/v1/messages",
-        headers={**_b(ws["api_key"]), "anthropic-version": "2023-06-01"},
+        headers={**_low_risk_headers(ws["api_key"]), "anthropic-version": "2023-06-01"},
         json=_fixture_body("anthropic_messages_request.json"),
     )
 

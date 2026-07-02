@@ -53,6 +53,15 @@ def _policy(project, *, incumbent=INCUMBENT, candidate=CANDIDATE, lever="model_d
     )
 
 
+def _low_risk_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Varsten-Metadata": json.dumps(
+            {"task_type": "classification.intent", "task_confidence": 0.95, "risk_level": "low"}
+        ),
+    }
+
+
 @pytest.fixture(autouse=True)
 def reset_circuit():
     circuit.reset_all()
@@ -245,7 +254,7 @@ async def test_proxy_routes_request_to_candidate(async_client, async_provision, 
 
     resp = await async_client.post(
         "/v1/chat/completions",
-        headers={"Authorization": f"Bearer {ws['api_key']}"},
+        headers=_low_risk_headers(ws["api_key"]),
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
     )
     assert resp.status_code == 200
@@ -258,6 +267,33 @@ async def test_proxy_routes_request_to_candidate(async_client, async_provision, 
         select(UsageEvent).where(UsageEvent.project_id == project.id, UsageEvent.model == CANDIDATE)
     )
     assert event is not None and event.event_metadata.get("routed") is True
+
+
+@pytest.mark.anyio
+async def test_proxy_blocks_routing_when_task_is_unknown(async_client, async_provision, async_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
+    ws = await async_provision(sub="auth0|route-unknown", email="route-unknown@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
+    monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
+    await _seed_prices(async_db_session, project)
+    async_db_session.add(_policy(project, enabled=True, holdback_percent=Decimal("0")))
+    await async_db_session.flush()
+
+    seen: dict = {}
+    _mock_openai(monkeypatch, seen)
+
+    resp = await async_client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {ws['api_key']}"},
+        json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
+    )
+
+    assert resp.status_code == 200
+    assert seen["model"] == INCUMBENT
+    assert "X-Varsten-Routed" not in resp.headers
+    assert "X-Varsten-Arm" not in resp.headers
+    event = await async_db_session.scalar(select(UsageEvent).where(UsageEvent.project_id == project.id))
+    assert event is not None and event.model == INCUMBENT
 
 
 def _usage_row(project, model, cost, meta):
@@ -490,7 +526,7 @@ async def test_holdback_keeps_control_on_incumbent(async_client, async_provision
     _mock_openai(monkeypatch, seen)
     resp = await async_client.post(
         "/v1/chat/completions",
-        headers={"Authorization": f"Bearer {ws['api_key']}"},
+        headers=_low_risk_headers(ws["api_key"]),
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
     )
     assert resp.status_code == 200

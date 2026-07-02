@@ -5,6 +5,7 @@ from app.api.v1 import (
     auth,
     batches,
     billing,
+    engine,
     entitlements,
     evals,
     feedback,
@@ -33,6 +34,7 @@ api_router.include_router(evals.router)
 api_router.include_router(feedback.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(entitlements.router)
+api_router.include_router(engine.router)
 api_router.include_router(billing.router)
 api_router.include_router(product_sections.router)
 # Fail-open SDK fallback telemetry: POST /v1/telemetry/fallback.

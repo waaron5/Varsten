@@ -11,10 +11,12 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.engine import OptimizationPlan, plan_to_metadata, runtime_trace_event
 from app.models import RequestDecisionEvent, UsageEvent
 from app.proxy.request_context import EMPTY_CONTEXT, RequestContext
 
@@ -43,6 +45,33 @@ class DecisionDraft:
     trim_applied: bool = False
     route_eligible: bool | None = None
     route_ineligible_reason: str | None = None
+    optimization_plan: OptimizationPlan | None = None
+    runtime_trace: list[dict[str, Any]] = field(default_factory=list)
+
+    def add_runtime_trace(
+        self,
+        *,
+        stage: str,
+        lever: str,
+        action: str,
+        reason_code: str,
+        enforced: bool = False,
+        policy_id: str | uuid.UUID | None = None,
+        source_recommendation_id: str | uuid.UUID | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        self.runtime_trace.append(
+            runtime_trace_event(
+                stage=stage,
+                lever=lever,
+                action=action,
+                reason_code=reason_code,
+                enforced=enforced,
+                policy_id=str(policy_id) if policy_id else None,
+                source_recommendation_id=str(source_recommendation_id) if source_recommendation_id else None,
+                detail=detail,
+            )
+        )
 
 
 def _to_decimal(value) -> Decimal | None:
@@ -68,6 +97,145 @@ def _decision_type(
     if routed:
         return "route"
     return "passthrough"
+
+
+def _money(value: Decimal | None) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _quality_status(quality_ok: bool | None) -> str:
+    if quality_ok is True:
+        return "passed"
+    if quality_ok is False:
+        return "failed"
+    return "not_measured"
+
+
+def _savings_method(
+    *,
+    cache_status: str | None,
+    bypassed: bool,
+    arm: str | None,
+    trim_applied: bool,
+    routed: bool,
+) -> str:
+    if cache_status in {"hit", "semantic"}:
+        return "cache_avoidance"
+    if routed:
+        return "route_counterfactual"
+    if arm and trim_applied:
+        return "trim_holdback_observation"
+    if arm:
+        return "holdback_observation"
+    if bypassed:
+        return "bypass"
+    return "none"
+
+
+def _savings_confidence(
+    *,
+    realized_naive: Decimal | None,
+    realized_savings: Decimal | None,
+    pricing_status: str | None,
+    arm: str | None,
+    optimization_applied: bool,
+) -> str:
+    if realized_naive is not None and realized_savings is not None and pricing_status == "priced":
+        return "measured_priced"
+    if realized_naive is not None and realized_savings is not None:
+        return "measured_pricing_uncertain"
+    if arm:
+        return "requires_aggregate_holdback"
+    if optimization_applied:
+        return "unmeasured"
+    return "not_applicable"
+
+
+def _savings_reason_codes(
+    *,
+    realized_naive: Decimal | None,
+    realized_actual: Decimal | None,
+    realized_savings: Decimal | None,
+    quality_ok: bool | None,
+    arm: str | None,
+    optimization_applied: bool,
+) -> list[str]:
+    reasons: list[str] = []
+    if realized_naive is None:
+        reasons.append("baseline_unavailable")
+    if realized_actual is None:
+        reasons.append("actual_cost_unavailable")
+    if realized_savings is None and optimization_applied:
+        reasons.append("savings_unavailable")
+    if arm and realized_savings is None:
+        reasons.append("aggregate_holdback_required")
+    reasons.append("optimization_overhead_not_measured")
+    if quality_ok is None:
+        reasons.append("quality_not_measured")
+    return reasons
+
+
+def _savings_proof(
+    *,
+    event: UsageEvent,
+    cache_status: str | None,
+    bypassed: bool,
+    arm: str | None,
+    trim_applied: bool,
+    routed: bool,
+    optimization_applied: bool,
+    realized_naive: Decimal | None,
+    realized_actual: Decimal | None,
+    realized_savings: Decimal | None,
+    quality_ok: bool | None,
+) -> dict[str, Any]:
+    overhead_cost: Decimal | None = None
+    return {
+        "method": _savings_method(
+            cache_status=cache_status,
+            bypassed=bypassed,
+            arm=arm,
+            trim_applied=trim_applied,
+            routed=routed,
+        ),
+        "baseline_cost_usd": _money(realized_naive),
+        "actual_cost_usd": _money(realized_actual),
+        "gross_savings_usd": _money(realized_savings),
+        "optimization_overhead_cost_usd": _money(overhead_cost),
+        "net_savings_usd": _money(realized_savings - overhead_cost)
+        if realized_savings is not None and overhead_cost is not None
+        else None,
+        "confidence": _savings_confidence(
+            realized_naive=realized_naive,
+            realized_savings=realized_savings,
+            pricing_status=event.pricing_status,
+            arm=arm,
+            optimization_applied=optimization_applied,
+        ),
+        "quality_status": _quality_status(quality_ok),
+        "pricing_status": event.pricing_status,
+        "cost_source": event.cost_source,
+        "price_version_id": str(event.price_version_id) if event.price_version_id else None,
+        "reason_codes": _savings_reason_codes(
+            realized_naive=realized_naive,
+            realized_actual=realized_actual,
+            realized_savings=realized_savings,
+            quality_ok=quality_ok,
+            arm=arm,
+            optimization_applied=optimization_applied,
+        ),
+    }
+
+
+def _decision_metadata(draft: DecisionDraft, savings_proof: dict[str, Any] | None = None) -> dict:
+    metadata = draft.ctx.task_metadata() if draft.ctx else {}
+    if draft.optimization_plan is not None:
+        metadata["optimization_plan"] = plan_to_metadata(draft.optimization_plan)
+    if draft.runtime_trace:
+        metadata["runtime_trace"] = list(draft.runtime_trace)
+    if savings_proof is not None:
+        metadata["savings_proof"] = savings_proof
+    return metadata
 
 
 async def record_request_decision(
@@ -113,6 +281,20 @@ async def record_request_decision(
         realized_actual = event.cost_usd if event is not None else None
         realized_naive = _to_decimal(meta.get("naive_cost_usd"))
         realized_savings = _to_decimal(meta.get("saved_usd"))
+        effective_quality_ok = quality_ok if quality_ok is not None else meta.get("quality_ok")
+        proof = _savings_proof(
+            event=event,
+            cache_status=cache_status,
+            bypassed=draft.bypassed,
+            arm=arm,
+            trim_applied=trim_applied,
+            routed=routed,
+            optimization_applied=optimization_applied,
+            realized_naive=realized_naive,
+            realized_actual=realized_actual,
+            realized_savings=realized_savings,
+            quality_ok=effective_quality_ok,
+        )
 
         counterfactual_model = routed_from or (model_chosen if cache_status in {"hit", "semantic"} else None)
         counterfactual_provider = routed_from_provider or (provider_chosen if counterfactual_model else None)
@@ -165,12 +347,12 @@ async def record_request_decision(
             price_version_id=event.price_version_id,
             pricing_status=event.pricing_status,
             cost_source=event.cost_source,
-            quality_ok=quality_ok if quality_ok is not None else meta.get("quality_ok"),
+            quality_ok=effective_quality_ok,
             failure_mode=failure_mode,
             error_code=error_code,
             latency_ms=latency_ms,
             reason_detail={},
-            event_metadata=ctx.task_metadata(),
+            event_metadata=_decision_metadata(draft, proof),
             created_at=datetime.now(UTC),
         )
         db.add(row)

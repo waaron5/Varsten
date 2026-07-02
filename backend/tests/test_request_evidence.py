@@ -68,6 +68,19 @@ def _body(**extra):
     return {"model": CHAT, "messages": [{"role": "user", "content": "Hi"}], **extra}
 
 
+def _low_risk_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Varsten-Metadata": json.dumps(
+            {"task_type": "classification.intent", "task_confidence": 0.95, "risk_level": "low"}
+        ),
+    }
+
+
+def _money(value: str | None) -> Decimal | None:
+    return Decimal(value) if value is not None else None
+
+
 async def _decisions(db, project_id) -> list[RequestDecisionEvent]:
     rows = await db.scalars(
         select(RequestDecisionEvent).where(RequestDecisionEvent.project_id == uuid.UUID(str(project_id)))
@@ -191,6 +204,29 @@ async def test_context_populates_usage_event_and_evidence(
     assert d.model_chosen == CHAT
     assert d.usage_event_id == ue.id
     assert d.request_id == resp.headers["X-Varsten-Request-Id"]
+    plan = d.event_metadata["optimization_plan"]
+    assert plan["planner_version"] == "planner_v1_observe_only"
+    assert plan["selected"] == {"action": "observe", "mode": "observe_only", "reason_code": "planner_not_wired"}
+    assert plan["classification"]["task_type"] == "support_reply.billing"
+    assert plan["classification"]["risk_level"] == "medium"
+    assert plan["classification"]["prompt_chars"] == len("Hi")
+    assert "Hi" not in json.dumps(plan)
+    trace = d.event_metadata["runtime_trace"]
+    assert {"cache_lookup", "routing", "trim", "cache_store_decision"} <= {event["stage"] for event in trace}
+    assert any(event["lever"] == "exact_cache" and event["action"] == "miss" for event in trace)
+    assert any(
+        event["lever"] == "model_routing" and event["reason_code"] == "routing_no_applicable_policy" for event in trace
+    )
+    assert "Hi" not in json.dumps(trace)
+    proof = d.event_metadata["savings_proof"]
+    assert proof["method"] == "none"
+    assert proof["confidence"] == "not_applicable"
+    assert proof["actual_cost_usd"] is not None
+    assert proof["gross_savings_usd"] is None
+    assert proof["optimization_overhead_cost_usd"] is None
+    assert proof["net_savings_usd"] is None
+    assert proof["quality_status"] == "not_measured"
+    assert "optimization_overhead_not_measured" in proof["reason_codes"]
 
 
 @pytest.mark.anyio
@@ -272,15 +308,42 @@ async def test_evidence_cache_hit(async_client, async_provision, async_db_sessio
     headers = {"Authorization": f"Bearer {p['api_key']}"}
     # First call: miss + store. Second identical call: exact-hash hit.
     await async_client.post("/v1/chat/completions", headers=headers, json=_body())
-    await async_client.post("/v1/chat/completions", headers=headers, json=_body())
+    hit_resp = await async_client.post("/v1/chat/completions", headers=headers, json=_body())
 
     decisions = await _decisions(async_db_session, p["project_id"])
     statuses = sorted(d.decision_type for d in decisions)
     assert statuses == ["cache", "passthrough"]
     hit = next(d for d in decisions if d.decision_type == "cache")
+    assert hit_resp.headers.get("X-Varsten-Request-Id") == hit.request_id
     assert hit.cache_status == "hit"
     assert hit.optimization_applied is True
     assert hit.realized_actual_cost_usd == Decimal("0") or hit.realized_actual_cost_usd is None
+    plan = hit.event_metadata["optimization_plan"]
+    assert plan["selected"]["action"] == "observe"
+    exact_cache = next(c for c in plan["candidates"] if c["lever"] == "exact_cache")
+    assert exact_cache["status"] == "rejected"
+    assert exact_cache["reason_detail"]["cache_gate"] == {
+        "mode": "shadow",
+        "decision": "reject",
+        "enforced": False,
+        "reason_code": "cache_gate_shadow_reject",
+        "blockers": ["risky_or_unknown"],
+    }
+    trace = hit.event_metadata["runtime_trace"]
+    assert any(event["lever"] == "exact_cache" and event["action"] == "hit" for event in trace)
+    proof = hit.event_metadata["savings_proof"]
+    assert proof["method"] == "cache_avoidance"
+    assert _money(proof["actual_cost_usd"]) == hit.realized_actual_cost_usd
+    assert _money(proof["actual_cost_usd"]) == Decimal("0")
+    assert _money(proof["baseline_cost_usd"]) == hit.realized_naive_cost_usd
+    assert _money(proof["gross_savings_usd"]) == hit.realized_savings_usd
+    assert proof["optimization_overhead_cost_usd"] is None
+    assert proof["net_savings_usd"] is None
+    assert proof["confidence"] in {"measured_priced", "measured_pricing_uncertain", "unmeasured"}
+    assert proof["quality_status"] == "not_measured"
+    assert proof["pricing_status"] == hit.pricing_status
+    assert proof["cost_source"] == hit.cost_source
+    assert "optimization_overhead_not_measured" in proof["reason_codes"]
 
 
 @pytest.mark.anyio
@@ -291,9 +354,7 @@ async def test_evidence_routed_treatment(async_client, async_provision, async_db
     await async_db_session.flush()
     monkeypatch.setattr("app.proxy.routing.random.random", lambda: 0.99)
 
-    resp = await async_client.post(
-        "/v1/chat/completions", headers={"Authorization": f"Bearer {p['api_key']}"}, json=_body()
-    )
+    resp = await async_client.post("/v1/chat/completions", headers=_low_risk_headers(p["api_key"]), json=_body())
     assert resp.status_code == 200
     assert resp.headers.get("X-Varsten-Arm") == "treatment"
 
@@ -305,6 +366,28 @@ async def test_evidence_routed_treatment(async_client, async_provision, async_db
     assert d.optimization_applied is True
     assert d.lever == "model_downshift"
     assert d.model_counterfactual == CHAT
+    route_candidate = next(
+        c for c in d.event_metadata["optimization_plan"]["candidates"] if c["lever"] == "model_routing"
+    )
+    assert route_candidate["policy_id"] == str(d.policy_id)
+    trace = d.event_metadata["runtime_trace"]
+    assert any(
+        event["stage"] == "routing"
+        and event["lever"] == "model_downshift"
+        and event["action"] == "applied"
+        and event["reason_code"] == "routing_treatment"
+        for event in trace
+    )
+    proof = d.event_metadata["savings_proof"]
+    assert proof["method"] == "route_counterfactual"
+    assert _money(proof["actual_cost_usd"]) == d.realized_actual_cost_usd
+    assert _money(proof["baseline_cost_usd"]) == d.realized_naive_cost_usd
+    assert _money(proof["gross_savings_usd"]) == d.realized_savings_usd
+    assert proof["optimization_overhead_cost_usd"] is None
+    assert proof["net_savings_usd"] is None
+    assert proof["confidence"] in {"measured_priced", "measured_pricing_uncertain", "unmeasured"}
+    assert proof["quality_status"] == "passed"
+    assert proof["pricing_status"] == d.pricing_status
 
 
 @pytest.mark.anyio
@@ -315,9 +398,7 @@ async def test_evidence_holdback_control(async_client, async_provision, async_db
     await async_db_session.flush()
     monkeypatch.setattr("app.proxy.routing.random.random", lambda: 0.0)
 
-    resp = await async_client.post(
-        "/v1/chat/completions", headers={"Authorization": f"Bearer {p['api_key']}"}, json=_body()
-    )
+    resp = await async_client.post("/v1/chat/completions", headers=_low_risk_headers(p["api_key"]), json=_body())
     assert resp.status_code == 200
     assert resp.headers.get("X-Varsten-Arm") == "control"
 
@@ -326,6 +407,52 @@ async def test_evidence_holdback_control(async_client, async_provision, async_db
     assert d.decision_type == "experiment_control"
     assert d.route_eligible is True
     assert d.optimization_applied is False
+    proof = d.event_metadata["savings_proof"]
+    assert proof["method"] == "holdback_observation"
+    assert proof["confidence"] == "requires_aggregate_holdback"
+    assert proof["gross_savings_usd"] is None
+    assert proof["optimization_overhead_cost_usd"] is None
+    assert proof["net_savings_usd"] is None
+    assert proof["quality_status"] == "passed"
+    assert "aggregate_holdback_required" in proof["reason_codes"]
+    trace = d.event_metadata["runtime_trace"]
+    assert any(event["stage"] == "routing" and event["action"] == "control" for event in trace)
+
+
+@pytest.mark.anyio
+async def test_evidence_routing_policy_blocked_for_unknown_task(
+    async_client, async_provision, async_db_session, monkeypatch, mock_openai
+):
+    p = await async_provision()
+    _configure_key(monkeypatch, p["project_id"])
+    _add_routing_policy(async_db_session, p, holdback="0.0")
+    await async_db_session.flush()
+
+    resp = await async_client.post(
+        "/v1/chat/completions", headers={"Authorization": f"Bearer {p['api_key']}"}, json=_body()
+    )
+
+    assert resp.status_code == 200
+    assert "X-Varsten-Arm" not in resp.headers
+    d = (await _decisions(async_db_session, p["project_id"]))[0]
+    assert d.decision_type == "passthrough"
+    assert d.route_eligible is False
+    assert d.route_ineligible_reason == "routing_blocked_by_risk"
+    proof = d.event_metadata["savings_proof"]
+    assert proof["method"] == "none"
+    assert proof["confidence"] == "not_applicable"
+    assert proof["gross_savings_usd"] is None
+    assert proof["optimization_overhead_cost_usd"] is None
+    assert proof["net_savings_usd"] is None
+    assert proof["quality_status"] == "not_measured"
+    trace = d.event_metadata["runtime_trace"]
+    assert any(
+        event["stage"] == "routing"
+        and event["action"] == "skipped"
+        and event["reason_code"] == "routing_blocked_by_risk"
+        and event["enforced"] is True
+        for event in trace
+    )
 
 
 @pytest.mark.anyio
@@ -359,6 +486,14 @@ async def test_evidence_route_ineligible(async_client, async_provision, async_db
     assert d.route_ineligible_reason == "server_side_tool"
     # The incumbent (openai) actually ran.
     assert d.model_chosen == CHAT
+    trace = d.event_metadata["runtime_trace"]
+    assert any(
+        event["stage"] == "routing"
+        and event["action"] == "skipped"
+        and event["reason_code"] == "server_side_tool"
+        and event["enforced"] is True
+        for event in trace
+    )
 
 
 @pytest.mark.anyio
@@ -374,6 +509,13 @@ async def test_evidence_bypass(async_client, async_provision, async_db_session, 
     assert d.decision_type == "bypass"
     assert d.bypassed is True
     assert d.bypass_reason == "kill_switch"
+    trace = d.event_metadata["runtime_trace"]
+    assert any(
+        event["stage"] == "cache_lookup"
+        and event["lever"] == "exact_cache"
+        and event["reason_code"] == "optimization_disabled"
+        for event in trace
+    )
 
 
 @pytest.mark.anyio

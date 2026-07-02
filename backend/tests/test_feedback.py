@@ -83,6 +83,34 @@ def test_feedback_by_request_id_links_decision(client, provision, db_session):
     assert stored.usage_event_id == event_id
 
 
+def test_feedback_by_request_id_links_cached_decision(client, provision, db_session):
+    p = provision()
+    event_id = _make_usage_event(db_session, p["project_id"])
+    decision = RequestDecisionEvent(
+        organization_id=_org_for(db_session, p["project_id"]),
+        project_id=uuid.UUID(p["project_id"]),
+        usage_event_id=event_id,
+        request_id="req_cached",
+        provider_requested="openai",
+        model_requested="gpt-4o-mini",
+        decision_type="cache",
+        cache_status="hit",
+    )
+    db_session.add(decision)
+    db_session.flush()
+
+    resp = client.post(
+        "/v1/feedback",
+        headers=_auth(p["api_key"]),
+        json={"request_id": "req_cached", "outcome": "accepted"},
+    )
+
+    assert resp.status_code == 201
+    stored = db_session.scalar(select(RequestFeedback).where(RequestFeedback.request_id == "req_cached"))
+    assert stored.decision_event_id == decision.id
+    assert stored.usage_event_id == event_id
+
+
 def test_feedback_rejects_unknown_outcome(client, provision, db_session):
     p = provision()
     resp = client.post(

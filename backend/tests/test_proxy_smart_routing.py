@@ -26,6 +26,15 @@ INCUMBENT = "gpt-4o"
 CANDIDATE = "gpt-4o-mini"
 
 
+def _low_risk_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Varsten-Metadata": json.dumps(
+            {"task_type": "classification.intent", "task_confidence": 0.95, "risk_level": "low"}
+        ),
+    }
+
+
 @pytest.fixture(autouse=True)
 def reset_circuit():
     circuit.reset_all()
@@ -209,7 +218,7 @@ async def test_proxy_routes_easy_request_to_candidate(async_client, async_provis
     _mock_openai(monkeypatch, seen)
     resp = await async_client.post(
         "/v1/chat/completions",
-        headers={"Authorization": f"Bearer {ws['api_key']}"},
+        headers=_low_risk_headers(ws["api_key"]),
         json={"model": INCUMBENT, "messages": [{"role": "user", "content": "hi"}], "stream": False},
     )
     assert resp.status_code == 200

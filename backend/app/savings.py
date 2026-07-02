@@ -149,12 +149,13 @@ def record_applied_savings(
     fee = _q(gross * org_fee_percent(project))
     net = gross - fee
 
-    # One attribution per (lever, period): re-applying refreshes it rather than
-    # stacking duplicate savings.
+    # One attribution per (recommendation, period): re-applying the same cut
+    # refreshes its proof row, while a distinct same-lever cut can add savings
+    # instead of overwriting an unrelated attribution.
     attribution = db.scalar(
         select(SavingsAttribution).where(
             SavingsAttribution.project_id == project.id,
-            SavingsAttribution.lever == recommendation.lever,
+            SavingsAttribution.recommendation_id == recommendation.id,
             SavingsAttribution.period_start == start,
             SavingsAttribution.period_end == end,
         )

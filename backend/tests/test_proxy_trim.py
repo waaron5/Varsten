@@ -24,6 +24,15 @@ from app.proxy.trim import LEVER, apply_trim, resolve_trim, trim_messages
 MODEL = "gpt-4o"
 
 
+def _low_risk_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Varsten-Metadata": json.dumps(
+            {"task_type": "summarization.context", "task_confidence": 0.95, "risk_level": "low"}
+        ),
+    }
+
+
 @pytest.fixture(autouse=True)
 def reset_circuit():
     circuit.reset_all()
@@ -222,7 +231,7 @@ async def test_proxy_trims_treatment_body(async_client, async_provision, async_d
     _mock_openai(monkeypatch, seen)
     resp = await async_client.post(
         "/v1/chat/completions",
-        headers={"Authorization": f"Bearer {ws['api_key']}"},
+        headers=_low_risk_headers(ws["api_key"]),
         json={"model": MODEL, "messages": _redundant_messages(), "stream": False},
     )
     assert resp.status_code == 200
@@ -230,6 +239,39 @@ async def test_proxy_trims_treatment_body(async_client, async_provision, async_d
     assert resp.headers.get("X-Varsten-Arm") == "treatment"
     # The forwarded body was trimmed: far fewer messages than the 31 sent.
     assert len(seen["messages"]) < 31
+
+
+@pytest.mark.anyio
+async def test_proxy_blocks_trim_when_task_is_unknown(async_client, async_provision, async_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "proxy_cache_enabled", False)
+    ws = await async_provision(sub="auth0|trim-unknown", email="trim-unknown@example.com")
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
+    monkeypatch.setattr(settings, "proxy_openai_keys", {str(project.id): "sk-test"})
+    async_db_session.add(
+        ProxyPolicy(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            lever=LEVER,
+            target_type="model",
+            target_key=MODEL,
+            enabled=True,
+            holdback_percent=Decimal("0"),
+        )
+    )
+    await async_db_session.flush()
+
+    seen: dict = {}
+    _mock_openai(monkeypatch, seen)
+    resp = await async_client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {ws['api_key']}"},
+        json={"model": MODEL, "messages": _redundant_messages(), "stream": False},
+    )
+
+    assert resp.status_code == 200
+    assert "X-Varsten-Trim" not in resp.headers
+    assert "X-Varsten-Arm" not in resp.headers
+    assert len(seen["messages"]) == 31
 
 
 @pytest.mark.anyio
@@ -255,7 +297,7 @@ async def test_proxy_holdback_leaves_control_untrimmed(async_client, async_provi
     _mock_openai(monkeypatch, seen)
     resp = await async_client.post(
         "/v1/chat/completions",
-        headers={"Authorization": f"Bearer {ws['api_key']}"},
+        headers=_low_risk_headers(ws["api_key"]),
         json={"model": MODEL, "messages": _redundant_messages(), "stream": False},
     )
     assert resp.status_code == 200

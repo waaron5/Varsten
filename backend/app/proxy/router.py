@@ -12,7 +12,7 @@ import asyncio
 import time
 import uuid
 from collections.abc import AsyncIterator
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -25,6 +25,7 @@ from app.core import ratelimit
 from app.core.config import settings
 from app.core.logging import get_logger, request_id_ctx
 from app.db.session import get_async_db
+from app.engine import CandidateStatus, PlannerInput, build_observe_only_plan, evaluate_cache_eligibility
 from app.eval import capture as eval_capture
 from app.models import Project
 from app.proxy import budget_enforcement, cache, http_client, origin, quality, routing, trim
@@ -54,6 +55,7 @@ beta_router = APIRouter(prefix="/v1beta", tags=["proxy"])
 logger = get_logger("varsten.proxy")
 
 SSE_MEDIA_TYPE = "text/event-stream"
+_EXACT_CACHE_ENFORCED_BLOCKERS = frozenset({"multimodal_content", "tools_present"})
 
 
 @router.get("/health")
@@ -68,6 +70,7 @@ async def proxy_health() -> dict:
 class OpenAICacheProbe(NamedTuple):
     response: Response | None
     embedding: list[float] | None
+    store_cache: bool = True
 
 
 class OpenAIOptimizationState(NamedTuple):
@@ -168,6 +171,15 @@ async def _openai_dialect_setup(
         bypassed=bypass,
         bypass_reason=_bypass_reason(project) if bypass else None,
     )
+    _attach_observe_plan(
+        draft,
+        body=body,
+        provider=adapter.provider,
+        model=model,
+        optimize_enabled=optimize_enabled,
+        exact_cache_enabled=settings.proxy_cache_enabled,
+        semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
+    )
     return OpenAISetup(
         OpenAIDialectContext(
             parsed,
@@ -228,6 +240,7 @@ def _resolve_openai_candidate_provider(
     adapter: LLMAdapter,
     client_key: str,
     opt: OpenAIOptimizationState,
+    draft: DecisionDraft | None = None,
 ) -> tuple[LLMAdapter, str, OpenAIOptimizationState]:
     if opt.upstream_provider == adapter.provider:
         return adapter, client_key, opt
@@ -247,6 +260,17 @@ def _resolve_openai_candidate_provider(
         "candidate provider key missing; forwarding incumbent",
         extra={"project_id": str(project.id), "provider": candidate_adapter.provider},
     )
+    if draft is not None:
+        draft.add_runtime_trace(
+            stage="routing",
+            lever=draft.lever or "model_routing",
+            action="fallback",
+            reason_code="candidate_provider_key_missing",
+            enforced=True,
+            policy_id=draft.policy_id,
+            source_recommendation_id=draft.source_recommendation_id,
+            detail={"candidate_provider": candidate_adapter.provider, "candidate_model": opt.upstream_model},
+        )
     incumbent_model = opt.routed_from or opt.upstream_model
     return (
         adapter,
@@ -304,6 +328,78 @@ def _bypass_reason(project: Project) -> str:
     if project.proxy_bypass_enabled:
         return "project_bypass"
     return "unknown"
+
+
+def _attach_observe_plan(
+    draft: DecisionDraft,
+    *,
+    body: dict,
+    provider: str,
+    model: str,
+    optimize_enabled: bool,
+    exact_cache_enabled: bool,
+    semantic_cache_enabled: bool,
+    routing_policy_present: bool = False,
+    routing_policy_id: str | None = None,
+    trim_policy_present: bool = False,
+    trim_policy_id: str | None = None,
+) -> None:
+    """Attach a content-free planner snapshot without affecting execution."""
+    try:
+        draft.optimization_plan = build_observe_only_plan(
+            PlannerInput(
+                request_id=draft.request_id,
+                provider=provider,
+                model=model,
+                body=body,
+                context=draft.ctx,
+                optimize_enabled=optimize_enabled,
+                exact_cache_enabled=exact_cache_enabled,
+                semantic_cache_enabled=semantic_cache_enabled,
+                routing_policy_present=routing_policy_present,
+                routing_policy_id=routing_policy_id,
+                trim_policy_present=trim_policy_present,
+                trim_policy_id=trim_policy_id,
+            )
+        )
+    except Exception:
+        logger.exception("observe-only optimization planner failed")
+
+
+def _rejected_candidate(draft: DecisionDraft, lever: str):
+    plan = draft.optimization_plan
+    if plan is None:
+        return None
+    for candidate in plan.candidates:
+        if candidate.lever == lever and candidate.status == CandidateStatus.REJECTED:
+            return candidate
+    return None
+
+
+def _trace_rejected_candidate(
+    draft: DecisionDraft,
+    *,
+    stage: str,
+    lever: str,
+    candidate,
+    policy_id=None,
+    source_recommendation_id=None,
+) -> None:
+    draft.add_runtime_trace(
+        stage=stage,
+        lever=lever,
+        action="skipped",
+        reason_code=candidate.reason_code,
+        enforced=True,
+        policy_id=policy_id,
+        source_recommendation_id=source_recommendation_id,
+        detail={
+            "candidate_status": candidate.status.value,
+            "quality_gate": candidate.quality_gate.value,
+            "risk": candidate.risk.value,
+            "reason_detail": candidate.reason_detail,
+        },
+    )
 
 
 async def _budget_block(db: AsyncSession, project: Project, ctx, request_id: str) -> JSONResponse | None:
@@ -440,7 +536,7 @@ async def _openai_dialect_completions(
         ctx.draft,
     )
     body = opt.body
-    adapter, client_key, opt = _resolve_openai_candidate_provider(project, ctx.adapter, ctx.client_key, opt)
+    adapter, client_key, opt = _resolve_openai_candidate_provider(project, ctx.adapter, ctx.client_key, opt, ctx.draft)
 
     # --- forward to OpenAI (cache miss, bypassed, or observe-only). store_cache is
     # off unless optimization is enabled (Performance and not kill-switched). ---
@@ -486,7 +582,7 @@ async def _openai_dialect_completions(
                 ctx.cache_key,
                 breaker,
                 cache_probe.embedding,
-                store_cache=ctx.optimize_enabled,
+                store_cache=ctx.optimize_enabled and cache_probe.store_cache,
                 upstream_model=opt.upstream_model,
                 routed_from=opt.routed_from,
                 routed_from_provider=opt.routed_from_provider,
@@ -511,7 +607,7 @@ async def _openai_dialect_completions(
         ctx.cache_key,
         breaker,
         cache_probe.embedding,
-        store_cache=ctx.optimize_enabled,
+        store_cache=ctx.optimize_enabled and cache_probe.store_cache,
         headers=headers,
         started=started,
         upstream_model=opt.upstream_model,
@@ -541,33 +637,168 @@ async def _maybe_serve_openai_cache(
 ) -> OpenAICacheProbe:
     # Exact cache stays ahead of semantic lookup: byte-identical repeats avoid
     # both provider and embedding calls. The whole path fails open.
-    if bypass or not settings.proxy_cache_enabled:
+    if bypass:
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="exact_cache",
+            action="skipped",
+            reason_code="optimization_disabled",
+            enforced=True,
+        )
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="semantic_cache",
+            action="skipped",
+            reason_code="optimization_disabled",
+            enforced=True,
+        )
         return OpenAICacheProbe(None, None)
-    try:
-        entry = await cache.get_cached(db, project.id, cache_key)
-    except Exception:
-        logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
-        entry = None
-    if entry is not None:
-        return OpenAICacheProbe(
-            _serve_cache_hit(db, project, api_key_id, entry, stream, "hit", background_tasks, started, draft),
-            None,
+    if not settings.proxy_cache_enabled:
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="exact_cache",
+            action="skipped",
+            reason_code="cache_disabled",
+            enforced=True,
+        )
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="semantic_cache",
+            action="skipped",
+            reason_code="cache_disabled",
+            enforced=True,
+        )
+        return OpenAICacheProbe(None, None)
+    exact_cache_allowed, exact_blockers, exact_enforced_blockers = _exact_cache_policy(draft)
+    if exact_cache_allowed:
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="exact_cache",
+            action="lookup",
+            reason_code="exact_cache_lookup_allowed",
+        )
+        try:
+            entry = await cache.get_cached(db, project.id, cache_key)
+        except Exception:
+            logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
+            draft.add_runtime_trace(
+                stage="cache_lookup",
+                lever="exact_cache",
+                action="error",
+                reason_code="exact_cache_lookup_failed",
+                detail={"fail_open": True},
+            )
+            entry = None
+        if entry is not None:
+            draft.add_runtime_trace(
+                stage="cache_lookup",
+                lever="exact_cache",
+                action="hit",
+                reason_code="exact_cache_hit",
+            )
+            return OpenAICacheProbe(
+                _serve_cache_hit(db, project, api_key_id, entry, stream, "hit", background_tasks, started, draft),
+                None,
+            )
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="exact_cache",
+            action="miss",
+            reason_code="exact_cache_miss",
+        )
+    else:
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="exact_cache",
+            action="skipped",
+            reason_code="exact_cache_policy_blocked",
+            enforced=True,
+            detail={"blockers": exact_blockers, "enforced_blockers": exact_enforced_blockers},
         )
 
     if not settings.semantic_cache_enabled:
-        return OpenAICacheProbe(None, None)
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="semantic_cache",
+            action="skipped",
+            reason_code="semantic_cache_disabled",
+            enforced=True,
+        )
+        return OpenAICacheProbe(None, None, exact_cache_allowed)
+    semantic_cache_allowed, semantic_blockers = _semantic_cache_policy(draft)
+    if not semantic_cache_allowed:
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="semantic_cache",
+            action="skipped",
+            reason_code="semantic_cache_policy_blocked",
+            enforced=True,
+            detail={"blockers": semantic_blockers},
+        )
+        return OpenAICacheProbe(None, None, exact_cache_allowed)
+    draft.add_runtime_trace(
+        stage="cache_lookup",
+        lever="semantic_cache",
+        action="lookup",
+        reason_code="semantic_cache_lookup_allowed",
+    )
     try:
         embedding = await embed(embedding_input(body), client_key)
         sem = await cache.semantic_search(db, project.id, model, embedding, settings.semantic_cache_threshold)
     except Exception:
         logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
-        return OpenAICacheProbe(None, None)
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="semantic_cache",
+            action="error",
+            reason_code="semantic_cache_lookup_failed",
+            detail={"fail_open": True},
+        )
+        return OpenAICacheProbe(None, None, exact_cache_allowed)
     if sem is not None:
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="semantic_cache",
+            action="hit",
+            reason_code="semantic_cache_hit",
+        )
         return OpenAICacheProbe(
             _serve_cache_hit(db, project, api_key_id, sem, stream, "semantic", background_tasks, started, draft),
             embedding,
         )
-    return OpenAICacheProbe(None, embedding)
+    draft.add_runtime_trace(
+        stage="cache_lookup",
+        lever="semantic_cache",
+        action="miss",
+        reason_code="semantic_cache_miss",
+    )
+    return OpenAICacheProbe(None, embedding, exact_cache_allowed)
+
+
+def _exact_cache_policy(draft: DecisionDraft) -> tuple[bool, list[str], list[str]]:
+    """Enforce exact-cache denial only for request shapes that can depend on
+    external tool execution or non-text inputs.
+
+    Other rejected exact-cache candidates remain report-only for now so legacy
+    exact-cache behavior is not broadly changed in one step.
+    """
+    if draft.optimization_plan is None:
+        return True, [], []
+    try:
+        gate = evaluate_cache_eligibility("exact_cache", draft.optimization_plan.classification)
+    except Exception:
+        logger.exception("exact cache policy failed; preserving existing cache behavior")
+        return True, [], []
+    blockers = list(gate.blockers)
+    enforced_blockers = sorted(_EXACT_CACHE_ENFORCED_BLOCKERS.intersection(gate.blockers))
+    return not enforced_blockers, blockers, enforced_blockers
+
+
+def _semantic_cache_policy(draft: DecisionDraft) -> tuple[bool, list[str]]:
+    if draft.optimization_plan is None:
+        return False, ["planner_missing"]
+    gate = evaluate_cache_eligibility("semantic_cache", draft.optimization_plan.classification)
+    return gate.allowed, list(gate.blockers)
 
 
 async def _resolve_openai_optimizations(
@@ -584,67 +815,289 @@ async def _resolve_openai_optimizations(
     model = parsed.model or ""
     body = parsed.body
     if bypass:
-        return OpenAIOptimizationState(body, model, requested_provider, None, None, None, None, None, False)
+        return _openai_passthrough_state(body, model, requested_provider)
 
     decision = await routing.resolve_route(db, project.id, model, body, requested_provider=requested_provider)
-    if (
+    if _has_cross_provider_route(decision, model, requested_provider):
+        return await _resolve_openai_route_state(
+            db=db,
+            project=project,
+            parsed=parsed,
+            requested_provider=requested_provider,
+            request_id=request_id,
+            body=body,
+            model=model,
+            bypass=bypass,
+            decision=decision,
+            draft=draft,
+        )
+
+    draft.add_runtime_trace(
+        stage="routing",
+        lever=(decision.lever if decision else None) or "model_routing",
+        action="skipped",
+        reason_code="routing_no_applicable_policy",
+        policy_id=decision.policy_id if decision else None,
+        source_recommendation_id=decision.source_recommendation_id if decision else None,
+    )
+    return await _resolve_openai_trim_state(
+        db=db,
+        project=project,
+        body=body,
+        model=model,
+        requested_provider=requested_provider,
+        bypass=bypass,
+        draft=draft,
+    )
+
+
+def _openai_passthrough_state(body: dict, model: str, requested_provider: str) -> OpenAIOptimizationState:
+    return OpenAIOptimizationState(body, model, requested_provider, None, None, None, None, None, False)
+
+
+def _has_cross_provider_route(decision: Any, model: str, requested_provider: str) -> bool:
+    return bool(
         decision
         and decision.candidate_model
         and (decision.candidate_model != model or decision.candidate_provider != requested_provider)
-    ):
-        ineligibility = cross_provider_ineligibility(
-            parsed,
+    )
+
+
+async def _resolve_openai_route_state(
+    *,
+    db: AsyncSession,
+    project: Project,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    request_id: str,
+    body: dict,
+    model: str,
+    bypass: bool,
+    decision: Any,
+    draft: DecisionDraft,
+) -> OpenAIOptimizationState:
+    ineligibility = cross_provider_ineligibility(
+        parsed,
+        requested_provider=requested_provider,
+        candidate_provider=decision.candidate_provider,
+    )
+    if ineligibility is not None:
+        return await _openai_route_ineligible_state(
+            db=db,
+            project=project,
+            parsed=parsed,
             requested_provider=requested_provider,
-            candidate_provider=decision.candidate_provider,
-        )
-        if ineligibility is not None:
-            draft.route_eligible = False
-            draft.route_ineligible_reason = ineligibility.reason_code
-            draft.lever = decision.lever
-            await _record_routing_ineligibility(
-                db,
-                project,
-                parsed,
-                request_id=request_id,
-                requested_provider=requested_provider,
-                candidate_provider=decision.candidate_provider,
-                candidate_model=decision.candidate_model,
-                reason_code=ineligibility.reason_code,
-                reason_detail=ineligibility.reason_detail,
-            )
-            return OpenAIOptimizationState(body, model, requested_provider, None, None, None, None, None, False)
-
-        draft.route_eligible = True
-        draft.lever = decision.lever
-        draft.policy_id = decision.policy_id
-        draft.source_recommendation_id = decision.source_recommendation_id
-        arm = routing.assign_arm(decision.holdback_percent)
-        routed_from = model if arm == routing.ARM_TREATMENT else None
-        upstream_model = decision.candidate_model if arm == routing.ARM_TREATMENT else model
-        upstream_provider = decision.candidate_provider if arm == routing.ARM_TREATMENT else requested_provider
-        routed_from_provider = requested_provider if arm == routing.ARM_TREATMENT else None
-        return OpenAIOptimizationState(
-            body,
-            upstream_model,
-            upstream_provider,
-            routed_from,
-            routed_from_provider,
-            arm,
-            model,
-            decision.candidate_model,
-            False,
+            request_id=request_id,
+            body=body,
+            model=model,
+            bypass=bypass,
+            decision=decision,
+            ineligibility=ineligibility,
+            draft=draft,
         )
 
+    draft.route_eligible = True
+    _tag_route_policy(draft, decision)
+    _attach_openai_routing_plan(
+        draft, body=body, requested_provider=requested_provider, model=model, bypass=bypass, decision=decision
+    )
+    rejected = _rejected_candidate(draft, "model_routing")
+    if rejected is not None:
+        draft.route_eligible = False
+        draft.route_ineligible_reason = rejected.reason_code
+        _trace_rejected_candidate(
+            draft,
+            stage="routing",
+            lever=decision.lever or "model_routing",
+            candidate=rejected,
+            policy_id=decision.policy_id,
+            source_recommendation_id=decision.source_recommendation_id,
+        )
+        return _openai_passthrough_state(body, model, requested_provider)
+    return _openai_route_arm_state(body, model, requested_provider, decision, draft)
+
+
+async def _openai_route_ineligible_state(
+    *,
+    db: AsyncSession,
+    project: Project,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    request_id: str,
+    body: dict,
+    model: str,
+    bypass: bool,
+    decision: Any,
+    ineligibility,
+    draft: DecisionDraft,
+) -> OpenAIOptimizationState:
+    draft.route_eligible = False
+    draft.route_ineligible_reason = ineligibility.reason_code
+    _tag_route_policy(draft, decision)
+    draft.add_runtime_trace(
+        stage="routing",
+        lever=decision.lever or "model_routing",
+        action="skipped",
+        reason_code=ineligibility.reason_code,
+        enforced=True,
+        policy_id=decision.policy_id,
+        source_recommendation_id=decision.source_recommendation_id,
+        detail={
+            "candidate_provider": decision.candidate_provider,
+            "candidate_model": decision.candidate_model,
+            "route_eligible": False,
+        },
+    )
+    _attach_openai_routing_plan(
+        draft, body=body, requested_provider=requested_provider, model=model, bypass=bypass, decision=decision
+    )
+    await _record_routing_ineligibility(
+        db,
+        project,
+        parsed,
+        request_id=request_id,
+        requested_provider=requested_provider,
+        candidate_provider=decision.candidate_provider,
+        candidate_model=decision.candidate_model,
+        reason_code=ineligibility.reason_code,
+        reason_detail=ineligibility.reason_detail,
+    )
+    return _openai_passthrough_state(body, model, requested_provider)
+
+
+def _tag_route_policy(draft: DecisionDraft, decision: Any) -> None:
+    draft.lever = decision.lever
+    draft.policy_id = decision.policy_id
+    draft.source_recommendation_id = decision.source_recommendation_id
+
+
+def _attach_openai_routing_plan(
+    draft: DecisionDraft,
+    *,
+    body: dict,
+    requested_provider: str,
+    model: str,
+    bypass: bool,
+    decision: Any,
+) -> None:
+    _attach_observe_plan(
+        draft,
+        body=body,
+        provider=requested_provider,
+        model=model,
+        optimize_enabled=not bypass,
+        exact_cache_enabled=settings.proxy_cache_enabled,
+        semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
+        routing_policy_present=True,
+        routing_policy_id=str(decision.policy_id) if decision.policy_id else None,
+    )
+
+
+def _openai_route_arm_state(
+    body: dict,
+    model: str,
+    requested_provider: str,
+    decision: Any,
+    draft: DecisionDraft,
+) -> OpenAIOptimizationState:
+    arm = routing.assign_arm(decision.holdback_percent)
+    routed = arm == routing.ARM_TREATMENT
+    draft.add_runtime_trace(
+        stage="routing",
+        lever=decision.lever or "model_routing",
+        action="applied" if routed else "control",
+        reason_code="routing_treatment" if routed else "holdback_control",
+        policy_id=decision.policy_id,
+        source_recommendation_id=decision.source_recommendation_id,
+        detail={
+            "arm": arm,
+            "candidate_provider": decision.candidate_provider,
+            "candidate_model": decision.candidate_model,
+            "requested_provider": requested_provider,
+            "requested_model": model,
+        },
+    )
+    return OpenAIOptimizationState(
+        body,
+        decision.candidate_model if routed else model,
+        decision.candidate_provider if routed else requested_provider,
+        model if routed else None,
+        requested_provider if routed else None,
+        arm,
+        model,
+        decision.candidate_model,
+        False,
+    )
+
+
+async def _resolve_openai_trim_state(
+    *,
+    db: AsyncSession,
+    project: Project,
+    body: dict,
+    model: str,
+    requested_provider: str,
+    bypass: bool,
+    draft: DecisionDraft,
+) -> OpenAIOptimizationState:
     tdecision = await trim.resolve_trim(db, project.id, model)
     if not tdecision:
-        return OpenAIOptimizationState(body, model, requested_provider, None, None, None, None, None, False)
+        draft.add_runtime_trace(
+            stage="trim",
+            lever=trim.LEVER,
+            action="skipped",
+            reason_code="trim_policy_missing",
+        )
+        return _openai_passthrough_state(body, model, requested_provider)
 
     draft.lever = trim.LEVER
+    draft.policy_id = tdecision.policy_id
+    draft.source_recommendation_id = tdecision.source_recommendation_id
+    _attach_observe_plan(
+        draft,
+        body=body,
+        provider=requested_provider,
+        model=model,
+        optimize_enabled=not bypass,
+        exact_cache_enabled=settings.proxy_cache_enabled,
+        semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
+        trim_policy_present=True,
+        trim_policy_id=str(tdecision.policy_id) if tdecision.policy_id else None,
+    )
+    rejected = _rejected_candidate(draft, "token_trim")
+    if rejected is not None:
+        _trace_rejected_candidate(
+            draft,
+            stage="trim",
+            lever=trim.LEVER,
+            candidate=rejected,
+            policy_id=tdecision.policy_id,
+            source_recommendation_id=tdecision.source_recommendation_id,
+        )
+        return _openai_passthrough_state(body, model, requested_provider)
     arm = routing.assign_arm(tdecision.holdback_percent)
     if arm != routing.ARM_TREATMENT:
+        draft.add_runtime_trace(
+            stage="trim",
+            lever=trim.LEVER,
+            action="control",
+            reason_code="holdback_control",
+            policy_id=tdecision.policy_id,
+            source_recommendation_id=tdecision.source_recommendation_id,
+            detail={"arm": arm, "requested_model": model},
+        )
         return OpenAIOptimizationState(body, model, requested_provider, None, None, arm, model, model, False)
     trimmed_body, trim_applied = trim.apply_trim(body, tdecision.params)
     draft.trim_applied = trim_applied
+    draft.add_runtime_trace(
+        stage="trim",
+        lever=trim.LEVER,
+        action="applied" if trim_applied else "noop",
+        reason_code="trim_treatment_applied" if trim_applied else "trim_no_changes",
+        policy_id=tdecision.policy_id,
+        source_recommendation_id=tdecision.source_recommendation_id,
+        detail={"arm": arm, "requested_model": model},
+    )
     return OpenAIOptimizationState(
         trimmed_body,
         model,
@@ -757,6 +1210,8 @@ def _serve_cache_hit(
         "X-Varsten-Cache": cache_label,
         origin.ORIGIN_HEADER: origin.ORIGIN_VARSTEN,
     }
+    if draft is not None:
+        headers["X-Varsten-Request-Id"] = draft.request_id
     if stream:
         return StreamingResponse(
             iter(list(canonical.to_openai_sse(entry.response_payload))),
@@ -823,6 +1278,15 @@ async def _native_provider_passthrough(
         ctx=parse_request_context(dict(request.headers)),
         bypassed=bypass,
         bypass_reason=_bypass_reason(project) if bypass else None,
+    )
+    _attach_observe_plan(
+        draft,
+        body=parsed.body,
+        provider=provider,
+        model=parsed.model or "",
+        optimize_enabled=not bypass and not observe_only,
+        exact_cache_enabled=False,
+        semantic_cache_enabled=False,
     )
     # Hard-cap budget enforcement (native passthrough has no cache, so every
     # forward costs money). Only optimization-enabled traffic; fail-open.
@@ -911,53 +1375,234 @@ async def _maybe_route_native_cross_provider(
     started: float,
     draft: DecisionDraft,
 ) -> Response | None:
-    if parsed.operation not in {"messages", "generate_content", "stream_generate_content"} or not parsed.model:
-        await _audit_native_route_ineligibility(db, project, parsed, requested_provider, request_id)
+    if _native_route_operation_ineligible(parsed):
+        await _trace_native_operation_ineligible(db, project, parsed, requested_provider, request_id, draft)
         return None
 
+    model = parsed.model
+    assert model is not None
     decision = await routing.resolve_route(
         db,
         project.id,
-        parsed.model,
+        model,
         parsed.body,
         requested_provider=requested_provider,
     )
-    if decision is None or decision.candidate_provider == requested_provider:
+    if _native_route_policy_missing(decision, requested_provider):
+        _trace_native_route_no_policy(draft, decision)
+        return None
+    assert decision is not None
+
+    if not await _native_route_allowed(db, project, parsed, requested_provider, request_id, decision, draft):
         return None
 
+    arm = routing.assign_arm(decision.holdback_percent)
+    _trace_native_route_arm(draft, parsed, requested_provider, decision, arm)
+    if arm != routing.ARM_TREATMENT:
+        return None
+
+    return await _forward_native_cross_provider_route(
+        db=db,
+        project=project,
+        api_key_id=api_key_id,
+        parsed=parsed,
+        requested_provider=requested_provider,
+        decision=decision,
+        breaker=breaker,
+        arm=arm,
+        started=started,
+        draft=draft,
+    )
+
+
+def _native_route_operation_ineligible(parsed: ParsedClientRequest) -> bool:
+    return parsed.operation not in {"messages", "generate_content", "stream_generate_content"} or not parsed.model
+
+
+async def _trace_native_operation_ineligible(
+    db: AsyncSession,
+    project: Project,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    request_id: str,
+    draft: DecisionDraft,
+) -> None:
+    draft.add_runtime_trace(
+        stage="routing",
+        lever="model_routing",
+        action="skipped",
+        reason_code="native_operation_ineligible",
+        enforced=True,
+        detail={"operation": parsed.operation},
+    )
+    await _audit_native_route_ineligibility(db, project, parsed, requested_provider, request_id)
+
+
+def _native_route_policy_missing(decision: Any, requested_provider: str) -> bool:
+    return decision is None or decision.candidate_provider == requested_provider
+
+
+def _trace_native_route_no_policy(draft: DecisionDraft, decision: Any) -> None:
+    draft.add_runtime_trace(
+        stage="routing",
+        lever=(decision.lever if decision else None) or "model_routing",
+        action="skipped",
+        reason_code="routing_no_applicable_policy",
+        policy_id=decision.policy_id if decision else None,
+        source_recommendation_id=decision.source_recommendation_id if decision else None,
+    )
+
+
+async def _native_route_allowed(
+    db: AsyncSession,
+    project: Project,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    request_id: str,
+    decision: Any,
+    draft: DecisionDraft,
+) -> bool:
     ineligibility = cross_provider_ineligibility(
         parsed,
         requested_provider=requested_provider,
         candidate_provider=decision.candidate_provider,
     )
     if ineligibility is not None:
-        # The incumbent will forward below; tag the draft so its evidence row shows
-        # the route was considered and rejected.
-        draft.route_eligible = False
-        draft.route_ineligible_reason = ineligibility.reason_code
-        draft.lever = decision.lever
-        await _record_routing_ineligibility(
-            db,
-            project,
-            parsed,
-            request_id=request_id,
+        await _reject_native_route_ineligibility(
+            db=db,
+            project=project,
+            parsed=parsed,
             requested_provider=requested_provider,
-            candidate_provider=decision.candidate_provider,
-            candidate_model=decision.candidate_model,
-            reason_code=ineligibility.reason_code,
-            reason_detail=ineligibility.reason_detail,
+            request_id=request_id,
+            decision=decision,
+            ineligibility=ineligibility,
+            draft=draft,
         )
-        return None
-
-    arm = routing.assign_arm(decision.holdback_percent)
-    if arm != routing.ARM_TREATMENT:
-        return None
+        return False
 
     draft.route_eligible = True
-    draft.lever = decision.lever
-    draft.policy_id = decision.policy_id
-    draft.source_recommendation_id = decision.source_recommendation_id
+    _tag_route_policy(draft, decision)
+    _attach_native_routing_plan(draft, parsed=parsed, requested_provider=requested_provider, decision=decision)
+    return not _native_route_rejected_by_plan(draft, decision)
 
+
+async def _reject_native_route_ineligibility(
+    *,
+    db: AsyncSession,
+    project: Project,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    request_id: str,
+    decision: Any,
+    ineligibility,
+    draft: DecisionDraft,
+) -> None:
+    draft.route_eligible = False
+    draft.route_ineligible_reason = ineligibility.reason_code
+    _tag_route_policy(draft, decision)
+    draft.add_runtime_trace(
+        stage="routing",
+        lever=decision.lever or "model_routing",
+        action="skipped",
+        reason_code=ineligibility.reason_code,
+        enforced=True,
+        policy_id=decision.policy_id,
+        source_recommendation_id=decision.source_recommendation_id,
+        detail={
+            "candidate_provider": decision.candidate_provider,
+            "candidate_model": decision.candidate_model,
+            "route_eligible": False,
+        },
+    )
+    _attach_native_routing_plan(draft, parsed=parsed, requested_provider=requested_provider, decision=decision)
+    await _record_routing_ineligibility(
+        db,
+        project,
+        parsed,
+        request_id=request_id,
+        requested_provider=requested_provider,
+        candidate_provider=decision.candidate_provider,
+        candidate_model=decision.candidate_model,
+        reason_code=ineligibility.reason_code,
+        reason_detail=ineligibility.reason_detail,
+    )
+
+
+def _attach_native_routing_plan(
+    draft: DecisionDraft,
+    *,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    decision: Any,
+) -> None:
+    _attach_observe_plan(
+        draft,
+        body=parsed.body,
+        provider=requested_provider,
+        model=parsed.model or "",
+        optimize_enabled=True,
+        exact_cache_enabled=False,
+        semantic_cache_enabled=False,
+        routing_policy_present=True,
+        routing_policy_id=str(decision.policy_id) if decision.policy_id else None,
+    )
+
+
+def _native_route_rejected_by_plan(draft: DecisionDraft, decision: Any) -> bool:
+    rejected = _rejected_candidate(draft, "model_routing")
+    if rejected is None:
+        return False
+    draft.route_eligible = False
+    draft.route_ineligible_reason = rejected.reason_code
+    _trace_rejected_candidate(
+        draft,
+        stage="routing",
+        lever=decision.lever or "model_routing",
+        candidate=rejected,
+        policy_id=decision.policy_id,
+        source_recommendation_id=decision.source_recommendation_id,
+    )
+    return True
+
+
+def _trace_native_route_arm(
+    draft: DecisionDraft,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    decision: Any,
+    arm: str,
+) -> None:
+    treatment = arm == routing.ARM_TREATMENT
+    draft.add_runtime_trace(
+        stage="routing",
+        lever=decision.lever or "model_routing",
+        action="applied" if treatment else "control",
+        reason_code="routing_treatment" if treatment else "holdback_control",
+        policy_id=decision.policy_id,
+        source_recommendation_id=decision.source_recommendation_id,
+        detail={
+            "arm": arm,
+            "candidate_provider": decision.candidate_provider,
+            "candidate_model": decision.candidate_model,
+            "requested_provider": requested_provider,
+            "requested_model": parsed.model,
+        },
+    )
+
+
+async def _forward_native_cross_provider_route(
+    *,
+    db: AsyncSession,
+    project: Project,
+    api_key_id,
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    decision: Any,
+    breaker,
+    arm: str,
+    started: float,
+    draft: DecisionDraft,
+) -> Response | None:
     adapter = get_adapter(decision.candidate_provider)
     client_key = provider_key_for_project(project.id, adapter.provider)
     if not client_key:
@@ -965,21 +1610,20 @@ async def _maybe_route_native_cross_provider(
             "candidate provider key missing; forwarding incumbent",
             extra={"project_id": str(project.id), "provider": adapter.provider},
         )
+        draft.add_runtime_trace(
+            stage="routing",
+            lever=decision.lever or "model_routing",
+            action="fallback",
+            reason_code="candidate_provider_key_missing",
+            enforced=True,
+            policy_id=decision.policy_id,
+            source_recommendation_id=decision.source_recommendation_id,
+            detail={"candidate_provider": adapter.provider, "candidate_model": decision.candidate_model},
+        )
         return None
 
     openai_body = request_to_openai_shape(parsed)
-    headers = {
-        "X-Varsten-Mode": "optimize",
-        "X-Varsten-Cache": "bypass",
-        "X-Varsten-Routed": _routed_header(
-            requested_provider,
-            parsed.model,
-            adapter.provider,
-            decision.candidate_model,
-        ),
-        "X-Varsten-Arm": arm,
-        origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
-    }
+    headers = _native_cross_provider_headers(parsed, requested_provider, adapter, decision, arm)
     if parsed.stream:
         return StreamingResponse(
             _native_cross_provider_stream(
@@ -1001,6 +1645,62 @@ async def _maybe_route_native_cross_provider(
             headers=headers,
         )
 
+    return await _native_cross_provider_once(
+        db=db,
+        project=project,
+        api_key_id=api_key_id,
+        adapter=adapter,
+        parsed=parsed,
+        openai_body=openai_body,
+        client_key=client_key,
+        requested_provider=requested_provider,
+        decision=decision,
+        breaker=breaker,
+        arm=arm,
+        started=started,
+        draft=draft,
+        headers=headers,
+    )
+
+
+def _native_cross_provider_headers(
+    parsed: ParsedClientRequest,
+    requested_provider: str,
+    adapter,
+    decision: Any,
+    arm: str,
+) -> dict[str, str]:
+    return {
+        "X-Varsten-Mode": "optimize",
+        "X-Varsten-Cache": "bypass",
+        "X-Varsten-Routed": _routed_header(
+            requested_provider,
+            parsed.model or "",
+            adapter.provider,
+            decision.candidate_model,
+        ),
+        "X-Varsten-Arm": arm,
+        origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
+    }
+
+
+async def _native_cross_provider_once(
+    *,
+    db: AsyncSession,
+    project: Project,
+    api_key_id,
+    adapter,
+    parsed: ParsedClientRequest,
+    openai_body: dict,
+    client_key: str,
+    requested_provider: str,
+    decision: Any,
+    breaker,
+    arm: str,
+    started: float,
+    draft: DecisionDraft,
+    headers: dict[str, str],
+) -> Response:
     upstream_body = adapter.prepare_request(openai_body, model=decision.candidate_model, stream=False)
     try:
         resp = await http_client.get_client().post(
@@ -1038,7 +1738,7 @@ async def _maybe_route_native_cross_provider(
         api_key_id,
         provider=adapter.provider,
         model=result.model or decision.candidate_model,
-        cache_model=parsed.model,
+        cache_model=parsed.model or "",
         response_payload=canonical.completion_payload(result),
         cache_key=cache.compute_cache_key(openai_body),
         in_tok=result.usage.input_tokens,
@@ -1426,6 +2126,14 @@ async def _capture(
     except Exception:
         logger.exception("proxy ledger write failed", extra={"project_id": str(project.id)})
 
+    if draft is not None and event is not None:
+        _trace_cache_store_decision(
+            draft,
+            store_cache=store_cache,
+            response_payload=response_payload,
+            embedding=embedding,
+        )
+
     # Moat evidence: one decision record per metered request. Best-effort, off the
     # response path, and a no-op if the ledger write above failed. Guarded here too
     # (record_request_decision is already self-guarding) so no evidence bug can ever
@@ -1473,6 +2181,49 @@ async def _capture(
             input_tokens=in_tok,
             output_tokens=out_tok,
         )
+
+
+def _trace_cache_store_decision(
+    draft: DecisionDraft,
+    *,
+    store_cache: bool,
+    response_payload: dict,
+    embedding: list[float] | None,
+) -> None:
+    if not settings.proxy_cache_enabled:
+        draft.add_runtime_trace(
+            stage="cache_store_decision",
+            lever="exact_cache",
+            action="skipped",
+            reason_code="cache_disabled",
+            enforced=True,
+        )
+        return
+    if not store_cache:
+        draft.add_runtime_trace(
+            stage="cache_store_decision",
+            lever="exact_cache",
+            action="skipped",
+            reason_code="cache_store_not_allowed",
+            enforced=True,
+        )
+        return
+    if not response_payload:
+        draft.add_runtime_trace(
+            stage="cache_store_decision",
+            lever="exact_cache",
+            action="skipped",
+            reason_code="empty_response_payload",
+            enforced=True,
+        )
+        return
+    draft.add_runtime_trace(
+        stage="cache_store_decision",
+        lever="exact_cache",
+        action="allowed",
+        reason_code="cache_store_allowed",
+        detail={"embedding_present": embedding is not None},
+    )
 
 
 async def _stream_through(

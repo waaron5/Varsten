@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.models import Project, ProxyPolicy, UsageEvent
+from app.models import Project, ProxyPolicy, RequestDecisionEvent, UsageEvent
 from app.proxy import circuit, http_client
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "provider_contracts"
@@ -99,6 +99,16 @@ async def _usage_events(async_db_session, project_id: str) -> list[UsageEvent]:
     ).all()
 
 
+async def _decisions(async_db_session, project_id: str) -> list[RequestDecisionEvent]:
+    return (
+        await async_db_session.scalars(
+            select(RequestDecisionEvent)
+            .where(RequestDecisionEvent.project_id == uuid.UUID(project_id))
+            .order_by(RequestDecisionEvent.created_at.asc())
+        )
+    ).all()
+
+
 @pytest.mark.anyio
 async def test_anthropic_native_messages_preserves_wire_and_records_usage(
     async_client, async_db_session, async_provision, mock_native_providers, monkeypatch
@@ -118,6 +128,10 @@ async def test_anthropic_native_messages_preserves_wire_and_records_usage(
     assert events[0].provider == "anthropic"
     assert events[0].input_tokens == 17
     assert events[0].output_tokens == 13
+    decisions = await _decisions(async_db_session, ws["project_id"])
+    assert len(decisions) == 1
+    assert decisions[0].event_metadata["optimization_plan"]["selected"]["action"] == "observe"
+    assert decisions[0].event_metadata["optimization_plan"]["classification"]["task_type"] is None
 
 
 @pytest.mark.anyio
