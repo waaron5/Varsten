@@ -16,7 +16,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.engine import OptimizationPlan, plan_to_metadata, runtime_trace_event
+from app.engine import CandidateStatus, OptimizationPlan, plan_to_metadata, runtime_trace_event
+from app.engine.route_identity import route_key_from_context
 from app.models import RequestDecisionEvent, UsageEvent
 from app.proxy.request_context import EMPTY_CONTEXT, RequestContext
 
@@ -45,6 +46,12 @@ class DecisionDraft:
     trim_applied: bool = False
     route_eligible: bool | None = None
     route_ineligible_reason: str | None = None
+    # Content-free fingerprint of the request's cacheable prefix (system/tools),
+    # for measured prompt-cache prefix-stability analysis. Hash only, never text.
+    prefix_hash: str | None = None
+    # Content-free fingerprint of the whole request body, for trace-level
+    # redundant-call (agent loop) detection. Hash only, never text.
+    request_fingerprint: str | None = None
     optimization_plan: OptimizationPlan | None = None
     runtime_trace: list[dict[str, Any]] = field(default_factory=list)
 
@@ -97,6 +104,66 @@ def _decision_type(
     if routed:
         return "route"
     return "passthrough"
+
+
+def _applied_lever(*, cache_status: str | None, arm: str | None, trim_applied: bool, routed: bool) -> str | None:
+    """The primary optimization lever the proxy actually applied, in planner
+    vocabulary, or None for plain passthrough. A held-back control arm applied no
+    optimization (it stayed on the incumbent), so it is passthrough here."""
+    if cache_status == "hit":
+        return "exact_cache"
+    if cache_status == "semantic":
+        return "semantic_cache"
+    if routed or arm == "treatment":
+        return "model_routing"
+    if trim_applied:
+        return "token_trim"
+    return None
+
+
+def add_planner_parity_trace(
+    draft: DecisionDraft,
+    *,
+    cache_status: str | None,
+    arm: str | None,
+    trim_applied: bool,
+    routed: bool,
+) -> None:
+    """Record whether the optimization the proxy applied was authorized by the
+    planner (parity). This is the A4 shadow: every applied lever must trace back to
+    a non-rejected planner candidate. A mismatch means the proxy applied something
+    the planner would have blocked — the exact drift to catch before the planner is
+    made authoritative. Bypassed requests skip the planner entirely, so no parity."""
+    plan = draft.optimization_plan
+    if plan is None or draft.bypassed:
+        return
+    applied = _applied_lever(cache_status=cache_status, arm=arm, trim_applied=trim_applied, routed=routed)
+    if applied is None:
+        # Passthrough is always consistent with an advisory planner (it forces
+        # nothing); record it so parity coverage is visible, not silently skipped.
+        draft.add_runtime_trace(
+            stage="planner_parity",
+            lever="none",
+            action="match",
+            reason_code="passthrough",
+            detail={"planner_selected": plan.selected.action, "applied": None},
+        )
+        return
+    candidate = plan.candidate_for(applied)
+    blocked = {CandidateStatus.REJECTED, CandidateStatus.UNAVAILABLE}
+    if candidate is None:
+        action, reason = "mismatch", "no_candidate"
+    elif candidate.status in blocked:
+        action, reason = "mismatch", f"applied_{candidate.status.value}"
+    else:
+        action, reason = "match", candidate.status.value
+    draft.add_runtime_trace(
+        stage="planner_parity",
+        lever=applied,
+        action=action,
+        reason_code=reason,
+        detail={"planner_selected": plan.selected.action, "applied": applied},
+    )
 
 
 def _money(value: Decimal | None) -> str | None:
@@ -267,6 +334,14 @@ async def record_request_decision(
         meta = event.event_metadata or {}
         routed = routed_from is not None
 
+        add_planner_parity_trace(
+            draft,
+            cache_status=cache_status,
+            arm=arm,
+            trim_applied=trim_applied,
+            routed=routed,
+        )
+
         decision_type = _decision_type(
             cache_status=cache_status,
             bypassed=draft.bypassed,
@@ -320,6 +395,10 @@ async def record_request_decision(
             task_confidence=_to_decimal(ctx.task_confidence),
             risk_level=ctx.risk_level,
             quality_threshold=ctx.quality_threshold,
+            route_key=route_key_from_context(ctx, request_type=draft.request_type),
+            prefix_hash=draft.prefix_hash,
+            trace_id=ctx.trace_id,
+            request_fingerprint=draft.request_fingerprint,
             decision_type=decision_type,
             lever=draft.lever,
             policy_id=draft.policy_id,

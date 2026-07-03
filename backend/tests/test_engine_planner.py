@@ -1,10 +1,11 @@
 from app.engine import (
     build_observe_only_plan,
     classify_request,
+    normalize_request_facts,
     outcome_prior_from_learning_candidate,
     plan_to_metadata,
 )
-from app.engine.types import CandidateStatus, OutcomePrior, PlannerInput, QualityGateStatus
+from app.engine.types import CandidateStatus, OutcomePrior, PlannerInput, QualityGateStatus, RequestFacts
 from app.proxy.evidence import DecisionDraft, _decision_metadata
 from app.proxy.request_context import RequestContext
 
@@ -36,8 +37,9 @@ def test_low_risk_plan_marks_candidates_without_authorizing_execution():
         )
     )
 
-    assert plan.selected.action == "observe"
-    assert plan.selected.mode == "observe_only"
+    # Exact cache is eligible and gate-cleared, so the planner selects it to enforce.
+    assert plan.selected.action == "exact_cache"
+    assert plan.selected.mode == "enforce"
     assert _candidate(plan, "exact_cache").status == CandidateStatus.ELIGIBLE
     assert _candidate(plan, "exact_cache").quality_gate == QualityGateStatus.NOT_REQUIRED
     assert _cache_gate(_candidate(plan, "exact_cache")) == {
@@ -199,6 +201,80 @@ def test_classifier_detects_tools_json_and_multimodal_without_returning_prompt_t
     assert "Return structured fields from this image." not in classification.reason_codes
 
 
+def test_request_facts_normalize_gemini_native_shape_without_prompt_text():
+    prompt = "Return the latest weather as JSON."
+    body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {"inlineData": {"mimeType": "image/png", "data": "redacted"}},
+                ],
+            }
+        ],
+        "tools": [{"functionDeclarations": [{"name": "lookup_weather"}]}],
+        "generationConfig": {"responseMimeType": "application/json"},
+    }
+
+    facts = normalize_request_facts(body)
+    classification = classify_request(
+        facts,
+        RequestContext(task_type="weather.lookup", task_confidence=0.9, risk_level="low"),
+    )
+
+    assert facts.message_count == 1
+    assert facts.prompt_chars == len(prompt)
+    assert facts.has_tools is True
+    assert facts.wants_json is True
+    assert facts.has_multimodal is True
+    assert facts.freshness_signal is True
+    assert classification.has_tools is True
+    assert classification.wants_json is True
+    assert classification.has_multimodal is True
+    assert classification.freshness_sensitive is True
+    assert {"tools_present", "json_output", "multimodal_content", "freshness_sensitive"} <= set(
+        classification.reason_codes
+    )
+    assert prompt not in str(facts)
+    assert prompt not in str(classification)
+
+
+def test_planner_accepts_precomputed_request_facts_as_provider_agnostic_input():
+    facts = RequestFacts(
+        prompt_chars=42,
+        message_count=3,
+        has_tools=False,
+        wants_json=False,
+        has_multimodal=False,
+        freshness_signal=False,
+        personalized_signal=False,
+        high_risk_signal=False,
+        source="adapter",
+    )
+    raw_body_with_private_text = {"messages": [{"role": "user", "content": "latest legal advice for my account"}]}
+
+    plan = build_observe_only_plan(
+        PlannerInput(
+            request_id="req_provider_facts",
+            provider="gemini",
+            model="gemini-2.5-flash",
+            body=raw_body_with_private_text,
+            request_facts=facts,
+            context=RequestContext(task_type="classification.intent", task_confidence=0.9, risk_level="low"),
+            semantic_cache_enabled=True,
+        )
+    )
+
+    assert plan.classification.prompt_chars == 42
+    assert plan.classification.message_count == 3
+    assert plan.classification.freshness_sensitive is False
+    assert plan.classification.personalized is False
+    assert plan.classification.risk_level.value == "low"
+    assert _candidate(plan, "exact_cache").status == CandidateStatus.ELIGIBLE
+    assert "latest legal advice for my account" not in str(plan_to_metadata(plan))
+
+
 def test_plan_metadata_serializer_excludes_request_text():
     prompt = "Classify this private customer note."
     plan = build_observe_only_plan(
@@ -214,7 +290,7 @@ def test_plan_metadata_serializer_excludes_request_text():
     metadata = plan_to_metadata(plan)
 
     assert metadata["planner_version"] == "planner_v1_observe_only"
-    assert metadata["selected"]["action"] == "observe"
+    assert metadata["selected"]["action"] == "exact_cache"
     assert metadata["classification"]["prompt_chars"] == len(prompt)
     assert prompt not in str(metadata)
 
@@ -268,8 +344,10 @@ def test_outcome_prior_marks_policyless_route_recommendable_without_authorizing_
     )
 
     candidate = _candidate(plan, "model_routing")
-    assert plan.selected.action == "observe"
-    assert plan.selected.mode == "observe_only"
+    # Exact cache is eligible and takes selection priority; the routing candidate is
+    # still upgraded to recommendable by the prior (visible in the candidates).
+    assert plan.selected.action == "exact_cache"
+    assert plan.selected.mode == "enforce"
     assert candidate.status == CandidateStatus.RECOMMENDABLE
     assert candidate.quality_gate == QualityGateStatus.PASSED
     assert candidate.reason_code == "outcome_prior_recommendable"
@@ -385,7 +463,9 @@ def test_learning_candidate_can_round_trip_into_planner_prior():
     candidate = _candidate(plan, "exact_cache")
     assert candidate.status == CandidateStatus.RECOMMENDABLE
     assert candidate.reason_detail["outcome_prior"]["readiness_status"] == "auto_apply_candidate"
-    assert plan.selected.action == "observe"
+    # The recommendable cache candidate is the selected (enforceable) action.
+    assert plan.selected.action == "exact_cache"
+    assert plan.selected.mode == "enforce"
 
 
 def test_decision_metadata_includes_content_free_optimization_plan():
@@ -424,7 +504,7 @@ def test_decision_metadata_includes_content_free_optimization_plan():
     metadata = _decision_metadata(draft)
 
     assert metadata["task_type"] == "summarization.short"
-    assert metadata["optimization_plan"]["selected"]["action"] == "observe"
+    assert metadata["optimization_plan"]["selected"]["action"] == "exact_cache"
     assert metadata["optimization_plan"]["classification"]["prompt_chars"] == len(prompt)
     assert metadata["runtime_trace"] == [
         {

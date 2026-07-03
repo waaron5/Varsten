@@ -172,6 +172,27 @@ class Settings(BaseSettings):
     circuit_breaker_fail_threshold: int = 5
     circuit_breaker_reset_seconds: float = 30.0
 
+    # --- Upstream retries and fallback (keep the request alive) ---
+    # A transient upstream failure (connect error, 429, 5xx) is retried with capped
+    # exponential backoff + full jitter, honouring a 429's Retry-After, up to
+    # max_attempts retries and a total added-latency budget. Retries only happen
+    # before any bytes have streamed to the client (never mid-stream) and never for
+    # non-idempotent batch calls. Fail-open: exhausting retries relays the upstream
+    # error exactly as before.
+    proxy_retry_enabled: bool = True
+    proxy_retry_max_attempts: int = 2
+    proxy_retry_base_delay_seconds: float = 0.1
+    proxy_retry_max_delay_seconds: float = 1.0
+    proxy_retry_budget_seconds: float = 3.0
+    # When retries are exhausted, fall back to a configured degradation model on the
+    # same provider so the request still gets an answer. A fallback is a reliability
+    # action, not an optimization: it is recorded as fallback_used with a reason and
+    # claims zero savings. Map is project_id -> fallback model (temporary env-based
+    # config, like the provider-key vault; a per-route chain lands with the vault
+    # UI). Empty -> no fallback, the upstream error is relayed.
+    proxy_fallback_enabled: bool = True
+    proxy_fallback_models: dict[str, str] = {}
+
     # In-process cache of resolved vk_ -> (project, api_key) on the proxy hot path.
     # Lets a known active key keep serving through a brief database blip instead of
     # 500ing: on a DB error the proxy serves a context resolved within this TTL.
@@ -214,6 +235,48 @@ class Settings(BaseSettings):
     # Master switch for automatic rollback on drift. Off -> drift is surfaced but a
     # human decides. On -> a drifted route is disabled automatically.
     drift_auto_rollback_enabled: bool = True
+
+    # --- Live latency guardrail on the holdback ---
+    # A cheaper model can be slower, so latency is a first-class guardrail treated
+    # like quality (CLAUDE.md). The drift sweep rolls a route back when the
+    # treatment arm is confidently slower than the concurrent control arm by more
+    # than this many milliseconds (the peeking-safe confidence sequence must clear
+    # the tolerance, not just a noisy point estimate). Off -> latency is measured
+    # but never triggers rollback on its own.
+    latency_guard_enabled: bool = True
+    latency_drift_tolerance_ms: float = 400.0
+    # When a QualityGuardrail sets an absolute max_latency_ms SLO for the route,
+    # the treatment arm breaching it (confidence sequence lower bound above the
+    # SLO) also rolls back, independent of the control arm.
+    latency_slo_enabled: bool = True
+
+    # --- Governance: ChangeRequest enforcement ---
+    # Off by default: change requests are still proposed on eval completion and
+    # can be decided, but never block. On -> applying a gated (routing-lever)
+    # recommendation requires an approved ChangeRequest, so every model swap has
+    # a named approver, a rationale, and an audit event behind it.
+    governance_change_requests_enabled: bool = False
+
+    # --- Canary ramp for policy activation ---
+    # Off by default, so a policy activates fully live (rollout_percent = 100) as
+    # before. When on, a routing/trim policy activates at canary_initial_percent
+    # and the drift sweep promotes it through canary_stages once each stage shows
+    # no quality or latency regression with enough signal; a regression at any
+    # stage rolls the whole policy back. Requests outside the rollout percent are
+    # passthrough and never enter the holdback experiment.
+    canary_enabled: bool = False
+    canary_initial_percent: int = 10
+    canary_stages: tuple[int, ...] = (10, 50, 100)
+
+    # --- Always-valid sequential inference (holdback + drift) ---
+    # The holdback A/B and the drift guard are read continuously, so their
+    # intervals are time-uniform confidence sequences rather than fixed-n CIs
+    # (app/proxy/sequential.py). alpha is the one-look-equivalent error level (a
+    # 95% sequence); target_n is where the sequence is tightest -- set near the
+    # per-route sample size at which rollback/billing decisions are typically
+    # made. Neither changes what is measured, only the honesty of the interval.
+    sequential_cs_alpha: float = 0.05
+    sequential_cs_target_n: int = 300
 
     # --- Batching lever data plane (async /v1/batches mirror) ---
     # Where staged batch .jsonl files live. "local" (filesystem, dev/CI) or "s3"
@@ -267,10 +330,29 @@ class Settings(BaseSettings):
     # app_max_instances > 1, or every instance runs every sweep. Fails open: a lock
     # error runs the job rather than dropping a safety sweep.
     scheduler_advisory_lock_enabled: bool = False
+
+    # --- Cross-instance shared state (multi-instance deploys) ---
+    # The circuit breaker and budget-cap cache keep per-process state by default,
+    # which is correct for a single instance: each protects itself. With more than
+    # one app instance, set REDIS_URL to a shared Redis so a tripped breaker and a
+    # computed budget cap propagate across instances. Empty -> purely local
+    # behaviour (no new dependency, no coordination). The redis client is imported
+    # lazily and only when this is set; every shared-store operation fails open to
+    # local behaviour if Redis is unreachable, so it can never break a request.
+    redis_url: str = ""
     # How often the quality-drift safety sweep runs across all projects.
     drift_sweep_interval_seconds: int = 300
     # How often the batch poller syncs in-flight batch jobs across all projects.
     batch_poll_interval_seconds: int = 120
+    # How often measured learning candidates are promoted into recommendations.
+    # Promotion only creates open recommendations; it never applies anything, so a
+    # long interval is safe. 0 disables the job.
+    learning_promotion_interval_seconds: int = 3600
+    # Evidence window the promotion sweep scores over.
+    learning_promotion_window_days: int = 30
+    # Outcome-prior recency half-life. Recent production evidence should outweigh
+    # stale wins, so the learning scorer decays both counts and sums over time.
+    learning_prior_half_life_days: int = 14
 
     # --- Observability ---
     log_level: str = "INFO"

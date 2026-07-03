@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models import Project, ProxyPolicy, Recommendation
+from app.proxy import canary
 
 logger = get_logger("varsten.proxy.trim")
 
@@ -64,6 +65,10 @@ async def resolve_trim(db: AsyncSession, project_id: uuid.UUID, requested_model:
             )
         ).first()
         if policy is None:
+            return None
+        # Canary gate: outside the rollout the body is forwarded untrimmed as plain
+        # passthrough (not an experiment arm), independent of the holdback draw.
+        if not canary.in_rollout(policy.rollout_percent):
             return None
         return TrimDecision(
             policy.holdback_percent or Decimal("0"),
@@ -154,6 +159,7 @@ def activate_trim_policy(
             ProxyPolicy.target_key == model,
         )
     )
+    fresh = policy is None or not policy.enabled
     if policy is None:
         policy = ProxyPolicy(
             organization_id=project.organization_id,
@@ -164,6 +170,8 @@ def activate_trim_policy(
         )
         db.add(policy)
     policy.params = {**(policy.params or {})}
+    if fresh:
+        policy.rollout_percent = canary.initial_rollout_percent()
     policy.enabled = True
     policy.source_recommendation_id = recommendation.id
     policy.activated_at = at

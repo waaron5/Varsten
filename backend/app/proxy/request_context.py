@@ -51,6 +51,7 @@ _STRING_FIELDS = (
     "task_type",
     "risk_level",
     "quality_threshold",
+    "trace_id",
 )
 
 # Individual fallback headers -> field name. Lower-cased lookup; FastAPI/Starlette
@@ -67,6 +68,7 @@ _HEADER_FIELDS = {
     "x-varsten-task-type": "task_type",
     "x-varsten-risk-level": "risk_level",
     "x-varsten-quality-threshold": "quality_threshold",
+    "x-varsten-trace-id": "trace_id",
 }
 
 # The fail-open SDKs stamp this on their optimized (primary) calls so Varsten can
@@ -101,6 +103,9 @@ class RequestContext:
     task_confidence: float | None = None
     risk_level: str | None = None
     quality_threshold: str | None = None
+    # Client-supplied trace/session id grouping the calls of one agent workflow,
+    # so redundant calls within a trace can be detected (D3 agent-loop analysis).
+    trace_id: str | None = None
     # The Varsten SDK that issued this optimized call, e.g. "varsten-anthropic/0.1.0".
     sdk_client: str | None = None
     # Any additional client-supplied JSON keys, sanitized and bounded.
@@ -225,6 +230,7 @@ def parse_request_context(headers: dict[str, str]) -> RequestContext:
         task_confidence=confidence,
         risk_level=values["risk_level"],
         quality_threshold=values["quality_threshold"],
+        trace_id=values["trace_id"],
         sdk_client=_sanitize_str(lower.get(SDK_CLIENT_HEADER)),
         extra=extra,
     )

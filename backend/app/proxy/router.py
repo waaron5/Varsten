@@ -25,10 +25,18 @@ from app.core import ratelimit
 from app.core.config import settings
 from app.core.logging import get_logger, request_id_ctx
 from app.db.session import get_async_db
-from app.engine import CandidateStatus, PlannerInput, build_observe_only_plan, evaluate_cache_eligibility
+from app.engine import (
+    CandidateStatus,
+    PlannerInput,
+    RequestFacts,
+    build_observe_only_plan,
+    evaluate_cache_eligibility,
+    normalize_request_facts,
+)
+from app.engine.priors import outcome_priors_for_request
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import budget_enforcement, cache, http_client, origin, quality, routing, trim
+from app.proxy import budget_enforcement, cache, http_client, origin, prompt_prefix, quality, resilience, routing, trim
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.client_dialects import (
     ClientDialect,
@@ -90,6 +98,7 @@ class OpenAIDialectContext(NamedTuple):
     adapter: LLMAdapter
     client_key: str
     body: dict
+    request_facts: RequestFacts
     stream: bool
     model: str
     bypass: bool
@@ -161,6 +170,7 @@ async def _openai_dialect_setup(
     optimize_enabled = not bypass and not observe_only
     model = parsed.model or ""
     request_id = _request_id(request)
+    request_facts = parsed.request_facts
     draft = DecisionDraft(
         request_id=request_id,
         client_dialect=parsed.dialect.value,
@@ -174,11 +184,13 @@ async def _openai_dialect_setup(
     _attach_observe_plan(
         draft,
         body=body,
+        request_facts=request_facts,
         provider=adapter.provider,
         model=model,
         optimize_enabled=optimize_enabled,
         exact_cache_enabled=settings.proxy_cache_enabled,
         semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
+        outcome_priors=await outcome_priors_for_request(db, project.id, model),
     )
     return OpenAISetup(
         OpenAIDialectContext(
@@ -186,6 +198,7 @@ async def _openai_dialect_setup(
             adapter,
             client_key,
             body,
+            request_facts,
             parsed.stream,
             model,
             bypass,
@@ -334,6 +347,7 @@ def _attach_observe_plan(
     draft: DecisionDraft,
     *,
     body: dict,
+    request_facts: RequestFacts | None = None,
     provider: str,
     model: str,
     optimize_enabled: bool,
@@ -343,15 +357,22 @@ def _attach_observe_plan(
     routing_policy_id: str | None = None,
     trim_policy_present: bool = False,
     trim_policy_id: str | None = None,
+    outcome_priors: tuple = (),
 ) -> None:
     """Attach a content-free planner snapshot without affecting execution."""
     try:
+        # Fingerprint the request here (body in memory, all dialects flow through
+        # this point): the cacheable prefix for measured prompt-cache stability,
+        # and the whole body for trace-level redundancy detection. Hashes only.
+        draft.prefix_hash = prompt_prefix.stable_prefix_hash(body)
+        draft.request_fingerprint = prompt_prefix.full_request_fingerprint(body)
         draft.optimization_plan = build_observe_only_plan(
             PlannerInput(
                 request_id=draft.request_id,
                 provider=provider,
                 model=model,
                 body=body,
+                request_facts=request_facts or normalize_request_facts(body),
                 context=draft.ctx,
                 optimize_enabled=optimize_enabled,
                 exact_cache_enabled=exact_cache_enabled,
@@ -360,6 +381,7 @@ def _attach_observe_plan(
                 routing_policy_id=routing_policy_id,
                 trim_policy_present=trim_policy_present,
                 trim_policy_id=trim_policy_id,
+                outcome_priors=tuple(outcome_priors),
             )
         )
     except Exception:
@@ -534,6 +556,7 @@ async def _openai_dialect_completions(
         ctx.request_id,
         not ctx.optimize_enabled,
         ctx.draft,
+        ctx.request_facts,
     )
     body = opt.body
     adapter, client_key, opt = _resolve_openai_candidate_provider(project, ctx.adapter, ctx.client_key, opt, ctx.draft)
@@ -743,7 +766,7 @@ async def _maybe_serve_openai_cache(
         reason_code="semantic_cache_lookup_allowed",
     )
     try:
-        embedding = await embed(embedding_input(body), client_key)
+        embedding = await embed(embedding_input(body), client_key, db=db, project=project)
         sem = await cache.semantic_search(db, project.id, model, embedding, settings.semantic_cache_threshold)
     except Exception:
         logger.exception("semantic lookup failed; forwarding", extra={"project_id": str(project.id)})
@@ -809,6 +832,7 @@ async def _resolve_openai_optimizations(
     request_id: str,
     bypass: bool,
     draft: DecisionDraft,
+    request_facts: RequestFacts,
 ) -> OpenAIOptimizationState:
     # A request joins at most one lever's holdback experiment so savings never
     # double-count: model routing first, token trim only when no route applies.
@@ -817,6 +841,7 @@ async def _resolve_openai_optimizations(
     if bypass:
         return _openai_passthrough_state(body, model, requested_provider)
 
+    outcome_priors = await outcome_priors_for_request(db, project.id, model)
     decision = await routing.resolve_route(db, project.id, model, body, requested_provider=requested_provider)
     if _has_cross_provider_route(decision, model, requested_provider):
         return await _resolve_openai_route_state(
@@ -830,6 +855,8 @@ async def _resolve_openai_optimizations(
             bypass=bypass,
             decision=decision,
             draft=draft,
+            request_facts=request_facts,
+            outcome_priors=outcome_priors,
         )
 
     draft.add_runtime_trace(
@@ -848,6 +875,8 @@ async def _resolve_openai_optimizations(
         requested_provider=requested_provider,
         bypass=bypass,
         draft=draft,
+        request_facts=request_facts,
+        outcome_priors=outcome_priors,
     )
 
 
@@ -875,6 +904,8 @@ async def _resolve_openai_route_state(
     bypass: bool,
     decision: Any,
     draft: DecisionDraft,
+    request_facts: RequestFacts,
+    outcome_priors: tuple,
 ) -> OpenAIOptimizationState:
     ineligibility = cross_provider_ineligibility(
         parsed,
@@ -894,12 +925,21 @@ async def _resolve_openai_route_state(
             decision=decision,
             ineligibility=ineligibility,
             draft=draft,
+            request_facts=request_facts,
+            outcome_priors=outcome_priors,
         )
 
     draft.route_eligible = True
     _tag_route_policy(draft, decision)
     _attach_openai_routing_plan(
-        draft, body=body, requested_provider=requested_provider, model=model, bypass=bypass, decision=decision
+        draft,
+        body=body,
+        request_facts=request_facts,
+        requested_provider=requested_provider,
+        model=model,
+        bypass=bypass,
+        decision=decision,
+        outcome_priors=outcome_priors,
     )
     rejected = _rejected_candidate(draft, "model_routing")
     if rejected is not None:
@@ -930,6 +970,8 @@ async def _openai_route_ineligible_state(
     decision: Any,
     ineligibility,
     draft: DecisionDraft,
+    request_facts: RequestFacts,
+    outcome_priors: tuple,
 ) -> OpenAIOptimizationState:
     draft.route_eligible = False
     draft.route_ineligible_reason = ineligibility.reason_code
@@ -949,7 +991,14 @@ async def _openai_route_ineligible_state(
         },
     )
     _attach_openai_routing_plan(
-        draft, body=body, requested_provider=requested_provider, model=model, bypass=bypass, decision=decision
+        draft,
+        body=body,
+        request_facts=request_facts,
+        requested_provider=requested_provider,
+        model=model,
+        bypass=bypass,
+        decision=decision,
+        outcome_priors=outcome_priors,
     )
     await _record_routing_ineligibility(
         db,
@@ -975,14 +1024,17 @@ def _attach_openai_routing_plan(
     draft: DecisionDraft,
     *,
     body: dict,
+    request_facts: RequestFacts,
     requested_provider: str,
     model: str,
     bypass: bool,
     decision: Any,
+    outcome_priors: tuple = (),
 ) -> None:
     _attach_observe_plan(
         draft,
         body=body,
+        request_facts=request_facts,
         provider=requested_provider,
         model=model,
         optimize_enabled=not bypass,
@@ -990,6 +1042,7 @@ def _attach_openai_routing_plan(
         semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
         routing_policy_present=True,
         routing_policy_id=str(decision.policy_id) if decision.policy_id else None,
+        outcome_priors=outcome_priors,
     )
 
 
@@ -1039,6 +1092,8 @@ async def _resolve_openai_trim_state(
     requested_provider: str,
     bypass: bool,
     draft: DecisionDraft,
+    request_facts: RequestFacts,
+    outcome_priors: tuple,
 ) -> OpenAIOptimizationState:
     tdecision = await trim.resolve_trim(db, project.id, model)
     if not tdecision:
@@ -1056,6 +1111,7 @@ async def _resolve_openai_trim_state(
     _attach_observe_plan(
         draft,
         body=body,
+        request_facts=request_facts,
         provider=requested_provider,
         model=model,
         optimize_enabled=not bypass,
@@ -1063,6 +1119,7 @@ async def _resolve_openai_trim_state(
         semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
         trim_policy_present=True,
         trim_policy_id=str(tdecision.policy_id) if tdecision.policy_id else None,
+        outcome_priors=outcome_priors,
     )
     rejected = _rejected_candidate(draft, "token_trim")
     if rejected is not None:
@@ -1282,11 +1339,13 @@ async def _native_provider_passthrough(
     _attach_observe_plan(
         draft,
         body=parsed.body,
+        request_facts=parsed.request_facts,
         provider=provider,
         model=parsed.model or "",
         optimize_enabled=not bypass and not observe_only,
         exact_cache_enabled=False,
         semantic_cache_enabled=False,
+        outcome_priors=await outcome_priors_for_request(db, project.id, parsed.model or ""),
     )
     # Hard-cap budget enforcement (native passthrough has no cache, so every
     # forward costs money). Only optimization-enabled traffic; fail-open.
@@ -1393,7 +1452,17 @@ async def _maybe_route_native_cross_provider(
         return None
     assert decision is not None
 
-    if not await _native_route_allowed(db, project, parsed, requested_provider, request_id, decision, draft):
+    outcome_priors = await outcome_priors_for_request(db, project.id, model)
+    if not await _native_route_allowed(
+        db,
+        project,
+        parsed,
+        requested_provider,
+        request_id,
+        decision,
+        draft,
+        outcome_priors,
+    ):
         return None
 
     arm = routing.assign_arm(decision.holdback_percent)
@@ -1461,6 +1530,7 @@ async def _native_route_allowed(
     request_id: str,
     decision: Any,
     draft: DecisionDraft,
+    outcome_priors: tuple,
 ) -> bool:
     ineligibility = cross_provider_ineligibility(
         parsed,
@@ -1477,12 +1547,19 @@ async def _native_route_allowed(
             decision=decision,
             ineligibility=ineligibility,
             draft=draft,
+            outcome_priors=outcome_priors,
         )
         return False
 
     draft.route_eligible = True
     _tag_route_policy(draft, decision)
-    _attach_native_routing_plan(draft, parsed=parsed, requested_provider=requested_provider, decision=decision)
+    _attach_native_routing_plan(
+        draft,
+        parsed=parsed,
+        requested_provider=requested_provider,
+        decision=decision,
+        outcome_priors=outcome_priors,
+    )
     return not _native_route_rejected_by_plan(draft, decision)
 
 
@@ -1496,6 +1573,7 @@ async def _reject_native_route_ineligibility(
     decision: Any,
     ineligibility,
     draft: DecisionDraft,
+    outcome_priors: tuple,
 ) -> None:
     draft.route_eligible = False
     draft.route_ineligible_reason = ineligibility.reason_code
@@ -1514,7 +1592,13 @@ async def _reject_native_route_ineligibility(
             "route_eligible": False,
         },
     )
-    _attach_native_routing_plan(draft, parsed=parsed, requested_provider=requested_provider, decision=decision)
+    _attach_native_routing_plan(
+        draft,
+        parsed=parsed,
+        requested_provider=requested_provider,
+        decision=decision,
+        outcome_priors=outcome_priors,
+    )
     await _record_routing_ineligibility(
         db,
         project,
@@ -1534,10 +1618,12 @@ def _attach_native_routing_plan(
     parsed: ParsedClientRequest,
     requested_provider: str,
     decision: Any,
+    outcome_priors: tuple = (),
 ) -> None:
     _attach_observe_plan(
         draft,
         body=parsed.body,
+        request_facts=parsed.request_facts,
         provider=requested_provider,
         model=parsed.model or "",
         optimize_enabled=True,
@@ -1545,6 +1631,7 @@ def _attach_native_routing_plan(
         semantic_cache_enabled=False,
         routing_policy_present=True,
         routing_policy_id=str(decision.policy_id) if decision.policy_id else None,
+        outcome_priors=outcome_priors,
     )
 
 
@@ -2088,6 +2175,8 @@ async def _capture(
     exp_to: str | None = None,
     latency_ms: int | None = None,
     draft: DecisionDraft | None = None,
+    fallback_used: bool = False,
+    fallback_reason: str | None = None,
 ) -> None:
     """Write the ledger row and (unless bypassed) store the cache entry, with its
     prompt embedding, for a miss.
@@ -2153,6 +2242,8 @@ async def _capture(
                 trim_applied=draft.trim_applied,
                 latency_ms=latency_ms,
                 quality_ok=quality_ok,
+                fallback_used=fallback_used,
+                fallback_reason=fallback_reason,
             )
         except Exception:
             logger.exception("decision evidence capture failed", extra={"project_id": str(project.id)})
@@ -2261,46 +2352,72 @@ async def _stream_through(
         settings.proxy_stream_read_timeout_seconds,
         connect=settings.proxy_stream_connect_timeout_seconds,
     )
-    ok = False
-
     # The shared pooled client: a warm keep-alive connection spares this miss the
     # upstream TLS handshake. Per-request timeout; never closed here.
     client = http_client.get_client()
-    try:
-        async with asyncio.timeout(settings.proxy_stream_total_timeout_seconds):
-            async with client.stream(
-                "POST",
-                adapter.request_url(model=upstream_model or model, stream=True),
-                headers=_with_idempotency(adapter.headers(client_key), idempotency_key),
-                json=upstream_body,
-                timeout=timeout,
-            ) as resp:
-                ok = resp.status_code == 200
-                if not ok:
-                    # The upstream responded but with an error. Trip the breaker on
-                    # provider failures (5xx/429); a 4xx is the client's mistake.
-                    if is_upstream_failure(resp.status_code):
-                        breaker.record_failure()
+
+    # Retries wrap only the connection attempt: a provider failure (connect error or
+    # 5xx/429) before the first byte is retried with backoff, but once any byte has
+    # streamed to the client we never retry (that would duplicate a partial
+    # completion). The breaker records one outcome per request.
+    delays = resilience.backoff_delays()
+    deadline = time.monotonic() + settings.proxy_retry_budget_seconds
+    streamed = False
+
+    for attempt in range(1 + len(delays)):
+        retry_delay: float | None = None
+        try:
+            async with asyncio.timeout(settings.proxy_stream_total_timeout_seconds):
+                async with client.stream(
+                    "POST",
+                    adapter.request_url(model=upstream_model or model, stream=True),
+                    headers=_with_idempotency(adapter.headers(client_key), idempotency_key),
+                    json=upstream_body,
+                    timeout=timeout,
+                ) as resp:
+                    if resp.status_code != 200:
+                        # Provider failure (5xx/429): retry within budget before any
+                        # byte; a 4xx is the client's mistake and is relayed.
+                        if is_upstream_failure(resp.status_code):
+                            if attempt < len(delays) and time.monotonic() < deadline:
+                                await resp.aread()
+                                retry_delay = resilience.retry_after_seconds(
+                                    resp.headers.get("retry-after"), delays[attempt]
+                                )
+                            else:
+                                breaker.record_failure()
+                                yield await resp.aread()
+                                return
+                        else:
+                            breaker.record_success()
+                            yield await resp.aread()
+                            return
                     else:
                         breaker.record_success()
-                    yield await resp.aread()
-                    return
-                breaker.record_success()
-                async for chunk in resp.aiter_bytes():
-                    if first_byte_at is None:
-                        first_byte_at = time.perf_counter()  # time-to-first-byte
-                    for out in translator.push(chunk):
-                        yield out
-    except (httpx.RequestError, TimeoutError) as exc:
-        # OpenAI unreachable/slow/hung (httpx read timeout or the wall-clock cap):
-        # count it against the breaker and emit a clean SSE error instead of a
-        # stack trace. httpx.ReadTimeout is an httpx.RequestError; the wall-clock
-        # cap raises the builtin TimeoutError.
-        breaker.record_failure()
-        logger.warning("upstream stream failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__})
-        yield f'data: {{"error":{{"message":"upstream request failed: {exc.__class__.__name__}","type":"varsten_upstream_error"}}}}\n\n'.encode()
-        yield b"data: [DONE]\n\n"
-        return
+                        async for chunk in resp.aiter_bytes():
+                            if first_byte_at is None:
+                                first_byte_at = time.perf_counter()  # time-to-first-byte
+                            streamed = True
+                            for out in translator.push(chunk):
+                                yield out
+        except (httpx.RequestError, TimeoutError) as exc:
+            # OpenAI unreachable/slow/hung (httpx read timeout or the wall-clock
+            # cap). Retry only before the first byte; otherwise emit a clean SSE
+            # error instead of a stack trace and count it against the breaker.
+            if not streamed and attempt < len(delays) and time.monotonic() < deadline:
+                retry_delay = delays[attempt]
+            else:
+                breaker.record_failure()
+                logger.warning(
+                    "upstream stream failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
+                )
+                yield f'data: {{"error":{{"message":"upstream request failed: {exc.__class__.__name__}","type":"varsten_upstream_error"}}}}\n\n'.encode()
+                yield b"data: [DONE]\n\n"
+                return
+        if retry_delay is not None:
+            await asyncio.sleep(retry_delay)
+            continue
+        break  # streamed to completion -- proceed to post-stream capture below
 
     # Stream finished and the client has every byte. Best-effort bookkeeping.
     try:
@@ -2367,70 +2484,173 @@ async def _forward_once(
     draft=None,
     idempotency_key=None,
 ) -> JSONResponse:
-    upstream_body = adapter.prepare_request(body, model=upstream_model or model, stream=False)
-    try:
-        resp = await http_client.get_client().post(
-            adapter.request_url(model=upstream_model or model, stream=False),
-            headers=_with_idempotency(adapter.headers(client_key), idempotency_key),
-            json=upstream_body,
-            timeout=settings.proxy_upstream_timeout_seconds,
-        )
-    except httpx.RequestError as exc:
-        # OpenAI unreachable/slow: count it against the breaker, clean 502.
-        breaker.record_failure()
-        logger.warning(
-            "upstream request failed", extra={"project_id": str(project.id), "error": exc.__class__.__name__}
-        )
-        return origin.varsten_error(
-            code=origin.CODE_UPSTREAM_UNREACHABLE,
-            type_="varsten_upstream_error",
-            message=f"upstream request failed: {exc.__class__.__name__}",
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            headers=headers,
-        )
+    client = http_client.get_client()
+    upstream_model_used = upstream_model or model
+    upstream_body = adapter.prepare_request(body, model=upstream_model_used, stream=False)
+    # Retries wrap the connection attempt (non-streaming, so nothing has reached the
+    # client yet): connect errors and 429/5xx are retried with backoff before the
+    # client ever sees a failure. The breaker records one outcome per request below.
+    resp, exc = await resilience.post_with_retry(
+        client,
+        adapter.request_url(model=upstream_model_used, stream=False),
+        headers=_with_idempotency(adapter.headers(client_key), idempotency_key),
+        json=upstream_body,
+        timeout=settings.proxy_upstream_timeout_seconds,
+    )
 
-    if resp.status_code != 200:
-        # Provider failure (5xx/429) trips the breaker; a 4xx is the client's.
-        if is_upstream_failure(resp.status_code):
-            breaker.record_failure()
-        else:
-            breaker.record_success()
+    if resp is not None and resp.status_code == 200:
+        breaker.record_success()
+        latency_ms = int((time.perf_counter() - started) * 1000) if started else None
+        result = adapter.parse_completion(resp.json())
+        # The client always gets the OpenAI dialect; for an OpenAI upstream this is
+        # the original payload reused verbatim, for any other provider it is the
+        # canonical form rendered to OpenAI shape.
+        payload = canonical.completion_payload(result)
+        await _capture(
+            db,
+            project,
+            api_key_id,
+            provider=adapter.provider,
+            model=result.model or model,
+            cache_model=model,
+            response_payload=payload,
+            cache_key=cache_key,
+            in_tok=result.usage.input_tokens,
+            out_tok=result.usage.output_tokens,
+            cached_tok=result.usage.provider_cached_input_tokens,
+            store_cache=store_cache,
+            embedding=embedding,
+            body=body,
+            routed_from=routed_from,
+            routed_from_provider=routed_from_provider,
+            arm=arm,
+            exp_from=exp_from,
+            exp_to=exp_to,
+            latency_ms=latency_ms,
+            draft=draft,
+        )
+        return JSONResponse(payload, headers=headers)
+
+    # A 4xx (other than 429) is the client's request, not the provider faltering:
+    # relay it unchanged, upstream stays healthy on the breaker.
+    if resp is not None and not is_upstream_failure(resp.status_code):
+        breaker.record_success()
         try:
             detail = resp.json()
         except ValueError:
             detail = {"error": resp.text}
         return JSONResponse(detail, status_code=resp.status_code, headers=headers)
 
-    breaker.record_success()
-    # Latency = request receipt to the upstream response (when we can answer).
-    latency_ms = int((time.perf_counter() - started) * 1000) if started else None
+    # Upstream failure (5xx/429 after retries) or unreachable: one breaker failure,
+    # then try a same-provider fallback model before giving up.
+    breaker.record_failure()
+    logger.warning(
+        "upstream request failed after retries",
+        extra={
+            "project_id": str(project.id),
+            "error": exc.__class__.__name__ if exc else (resp.status_code if resp is not None else "no_response"),
+        },
+    )
+    fallback = await _forward_fallback(
+        db,
+        project,
+        api_key_id,
+        client,
+        adapter,
+        body,
+        model,
+        cache_key,
+        breaker,
+        embedding,
+        headers,
+        started,
+        upstream_model_used,
+        client_key,
+        idempotency_key,
+        draft=draft,
+    )
+    if fallback is not None:
+        return fallback
+    if resp is not None:
+        try:
+            detail = resp.json()
+        except ValueError:
+            detail = {"error": resp.text}
+        return JSONResponse(detail, status_code=resp.status_code, headers=headers)
+    return origin.varsten_error(
+        code=origin.CODE_UPSTREAM_UNREACHABLE,
+        type_="varsten_upstream_error",
+        message=f"upstream request failed: {exc.__class__.__name__ if exc else 'upstream_error'}",
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        headers=headers,
+    )
 
-    result = adapter.parse_completion(resp.json())
-    # The client always gets the OpenAI dialect; for an OpenAI upstream this is the
-    # original payload reused verbatim, for any other provider it is the canonical
-    # form rendered to OpenAI shape.
+
+async def _forward_fallback(
+    db,
+    project,
+    api_key_id,
+    client,
+    adapter,
+    body,
+    model,
+    cache_key,
+    breaker,
+    embedding,
+    headers,
+    started,
+    failed_model,
+    client_key,
+    idempotency_key,
+    *,
+    draft=None,
+) -> JSONResponse | None:
+    """After retries on the primary are exhausted, try a configured degradation
+    model on the same provider so the request still gets an answer. Reliability,
+    not optimization: recorded as fallback_used with zero claimed savings (no
+    routed_from, so no saved_usd), and the response is tagged so the SDK/client can
+    see it was degraded. Returns None when no fallback is configured or the fallback
+    also fails (caller relays the error)."""
+    fb_model = resilience.fallback_model(project.id, failed_model)
+    if not fb_model:
+        return None
+    fb_body = adapter.prepare_request(body, model=fb_model, stream=False)
+    fb_resp, _ = await resilience.post_with_retry(
+        client,
+        adapter.request_url(model=fb_model, stream=False),
+        headers=_with_idempotency(adapter.headers(client_key), idempotency_key),
+        json=fb_body,
+        timeout=settings.proxy_upstream_timeout_seconds,
+    )
+    if fb_resp is None or fb_resp.status_code != 200:
+        return None
+    breaker.record_success()
+    latency_ms = int((time.perf_counter() - started) * 1000) if started else None
+    result = adapter.parse_completion(fb_resp.json())
     payload = canonical.completion_payload(result)
+    logger.info(
+        "served via fallback model",
+        extra={"project_id": str(project.id), "from": failed_model, "to": fb_model},
+    )
     await _capture(
         db,
         project,
         api_key_id,
         provider=adapter.provider,
-        model=result.model or model,
+        model=result.model or fb_model,
         cache_model=model,
         response_payload=payload,
         cache_key=cache_key,
         in_tok=result.usage.input_tokens,
         out_tok=result.usage.output_tokens,
         cached_tok=result.usage.provider_cached_input_tokens,
-        store_cache=store_cache,
+        # Never cache or optimize a degraded fallback answer under the primary key.
+        store_cache=False,
         embedding=embedding,
         body=body,
-        routed_from=routed_from,
-        routed_from_provider=routed_from_provider,
-        arm=arm,
-        exp_from=exp_from,
-        exp_to=exp_to,
         latency_ms=latency_ms,
         draft=draft,
+        fallback_used=True,
+        fallback_reason="upstream_failure",
     )
-    return JSONResponse(payload, headers=headers)
+    return JSONResponse(payload, headers={**headers, "X-Varsten-Fallback": fb_model})

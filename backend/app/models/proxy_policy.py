@@ -32,6 +32,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     UniqueConstraint,
@@ -77,6 +78,13 @@ class ProxyPolicy(Base, TimestampMixin):
     # holdback costs money, but it buys a concurrently-measured savings number
     # rather than a modelled one.
     holdback_percent: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, server_default=text("0.05"))
+    # Canary ramp: the percent of this policy's eligible traffic the policy is
+    # actually applied to (0-100). 100 = fully live (default, so existing policies
+    # are unaffected). A canary activation starts low (e.g. 10) and the drift sweep
+    # promotes it stage by stage once each stage shows no quality/latency
+    # regression. Traffic outside the rollout is passthrough and is NOT an
+    # experiment arm; the rollout draw is independent of holdback arm assignment.
+    rollout_percent: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("100"))
     # Lever-specific config. Routing: {"candidate_model": "..."}. Trim: strategy
     # knobs. Kept as JSONB so a new lever does not need a schema change.
     params: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))

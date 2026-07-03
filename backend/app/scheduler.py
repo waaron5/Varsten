@@ -35,6 +35,7 @@ from app import billing_lifecycle
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal, engine
+from app.engine import promotion as promotion_mod
 from app.proxy import batch as batch_service
 from app.proxy import cache as cache_mod
 from app.proxy import drift as drift_mod
@@ -109,6 +110,16 @@ class Scheduler:
                 self._loop("trial-sweep", settings.trial_sweep_interval_seconds, self._run_trial_sweep)
             ),
         ]
+        if settings.learning_promotion_interval_seconds > 0:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._loop(
+                        "learning-promotion",
+                        settings.learning_promotion_interval_seconds,
+                        self._run_learning_promotion,
+                    )
+                )
+            )
         logger.info("scheduler started", extra={"jobs": len(self._tasks)})
 
     async def stop(self) -> None:
@@ -216,6 +227,21 @@ class Scheduler:
         expired = await asyncio.to_thread(work)
         if expired:
             logger.info("trial sweep downgraded expired trials", extra={"organizations": [str(o) for o in expired]})
+
+    async def _run_learning_promotion(self) -> None:
+        # Learning promotion and adaptive holdback management are pure DB work;
+        # run them off the event loop. They never apply a new optimization, so a
+        # failure here only delays a proposal or measurement-cost adjustment.
+        def work() -> dict:
+            db = SessionLocal()
+            try:
+                return promotion_mod.sweep_all_projects(db)
+            finally:
+                db.close()
+
+        results = await asyncio.to_thread(work)
+        if results:
+            logger.info("learning promotion sweep updated projects", extra={"projects": list(results)})
 
     async def _run_alert_sweep(self) -> None:
         # Budget/alert evaluation + delivery is synchronous DB + I/O work; run it off

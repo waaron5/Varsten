@@ -371,10 +371,12 @@ def test_trim_drift_auto_rollback(client, provision, db_session, monkeypatch):
     db_session.add(policy)
     db_session.commit()
 
-    # Control (untrimmed) healthy; treatment (trimmed) degraded.
-    for _ in range(5):
+    # Control (untrimmed) healthy; treatment (trimmed) fully degraded. The
+    # peeking-safe rollback needs the confidence sequence for the drop to clear
+    # the tolerance, so a maximal split still needs enough samples to confirm it.
+    for _ in range(15):
         _record_trim_arm(db_session, project, "control", 1000, True)
-    for _ in range(5):
+    for _ in range(15):
         _record_trim_arm(db_session, project, "treatment", 600, False)
     db_session.commit()
 

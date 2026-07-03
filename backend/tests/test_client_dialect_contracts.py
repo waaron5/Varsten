@@ -65,6 +65,38 @@ def test_client_dialect_parser_preserves_headers_for_router_policy():
     assert parsed.headers["anthropic-beta"] == "tools-2024-04-04"
 
 
+def test_client_dialect_parser_attaches_content_free_request_facts():
+    _, parsed = _classify("anthropic_messages_request.json")
+    system_text = "You are a concise assistant."
+    user_text = "Write one sentence about Varsten."
+
+    assert parsed.request_facts.prompt_chars == len(system_text) + len(user_text)
+    assert parsed.request_facts.message_count == 1
+    assert parsed.request_facts.has_tools is False
+    assert parsed.request_facts.source == "provider_body"
+    assert system_text not in str(parsed.request_facts)
+    assert user_text not in str(parsed.request_facts)
+
+
+@pytest.mark.parametrize(
+    "fixture_name,expected_message_count",
+    [
+        ("openai_chat_completion_tools_request.json", 1),
+        ("anthropic_messages_tool_request.json", 3),
+        ("gemini_function_call_request.json", 1),
+    ],
+)
+def test_client_dialect_request_facts_capture_tool_signals_across_sdk_shapes(
+    fixture_name,
+    expected_message_count,
+):
+    _, parsed = _classify(fixture_name)
+
+    assert parsed.request_facts.message_count == expected_message_count
+    assert parsed.request_facts.has_tools is True
+    assert parsed.request_facts.freshness_signal is True
+
+
 @pytest.mark.parametrize(
     "fixture_name,expected_dialect,expected_operation,expected_model",
     [

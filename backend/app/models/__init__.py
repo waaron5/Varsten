@@ -28,6 +28,7 @@ from app.models.engine import (
     AlertRule,
     BudgetRule,
     CustomerEconomics,
+    EngineOutcomePrior,
     LeverConfig,
     MonthlyReport,
     OptimizationDecision,
@@ -38,6 +39,14 @@ from app.models.engine import (
 )
 from app.models.eval import EvalRun, EvalSampleResult, ReplaySample
 from app.models.evidence import FEEDBACK_OUTCOMES, RequestDecisionEvent, RequestFeedback
+from app.models.governance import (
+    CR_ACTIVE,
+    CR_APPROVED,
+    CR_PROPOSED,
+    CR_REJECTED,
+    CR_ROLLED_BACK,
+    ChangeRequest,
+)
 from app.models.pricing import ModelCatalog, ModelPrice, OrgModelPriceOverride
 from app.models.project import Project
 from app.models.proxy_cache import ProxyCacheEntry
@@ -66,6 +75,11 @@ __all__ = [
     "ACTION_PLAN_CHANGED",
     "ACTION_PROVIDER_KEY_CONNECTED",
     "ACTION_PROVIDER_KEY_DISCONNECTED",
+    "CR_ACTIVE",
+    "CR_APPROVED",
+    "CR_PROPOSED",
+    "CR_REJECTED",
+    "CR_ROLLED_BACK",
     "DEFAULT_GAIN_SHARE_PERCENT",
     "DELIVERY_FAILED",
     "DELIVERY_SENT",
@@ -94,7 +108,9 @@ __all__ = [
     "Base",
     "BatchJob",
     "BudgetRule",
+    "ChangeRequest",
     "CustomerEconomics",
+    "EngineOutcomePrior",
     "EvalRun",
     "EvalSampleResult",
     "Invoice",

@@ -30,19 +30,27 @@ I am a CS student at BYU relocating to NYC. Varsten started as my portfolio piec
 
 This raises the bar on execution, not on surface area. "Done over complete" still holds: ship a focused, coherent slice rather than a sprawling half-built one. But "done" now means production-done for the slice in scope. A real client pushes real traffic, trusts real numbers, and expects the thing to stay up, stay secure, and never leak across tenants. The engine-first vision below is the destination; the near-term job is to make the control plane and decision loop genuinely deployable, secure, and reliable for one real customer.
 
-### Current phase: Phase 1 inline proxy (Build 1)
+### Current phase: close the learning loop (Build 2)
 
-Direction decided: Varsten is an inline Smart Proxy Gateway that intercepts, optimizes, and forwards live LLM traffic under a gain-share model. It is not a passive post-hoc dashboard. The metadata control plane, measurement, pricing ledger, recommendation engine, and decision-loop UI that already exist are the foundation the proxy stands on, not the product. We are not onboarding anyone onto a metadata-only logging setup; that would be throwaway integration work for the client. We build the proxy foundation now.
+Varsten is an inline Smart Proxy Gateway that intercepts, optimizes, and forwards live LLM traffic under a gain-share model. The Phase 1 "lean slice" framing (OpenAI-only, semantic-cache-only) is obsolete: that build shipped and the codebase is well past it. What exists and works today:
 
-This supersedes the older framing in this file and elsewhere that treated the inline data plane as a deferred north-star. The proxy is the current build. Phase 1 is scoped deliberately lean to de-risk the production path and avoid a multi-quarter timeline:
+- **Execution (hot path):** all five levers execute for real. Exact + semantic cache (pgvector, model-scoped, TTL-bound), model routing via `ProxyPolicy` with per-request predicates, deterministic token trim, OpenAI batch submission with measured discount capture. Three client dialects (OpenAI, Anthropic native, Gemini native) with cross-provider routing and an ineligibility audit trail. Every lookup fails open; per-project circuit breakers, budget hard caps, rate limiting, project-level bypass.
+- **Measurement:** live holdback A/B per route (random arm assignment, difference-in-means, 95% CI, 30-sample minimum per arm), direct-measured `saved_usd` on ledger events, strict measurement vocabulary where `estimated` never rolls into "verified" (`savings_measurement.py`).
+- **Quality:** objective response-health boolean off-path, scheduled drift sweep with auto-rollback against the concurrent control arm, shadow eval harness (replay, golden sets, objective scorers, pairwise judge) with the hard rule that judge-scored routes never auto-apply.
+- **Learning (in flight):** content-free request classification, an observe-only planner emitting per-lever candidates with reason codes, and outcome scoring that aggregates decision evidence + feedback into per-segment readiness tiers (`insufficient_data → savings_unproven → quality_risk → recommendable → auto_apply_candidate`). The planner does not yet authorize execution.
 
-- **Single provider: OpenAI only.** Mirror `POST /v1/chat/completions`. Ignore Anthropic and others for now.
-- **Streaming is non-negotiable.** Raw SSE pass-through on day one. Never buffer the full completion before streaming to the client; that inflates their latency by seconds. Capture token/billing metadata asynchronously from the stream without blocking delivery.
-- **One lever: Semantic Cache.** Cache hit serves from the cache store (Postgres now, Redis later) in well under 20ms at $0, bypassing OpenAI. Cache miss pipes the stream straight through. The other four levers (smart routing, model downshift, token trim, batching) stay completely bypassed behind a hard kill switch.
-- **Key vaulting is temporary.** The client's OpenAI key is supplied via an encrypted backend env var mapped to their `project_id`. No frontend vault UI in Phase 1.
-- **The ledger is the proof.** The proxy populates the same authoritative `usage_events` ledger (metadata only) and the dashboard shows Naive Retail Cost vs Varsten Optimized Cost. That delta is the gain-share number.
+The current build closes the gap between "observes and reports" and the goal: Varsten learns from production traffic which strategies preserve quality at the lowest cost, automatically applies them with fail-open reliability and guardrails, and produces audit-ready proof. Roadmap, in order:
 
-The production-hardening work already done (tenant-isolated auth, containerized deploy, CI, recompute off the read path) is the foundation under all of this and still holds.
+- **A. Close the loop.** The planner becomes the single decision point the proxy executes, and learned outcome evidence promotes into recommendations that flow through the existing eval-gate → apply → holdback → drift machinery. Includes a canonical route identity shared by segments, policies, evals, and guardrails.
+- **B. Statistical rigor.** Always-valid sequential inference (confidence sequences / mSPRT) for holdback savings and drift rollback instead of a fixed 95% CI checked continuously; adaptive holdback sizing; recency weighting on outcome priors. The gain-share invoice is billed on these numbers, so this is a revenue-integrity item, not polish.
+- **C. Reliability parity.** Retry with backoff, fallback chains (same model, alternate provider first), provider key pools, shared circuit/cooldown/budget state in Redis for multi-instance deploys, per-route latency SLO enforced as a guardrail, canary ramp for policy activation instead of binary on/off.
+- **D. New levers, in risk order.** Provider prompt-cache orchestration (stable-prefix restructuring), off-path learned prompt compression behind the eval gate, then a trace/session model for detecting and removing redundant LLM calls in agent workflows.
+- **E. Learned policy within guardrails.** Thompson sampling over eval-cleared candidates per route with a hard exploration budget; Bayesian optimization for continuous knobs. Guardrails are constraints, never inputs. Only after A–C.
+- **F. Governance hardening.** A first-class `ChangeRequest` object (see `docs/design/PALANTIR_ONTOLOGY_DESIGN.md`): one row per proposed change with the evidence bundle, named approver, rationale, and immutable audit chain.
+
+The production-hardening work already done (tenant-isolated auth, containerized deploy, CI, recompute off the read path) is the foundation under all of this and still holds. Streaming remains non-negotiable: never buffer a completion before streaming it to the client; capture token/billing metadata asynchronously.
+
+`docs/design/ENGINE_IMPLEMENTATION_PLAN.md` is the working spec for this roadmap: slice-by-slice scope, schemas, invariants, and required tests. Read it before starting any engine work and keep it updated as slices land.
 
 #### Zero-retention, honestly
 
@@ -210,36 +218,21 @@ Frontend:
 - Next.js or React with TypeScript
 - I work professionally in Angular + tRPC + Prisma, so React is intentional learning here
 
-The inline proxy is now part of this backend (Phase 1), an OpenAI-only reverse proxy with streaming pass-through and a semantic cache. A future in-VPC data-plane deployment may split it into a separate thin service in the customer's environment, but for Phase 1 it runs in this backend.
+The inline proxy is part of this backend: a multi-dialect reverse proxy (OpenAI, Anthropic native, Gemini native) with streaming pass-through, all five levers live, and the holdback A/B measuring them. A future in-VPC data-plane deployment may split it into a separate thin service in the customer's environment, but today it runs in this backend.
 
-## What we build first
+## What is built and what comes next
 
-The inline proxy is the product, and Phase 1 (Build 1) is the lean first slice of it. The goal is a real, low-latency OpenAI proxy that streams, caches, and bills, that a first client routes real production traffic through.
-
-**Already built (the foundation the proxy reuses):**
+**Built and working (do not re-propose or stub these):**
 - OAuth sign-in, organizations, multi-tenancy, the `vk_` API key scheme and tenancy resolution
 - Authoritative cost measurement (versioned `Numeric(20,12)` pricing catalog, cost derivation, `cost_source`, `pricing_status`)
-- The `usage_events` ledger and metadata model the proxy writes into
-- Recommendation engine (the lever *detection* logic that becomes the policy layer), decision-loop UI, Proof
+- The `usage_events` ledger and metadata model the proxy writes into; decision evidence (`RequestDecisionEvent`, `RequestFeedback`, `OptimizationDecision`) and runtime traces with a content denylist
+- The inline proxy: streaming pass-through, exact + semantic cache, routing/downshift with predicates, token trim, batching; circuit breakers, budget hard caps, rate limiting, bypass; fail-open on every lever lookup
+- The eval/replay harness with golden sets, objective scorers, and a pairwise judge; the apply gate; the live randomized holdback A/B; drift auto-rollback
+- Rule-based recommendation detection, decision-loop UI, Proof with verified-vs-estimated separation
+- The observe-only optimization planner and outcome scoring (`app/engine/`) — the learning layer, not yet authorizing execution
 - Tenant-isolated auth, containerized deploy + CI, recompute off the read path
 
-**Phase 1 proxy (current build):**
-- `POST /v1/chat/completions` mirror route, OpenAI only, authenticated by the `vk_` key
-- Client OpenAI key resolved from an encrypted backend env var mapped to `project_id`
-- Raw SSE streaming pass-through on a cache miss; never buffer before streaming
-- Semantic Cache lever only: hit serves from the cache store at $0, well under 20ms; the other four levers are bypassed behind a hard kill switch
-- Async capture of token/billing metadata from the stream into the `usage_events` ledger (metadata only)
-- Dashboard shows Naive Retail Cost vs Varsten Optimized Cost
-
-**Later phases of the proxy, not Phase 1:**
-- Additional providers (Anthropic, Gemini, Bedrock)
-- The remaining four levers as live execution modules (smart routing, model downshift, token trim, batching)
-- Real semantic (vector) similarity matching beyond Phase 1's exact-match cache
-- Provider-key vault UI + KMS, Redis cache, fail-open hardening, circuit breakers, kill switch UX
-- The eval / replay harness and the live randomized holdback that measure quality and savings as a concurrent A/B
-- In-VPC deployment
-
-In v1 the data plane behavior can be stubbed or simulated so the full loop demonstrates end to end. Do not pretend the production gateway, eval harness, or live holdback exist in the codebase when they do not.
+**Current build (roadmap phase A):** close the learning loop. Promote learned outcome evidence into the recommendation → eval gate → apply → holdback pipeline, make the planner the single decision point the proxy executes, and establish a canonical route identity. Phases B–F (statistics, reliability, new levers, learned policy, governance) follow in that order; see "Current phase" above.
 
 **Not in scope at all for now:**
 - Billing-grade invoice reconciliation
@@ -247,22 +240,9 @@ In v1 the data plane behavior can be stubbed or simulated so the full loop demon
 - Full enterprise permissions and approval workflows
 - Advanced ML forecasting
 - Multi-cloud infrastructure optimization
-- Published SDKs (curl is the SDK for v1)
-- API key rotation flow (one key per project is fine for v1)
+- API key rotation flow (one key per project is fine for now)
 
-## Build order
-
-1. Foundation: schema, organizations, users, API keys, usage ingestion, basic auth
-2. Measurement: `model_prices`, `model_price_overrides`, `scripts/sync_prices.py`, cost calculation, `pricing_status`, `cost_source`
-3. Spend breakdowns: by model, provider, project, feature, customer, environment, plus top spend drivers (this feeds the recommendation engine and Analysis)
-4. Recommendation engine: rule-based detection of candidate cuts per lever, estimated savings, risk level, rationale, recommendation status
-5. Decision loop UI: Dashboard and Engine (Recommendations, Levers, Automation), apply / dismiss / status
-6. Proof: savings attribution view, by-lever breakdown, net-after-fee, confidence intervals, data quality
-7. Guardrails: budgets, threshold alerts, anomaly alerts, forecast over-budget alerts, quality floors as config
-8. Analysis (demoted) and Admin
-9. Reports and shareable executive view
-
-Build simple before complex. Do not jump to the production data plane, real eval harness, or live holdback before the control plane and the decision loop are coherent end to end.
+Build simple before complex. Do not start a later roadmap phase before the earlier one is coherent end to end, and do not pretend a capability exists in the codebase when it does not.
 
 ## Database design notes (current thinking)
 
@@ -385,7 +365,8 @@ This is a target, not a contract. Open to changes if there's a real reason.
 ## Things that should make Claude pause and ask
 
 - If I propose reverting to an analytics or dashboard-first framing where measurement is the product. Measurement is the foundation. The engine and Proof are the product.
-- If I propose expanding the Phase 1 proxy beyond its scope (a second provider, a second lever, vector similarity, a vault UI, Redis) before the OpenAI streaming + semantic-cache skeleton is solid. Scope additions honestly first.
+- If I propose skipping ahead in the roadmap (a new lever, a learned policy, a new provider surface) before the current phase is coherent end to end. Scope additions honestly first.
+- If I propose letting the engine auto-apply anything that has not cleared the eval gate and the readiness thresholds, or letting a judge-scored (subjective) route auto-apply at all.
 - If I propose putting the proxy in a client's path without a kill switch and fail-open behavior once it moves past skeleton. Being inline means if Varsten is down their calls fail; that safety story is required before real traffic.
 - If I propose writing prompt or completion text to the ledger. The ledger is metadata only; the semantic cache is the one documented exception.
 - If I propose showing a savings number without an attribution method behind it. No painted-on savings. Every dollar ties to a method, and the UI says whether it is estimated or measured.

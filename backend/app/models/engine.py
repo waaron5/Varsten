@@ -284,6 +284,53 @@ class OptimizationDecision(Base, TimestampMixin):
     reason_detail: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
 
+class EngineOutcomePrior(Base, TimestampMixin):
+    __tablename__ = "engine_outcome_priors"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "lever",
+            "task_type",
+            "risk_level",
+            "provider_requested",
+            "model_requested",
+            "provider_chosen",
+            "model_chosen",
+            name="uq_engine_outcome_priors_segment",
+        ),
+        Index("ix_engine_outcome_priors_project_model_lever", "project_id", "model_requested", "lever"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    lever: Mapped[str] = mapped_column(String(32), nullable=False)
+    task_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_requested: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_requested: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider_chosen: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_chosen: Mapped[str] = mapped_column(String(128), nullable=False)
+    readiness_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    sample_count: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
+    measured_savings_count: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
+    total_gross_savings_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    average_gross_savings_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    quality_pass_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4), nullable=True)
+    feedback_acceptance_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4), nullable=True)
+    reason_codes: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    window_days: Mapped[int] = mapped_column(nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class MonthlyReport(Base, TimestampMixin):
     __tablename__ = "monthly_reports"
     __table_args__ = (

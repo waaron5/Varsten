@@ -9,9 +9,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.auth.entitlements import invalidate_plan_tier
-from app.models import PLAN_PERFORMANCE, Organization, UsageEvent
+from app.models import PLAN_PERFORMANCE, Organization, Project, Recommendation, UsageEvent
 from app.proxy.routing import ARM_CONTROL, ARM_TREATMENT, SMART_ROUTING
-from app.savings import month_start
+from app.savings import month_start, record_applied_savings
 from app.savings_measurement import (
     LEVER_BATCHING,
     LEVER_SEMANTIC_CACHE,
@@ -141,11 +141,46 @@ def test_compute_verified_combines_direct_and_holdback(client, db_session, provi
         _event(db_session, project_id, org_id, cost=cost, metadata={**pair, "arm": ARM_CONTROL})
     for cost in ("0.040", "0.050"):
         _event(db_session, project_id, org_id, cost=cost, metadata={**pair, "arm": ARM_TREATMENT, "routed": True})
+    _event(db_session, project_id, org_id, cost="0.25", metadata={"overhead": "eval_replay"})
 
     verified = compute_verified_savings(db_session, project_id, start, end)
     assert verified["direct_measured_usd"] == Decimal("3.00")
     assert verified["holdback_measured_usd"] > Decimal("0")
-    assert verified["verified_savings_usd"] == verified["direct_measured_usd"] + verified["holdback_measured_usd"]
+    assert verified["measurement_cost_usd"] > Decimal("0")
+    assert verified["optimization_overhead_cost_usd"] == Decimal("0.25")
+    assert verified["verified_gross_savings_usd"] == verified["direct_measured_usd"] + verified["holdback_measured_usd"]
+    assert verified["verified_savings_usd"] == (
+        verified["verified_gross_savings_usd"]
+        - verified["measurement_cost_usd"]
+        - verified["optimization_overhead_cost_usd"]
+    )
+
+
+def test_estimated_savings_attribution_has_no_fabricated_confidence_band(client, db_session, provision):
+    project_id, _, _ = _ids(provision)
+    project = db_session.get(Project, project_id)
+    rec = Recommendation(
+        organization_id=project.organization_id,
+        project_id=project.id,
+        dedupe_key=f"rec-{uuid.uuid4()}",
+        type="model_downshift",
+        lever="model_downshift",
+        title="Route cheaper model",
+        description="x",
+        estimated_monthly_savings_usd=Decimal("100.00"),
+        measurement_method=METHOD_ESTIMATED,
+        risk_level="medium",
+        confidence="medium",
+    )
+    db_session.add(rec)
+    db_session.flush()
+
+    attr = record_applied_savings(db_session, project, rec)
+
+    assert attr is not None
+    assert attr.status == "estimated"
+    assert attr.confidence_low_usd is None
+    assert attr.confidence_high_usd is None
 
 
 def test_proof_endpoint_hides_verified_on_free_and_never_calls_estimate_saved(client, db_session, provision):
@@ -170,6 +205,9 @@ def test_proof_endpoint_exposes_verified_on_performance(client, db_session, prov
     body = client.get("/v1/proof/savings", headers={"Authorization": f"Bearer {p['api_key']}"}).json()
     assert body["plan_tier"] == "performance"
     assert Decimal(str(body["verified"]["verified_savings_usd"])) == Decimal("4.25")
+    assert Decimal(str(body["verified"]["verified_gross_savings_usd"])) == Decimal("4.25")
+    assert Decimal(str(body["verified"]["measurement_cost_usd"])) == Decimal("0.00")
+    assert Decimal(str(body["verified"]["optimization_overhead_cost_usd"])) == Decimal("0.00")
     assert Decimal(str(body["verified"]["direct_measured_usd"])) == Decimal("4.25")
     # Estimated and verified are distinct, labeled buckets.
     assert "estimated" in body["estimated"]["label"].lower()

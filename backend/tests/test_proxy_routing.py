@@ -441,10 +441,12 @@ def test_drift_auto_rollback(client, provision, db_session, monkeypatch):
     monkeypatch.setattr(drift_mod, "MIN_ARM_SAMPLES", 4)
     project = _project(db_session, provision)
     rule, rec = _rule_with_rec(db_session, project)
-    # Control healthy, treatment degraded: a clear, significant quality drop.
-    for _ in range(5):
+    # Control healthy, treatment fully degraded. The peeking-safe rollback needs
+    # the confidence sequence for the drop to clear the tolerance, so a maximal
+    # split still needs enough samples to be confirmed rather than assumed.
+    for _ in range(15):
         _record_q(db_session, project, "control", INCUMBENT, True)
-    for _ in range(5):
+    for _ in range(15):
         _record_q(db_session, project, "treatment", CANDIDATE, False)
     db_session.commit()
 

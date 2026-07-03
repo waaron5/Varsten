@@ -9,6 +9,7 @@ since the prompt is already sent to OpenAI for the completion.
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.proxy import http_client
+from app.proxy.ledger import record_overhead_usage
 
 logger = get_logger("varsten.embedding")
 
@@ -30,7 +31,7 @@ def embedding_input(body: dict) -> str:
     return "\n".join(parts).strip()
 
 
-async def embed(text: str, client_key: str) -> list[float] | None:
+async def embed(text: str, client_key: str, *, db=None, project=None) -> list[float] | None:
     if not text:
         return None
     url = f"{settings.openai_base_url.rstrip('/')}{EMBEDDINGS_PATH}"
@@ -50,7 +51,21 @@ async def embed(text: str, client_key: str) -> list[float] | None:
         if resp.status_code != 200:
             logger.warning("embedding upstream non-200", extra={"status": resp.status_code})
             return None
-        return resp.json()["data"][0]["embedding"]
+        payload = resp.json()
+        if db is not None and project is not None:
+            usage = payload.get("usage") or {}
+            input_tokens = int(usage.get("prompt_tokens") or usage.get("total_tokens") or 0)
+            await record_overhead_usage(
+                db,
+                project,
+                provider="openai",
+                model=settings.embedding_model,
+                operation="embedding",
+                input_tokens=input_tokens,
+                output_tokens=0,
+                overhead="embedding",
+            )
+        return payload["data"][0]["embedding"]
     except Exception:
         # Fail-open: a failed embedding just means no semantic match this request.
         logger.exception("embedding failed")

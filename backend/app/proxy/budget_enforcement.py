@@ -16,6 +16,7 @@ Budget state is read through a short-TTL process-local cache so the hot path doe
 not sum the ledger on every request (single-process, like the plan-tier cache).
 """
 
+import json
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -29,16 +30,30 @@ from app.budgets import OWNER_COLUMN
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models import BudgetRule, UsageEvent
+from app.proxy import shared_state
 from app.proxy.request_context import RequestContext
 from app.savings import month_start
 
 logger = get_logger("varsten.proxy.budget")
 
-# project_id -> frozenset[(owner_type, owner_key)] of exhausted hard caps.
+# project_id -> frozenset[(owner_type, owner_key)] of exhausted hard caps. This is
+# the per-process cache used when no shared store is configured; with REDIS_URL set
+# the same value lives in Redis so every instance sees a cap the moment any one of
+# them computed it, instead of each re-summing the ledger.
 _cache: TTLCache[str, frozenset[tuple[str, str]]] = TTLCache(
     maxsize=4096, ttl=max(1, settings.budget_enforcement_cache_ttl_seconds)
 )
 _lock = threading.Lock()
+
+_BUDGET_PREFIX = "budget:exhausted:"
+
+
+def _serialize_caps(caps: frozenset[tuple[str, str]]) -> str:
+    return json.dumps(sorted([list(cap) for cap in caps]))
+
+
+def _deserialize_caps(raw: str) -> frozenset[tuple[str, str]]:
+    return frozenset((pair[0], pair[1]) for pair in json.loads(raw))
 
 
 def clear_budget_cache(project_id: uuid.UUID | None = None) -> None:
@@ -48,6 +63,12 @@ def clear_budget_cache(project_id: uuid.UUID | None = None) -> None:
             _cache.clear()
         else:
             _cache.pop(str(project_id), None)
+    store = shared_state.get_store()
+    if store is not None:
+        if project_id is None:
+            store.clear_prefix(_BUDGET_PREFIX)
+        else:
+            store.delete(_BUDGET_PREFIX + str(project_id))
 
 
 async def _compute_exhausted(db: AsyncSession, project_id: uuid.UUID, now: datetime) -> frozenset[tuple[str, str]]:
@@ -78,20 +99,50 @@ async def _compute_exhausted(db: AsyncSession, project_id: uuid.UUID, now: datet
     return frozenset(exhausted)
 
 
+async def _compute_and_report(db: AsyncSession, project_id: uuid.UUID) -> frozenset[tuple[str, str]] | None:
+    """Sum the ledger for this project's caps, or None on error (fail-open)."""
+    try:
+        return await _compute_exhausted(db, project_id, datetime.now(UTC))
+    except Exception:
+        logger.exception("budget enforcement lookup failed; allowing request (fail-open)")
+        return None
+
+
 async def exhausted_hard_caps(db: AsyncSession, project_id: uuid.UUID) -> frozenset[tuple[str, str]]:
     """The owners whose hard cap is exhausted this month, cached. Fail-open: returns
-    an empty set on any error so a lookup failure never blocks traffic."""
+    an empty set on any error so a lookup failure never blocks traffic.
+
+    A shared store (REDIS_URL) holds the computed set so instances do not each
+    re-sum the ledger; with no store the per-process TTL cache is used unchanged.
+    Both paths fail open to recomputation or an empty set."""
     if not settings.budget_enforcement_enabled:
         return frozenset()
     key = str(project_id)
+    store = shared_state.get_store()
+
+    if store is not None:
+        raw = store.get(_BUDGET_PREFIX + key)
+        if raw is not None:
+            try:
+                return _deserialize_caps(raw)
+            except (ValueError, TypeError, KeyError, IndexError):
+                logger.warning("shared budget cache value unreadable; recomputing", extra={"project_id": key})
+        result = await _compute_and_report(db, project_id)
+        if result is None:
+            return frozenset()
+        store.set(
+            _BUDGET_PREFIX + key,
+            _serialize_caps(result),
+            ttl_seconds=max(1, settings.budget_enforcement_cache_ttl_seconds),
+        )
+        return result
+
     with _lock:
         cached = _cache.get(key)
     if cached is not None:
         return cached
-    try:
-        result = await _compute_exhausted(db, project_id, datetime.now(UTC))
-    except Exception:
-        logger.exception("budget enforcement lookup failed; allowing request (fail-open)")
+    result = await _compute_and_report(db, project_id)
+    if result is None:
         return frozenset()
     with _lock:
         _cache[key] = result

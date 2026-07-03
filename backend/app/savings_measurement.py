@@ -40,6 +40,7 @@ MEASURED_METHODS = frozenset({METHOD_DIRECT_MEASURED, METHOD_HOLDBACK_MEASURED, 
 
 _CENTS = Decimal("0.01")
 _meta = UsageEvent.event_metadata
+_OVERHEAD_TAGS = ("eval_replay", "embedding")
 # saved_usd is stored as a JSON string (e.g. "1.230000"); absent or JSON-null
 # rows yield SQL NULL on .astext and are excluded by the not-null filter below.
 _saved = cast(_meta["saved_usd"].astext, Numeric(20, 12))
@@ -127,36 +128,46 @@ def direct_measured_by_lever(
     return out
 
 
-def _experiment_pairs(db: Session, project_id, start: datetime) -> list[tuple[str, str]]:
+def _experiment_pairs(db: Session, project_id, start: datetime, end: datetime | None = None) -> list[tuple[str, str]]:
+    conditions = [
+        UsageEvent.project_id == project_id,
+        UsageEvent.received_at >= start,
+        _meta["holdback"].astext == "true",
+    ]
+    if end is not None:
+        conditions.append(UsageEvent.received_at < end)
     rows = db.execute(
         select(
             _meta["experiment_from"].astext.label("incumbent"),
             _meta["experiment_to"].astext.label("candidate"),
         )
-        .where(
-            UsageEvent.project_id == project_id,
-            UsageEvent.received_at >= start,
-            _meta["holdback"].astext == "true",
-        )
+        .where(*conditions)
         .distinct()
     ).all()
     return [(r.incumbent, r.candidate) for r in rows if r.incumbent and r.candidate]
 
 
-def holdback_measured(db: Session, project_id, start: datetime) -> dict:
+def holdback_measured(db: Session, project_id, start: datetime, end: datetime | None = None) -> dict:
     """Holdback A/B measured savings this period across all routing experiments,
     summed with a confidence interval. Experiments without a measurable arm
     difference contribute nothing (they stay estimated until they have signal)."""
     total = Decimal("0")
     ci_low = Decimal("0")
     ci_high = Decimal("0")
+    measurement_cost = Decimal("0")
     experiments: list[dict] = []
     has_signal = False
-    for incumbent, candidate in _experiment_pairs(db, project_id, start):
-        exp = compute_experiment(db, project_id, incumbent, candidate, start)
+    for incumbent, candidate in _experiment_pairs(db, project_id, start, end):
+        exp = compute_experiment(db, project_id, incumbent, candidate, start, end)
         measured = exp["measured_savings_usd"]
         if measured is None:
             continue
+        savings_per_request = exp["savings_per_request_usd"] or Decimal("0")
+        exp_measurement_cost = max(Decimal(str(savings_per_request)), Decimal("0")) * Decimal(
+            exp["control_requests"] or 0
+        )
+        exp["measurement_cost_usd"] = _q(exp_measurement_cost)
+        measurement_cost += exp_measurement_cost
         total += measured
         # Fall back to the point estimate when an arm lacks the variance for a CI.
         ci_low += exp["measured_savings_ci_low_usd"] if exp["measured_savings_ci_low_usd"] is not None else measured
@@ -167,28 +178,55 @@ def holdback_measured(db: Session, project_id, start: datetime) -> dict:
         "total_usd": total,
         "ci_low_usd": ci_low,
         "ci_high_usd": ci_high,
+        "measurement_cost_usd": measurement_cost,
         "has_signal": has_signal,
         "experiments": experiments,
     }
 
 
-def compute_verified_savings(db: Session, project_id, start: datetime, end: datetime) -> dict:
-    """Verified savings = direct measured + holdback measured, with provenance.
+def optimization_overhead_cost(db: Session, project_id, start: datetime, end: datetime) -> Decimal:
+    """Cost of Varsten optimization work in the period.
 
-    This is the only number Proof should present as "saved". A skeptical reader can
-    trace ``direct_by_lever`` to ledger ``saved_usd`` rows and ``holdback`` to the
-    per-experiment arm aggregates.
+    Overhead rows are real provider calls used to execute or validate an
+    optimization, tagged in the ledger as ``metadata.overhead``. They reduce the
+    verified savings basis before gain-share billing.
+    """
+    total = db.scalar(
+        select(func.coalesce(func.sum(UsageEvent.cost_usd), 0)).where(
+            UsageEvent.project_id == project_id,
+            UsageEvent.received_at >= start,
+            UsageEvent.received_at < end,
+            _meta["overhead"].astext.in_(_OVERHEAD_TAGS),
+        )
+    )
+    return Decimal(total or 0)
+
+
+def compute_verified_savings(db: Session, project_id, start: datetime, end: datetime) -> dict:
+    """Verified savings = measured gross savings minus proof/optimization cost.
+
+    A skeptical reader can trace ``direct_by_lever`` to ledger ``saved_usd`` rows,
+    ``holdback`` to the per-experiment arm aggregates, and the two cost offsets
+    to explicit ledger facts. The returned ``verified_savings_usd`` is the net
+    billable basis; ``verified_gross_savings_usd`` keeps the pre-cost number
+    visible for audit.
     """
     direct = direct_measured_by_lever(db, project_id, start, end)
     direct_total = sum(direct.values(), Decimal("0"))
-    holdback = holdback_measured(db, project_id, start)
-    verified = direct_total + holdback["total_usd"]
+    holdback = holdback_measured(db, project_id, start, end)
+    verified_gross = direct_total + holdback["total_usd"]
+    measurement_cost = holdback["measurement_cost_usd"]
+    overhead = optimization_overhead_cost(db, project_id, start, end)
+    verified_net = verified_gross - measurement_cost - overhead
     return {
         "direct_by_lever": {lever: _q(value) for lever, value in direct.items()},
         "direct_measured_usd": _q(direct_total),
         "holdback_measured_usd": _q(holdback["total_usd"]),
         "holdback_ci_low_usd": _q(holdback["ci_low_usd"]),
         "holdback_ci_high_usd": _q(holdback["ci_high_usd"]),
+        "measurement_cost_usd": _q(measurement_cost),
+        "optimization_overhead_cost_usd": _q(overhead),
+        "verified_gross_savings_usd": _q(verified_gross),
         "holdback_has_signal": holdback["has_signal"],
-        "verified_savings_usd": _q(verified),
+        "verified_savings_usd": _q(verified_net),
     }

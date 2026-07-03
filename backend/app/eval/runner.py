@@ -18,11 +18,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import AsyncSessionLocal
+from app.engine import governance
 from app.eval import scoring
 from app.eval.failure_registry import record_failure
 from app.eval.openai_ops import judge_pairwise, replay_candidate
 from app.levers import LEVER_MODEL_DOWNSHIFT
-from app.models import EvalRun, EvalSampleResult, Project, Recommendation, ReplaySample
+from app.models import EvalRun, EvalSampleResult, Project, Recommendation, ReplaySample, UsageEvent
 from app.models.eval import (
     RUN_COMPLETED,
     RUN_FAILED,
@@ -60,12 +61,18 @@ def _usage_tokens(payload: dict) -> tuple[int, int]:
     return int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
 
 
-async def _price(org_id: uuid.UUID, model: str, in_tok: int, out_tok: int, at: datetime) -> Decimal | None:
+async def _price_usage(
+    org_id: uuid.UUID,
+    model: str,
+    in_tok: int,
+    out_tok: int,
+    at: datetime,
+) -> tuple[Decimal | None, str, str, uuid.UUID | None]:
     # pricing is async; run_eval is a coroutine, so bridge by opening a scoped
     # AsyncSession here rather than threading one through run_eval's sync session.
     # Pricing reads stable catalog data, so a separate session is consistent.
     async with AsyncSessionLocal() as adb:
-        cost, _, _, _ = await price_usage_event(
+        return await price_usage_event(
             adb,
             organization_id=org_id,
             model_key=model,
@@ -76,7 +83,61 @@ async def _price(org_id: uuid.UUID, model: str, in_tok: int, out_tok: int, at: d
             reported_cost_usd=None,
             at=at,
         )
+
+
+async def _price(org_id: uuid.UUID, model: str, in_tok: int, out_tok: int, at: datetime) -> Decimal | None:
+    cost, _, _, _ = await _price_usage(org_id, model, in_tok, out_tok, at)
     return cost
+
+
+async def _record_eval_replay_overhead(
+    db: Session,
+    run: EvalRun,
+    input_tokens: int,
+    output_tokens: int,
+    at: datetime,
+) -> None:
+    """Persist the real candidate replay cost as optimization overhead.
+
+    The row commits with the eval run's result, so a completed run carries all of
+    the replay cost that produced its verdict.
+    """
+    try:
+        cost, cost_source, pricing_status, price_version_id = await _price_usage(
+            run.organization_id,
+            run.candidate_model,
+            input_tokens,
+            output_tokens,
+            at,
+        )
+        db.add(
+            UsageEvent(
+                project_id=run.project_id,
+                organization_id=run.organization_id,
+                api_key_id=None,
+                source="overhead",
+                provider="openai",
+                model=run.candidate_model,
+                operation="eval_replay",
+                request_type="eval_replay",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_input_tokens=0,
+                total_tokens=input_tokens + output_tokens,
+                cost_usd=cost,
+                cost_source=cost_source,
+                pricing_status=pricing_status,
+                price_version_id=price_version_id,
+                currency="USD",
+                status="success",
+                success=True,
+                event_metadata={"overhead": "eval_replay", "eval_run_id": str(run.id)},
+                occurred_at=at,
+                environment="production",
+            )
+        )
+    except Exception:
+        logger.exception("eval replay overhead metering failed", extra={"eval_run_id": str(run.id)})
 
 
 def _eligible_for_smart_routing(sample: ReplaySample) -> bool:
@@ -134,6 +195,8 @@ async def run_eval(
             cand_payload = await replay_fn(sample.request_messages, sample.request_params, run.candidate_model, key)
             if cand_payload is None:
                 continue  # replay failed; skip rather than poison the verdict
+            cand_in, cand_out = _usage_tokens(cand_payload)
+            await _record_eval_replay_overhead(db, run, cand_in, cand_out, at)
             cand_text = scoring.assistant_text(cand_payload)
             inc_text = scoring.assistant_text(sample.incumbent_response)
 
@@ -153,7 +216,6 @@ async def run_eval(
             scorers.add(scorer)
             scores.append(score)
 
-            cand_in, cand_out = _usage_tokens(cand_payload)
             inc_cost = await _price(
                 run.organization_id, run.incumbent_model, sample.input_tokens, sample.output_tokens, at
             )
@@ -267,6 +329,12 @@ def _finalize(
 
     run.status = RUN_COMPLETED
     run.completed_at = at
+
+    # Governance: an actionable verdict on a routing-lever recommendation proposes
+    # a ChangeRequest carrying this run's evidence bundle for a named human to
+    # decide. Self-guarding; a governance failure never fails the eval.
+    governance.ensure_change_request(db, run)
+
     db.commit()
 
 

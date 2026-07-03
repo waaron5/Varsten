@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.levers import LEVER_MODEL_DOWNSHIFT, LEVER_SMART_ROUTING
 from app.models import ROUTING_LEVERS, Project, ProxyPolicy, Recommendation
+from app.proxy import canary
 from app.proxy import predicate as predicate_mod
 
 logger = get_logger("varsten.proxy.routing")
@@ -90,6 +91,11 @@ async def resolve_route(
             pred = (policy.params or {}).get("predicate")
             if not predicate_mod.is_eligible(body or {}, pred):
                 return None
+        # Canary gate: a request outside the policy's current rollout stays on the
+        # incumbent as plain passthrough (not an experiment arm). Independent of
+        # the holdback arm draw the caller makes next.
+        if not canary.in_rollout(policy.rollout_percent):
+            return None
         return RouteDecision(
             policy.candidate_model,
             policy.candidate_provider or requested_provider,
@@ -158,6 +164,9 @@ def activate_rule(
             ProxyPolicy.target_key == incumbent,
         )
     )
+    # A brand-new policy, or one being re-enabled after a rollback/dismiss, starts
+    # a fresh canary ramp; refreshing an already-live policy keeps its rollout.
+    fresh = policy is None or not policy.enabled
     if policy is None:
         policy = ProxyPolicy(
             organization_id=project.organization_id,
@@ -174,6 +183,8 @@ def activate_rule(
     if lever == SMART_ROUTING and "predicate" not in params:
         params["predicate"] = dict(predicate_mod.DEFAULT_PREDICATE)
     policy.params = params
+    if fresh:
+        policy.rollout_percent = canary.initial_rollout_percent()
     policy.enabled = True
     policy.source_recommendation_id = recommendation.id
     policy.activated_at = at

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/varsten-icon.svg", type: "image/svg+xml" }],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#fbf9f3",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

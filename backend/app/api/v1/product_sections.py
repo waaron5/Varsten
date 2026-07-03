@@ -19,6 +19,7 @@ from app.core.audit import client_ip, record_audit
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import get_db
+from app.engine import governance
 from app.eval.gate import (
     EvalGateError,
     apply_measured_savings,
@@ -36,6 +37,7 @@ from app.models import (
     AuditEvent,
     BatchJob,
     BudgetRule,
+    ChangeRequest,
     CustomerEconomics,
     LeverConfig,
     MonthlyReport,
@@ -101,6 +103,11 @@ class LeverConfigUpdate(BaseModel):
 
 class MonthlyReportUpdate(BaseModel):
     status: Literal["draft", "published"]
+
+
+class ChangeRequestDecision(BaseModel):
+    action: Literal["approve", "reject"]
+    rationale: str | None = Field(default=None, max_length=2000)
 
 
 class QualityGuardrailCreate(BaseModel):
@@ -776,14 +783,19 @@ def _build_dashboard_snapshot(db: Session, project: Project, period: Period) -> 
 
     score, coverage, attribution = _window_trust(db, project, window)
     # Verified-savings provenance: the ledger-measured portion of the reported gross,
-    # plus which measurement methods are live. All from the same window computation.
+    # net of measurement and optimization overhead, plus which measurement methods
+    # are live. All from the same window computation.
     direct_measured = Decimal(current["direct_measured_usd"])
     has_holdback = bool(current["holdback_has_signal"])
     holdback_measured = Decimal(current["holdback_measured_usd"])
+    measurement_cost = Decimal(current["measurement_cost_usd"])
+    optimization_overhead = Decimal(current["optimization_overhead_cost_usd"])
+    verified_gross = Decimal(current["verified_gross_savings_usd"])
+    verified_net = Decimal(current["verified_savings_usd"])
     has_direct = direct_measured > 0
-    verified_raw = direct_measured + (holdback_measured if has_holdback else Decimal("0"))
+    has_verified = has_direct or has_holdback
     if gross is not None and gross > 0:
-        verified = min(verified_raw, gross)
+        verified = min(max(verified_net, Decimal("0")), gross)
         measured_share = (verified / gross).quantize(_RATIO)
     else:
         verified = None
@@ -811,10 +823,12 @@ def _build_dashboard_snapshot(db: Session, project: Project, period: Period) -> 
         mode=current["mode"],
         fee_percent=current["fee_percent"],
         gross_savings_usd=gross,
-        # Top-level auditable measured savings (ledger facts). verified_raw is the
-        # unclamped direct + holdback(when signal) total -- the same basis billing
-        # uses -- so the UI headline never inherits the estimate-derived gross.
-        verified_savings_usd=verified_raw if (has_direct or has_holdback) else None,
+        # Top-level auditable measured savings (ledger facts), net of measurement
+        # and optimization overhead -- the same basis billing uses.
+        verified_savings_usd=verified_net if has_verified else None,
+        verified_gross_savings_usd=verified_gross if has_verified else None,
+        measurement_cost_usd=measurement_cost if has_verified else None,
+        optimization_overhead_cost_usd=optimization_overhead if has_verified else None,
         direct_measured_usd=direct_measured if has_direct else None,
         holdback_measured_usd=holdback_measured if has_holdback else None,
         holdback_has_signal=has_holdback,
@@ -965,12 +979,22 @@ def engine_update_recommendation(
             gating_run = assert_appliable(db, recommendation, automated=False)
         except EvalGateError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        # Governance (opt-in): with change-request enforcement on, a gated lever
+        # additionally needs a named human's approved ChangeRequest behind it.
+        try:
+            governance.assert_change_request_approved(db, recommendation)
+        except governance.GovernanceError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         apply_measured_savings(recommendation, gating_run)
         # Execution: activate the lever's policy (routing swap, trim transform, ...).
         activate_execution(db, project, recommendation, gating_run, now=now)
+        # Keep the governance object's lifecycle in sync (best-effort, even when
+        # enforcement is off, so the audit trail stays continuous).
+        governance.mark_change_request_active(db, recommendation, now=now)
     elif payload.status in {"dismissed", "rolled_back"}:
         # Stop executing this lever; traffic returns to the original behaviour.
         deactivate_execution(db, recommendation)
+        governance.mark_change_request_rolled_back(db, recommendation, now=now)
     recommendation.status = payload.status
     recommendation.updated_at = now
     recommendation.resolved_at = now if payload.status != "open" else None
@@ -997,6 +1021,70 @@ def engine_update_recommendation(
     db.commit()
     db.refresh(recommendation)
     return recommendation
+
+
+def _change_request_payload(change_request) -> dict:
+    return {
+        "id": str(change_request.id),
+        "recommendation_id": str(change_request.recommendation_id),
+        "eval_run_id": str(change_request.eval_run_id) if change_request.eval_run_id else None,
+        "lever": change_request.lever,
+        "route_key": change_request.route_key,
+        "incumbent_model": change_request.incumbent_model,
+        "candidate_model": change_request.candidate_model,
+        "status": change_request.status,
+        "evidence": change_request.evidence or {},
+        "decided_by_user_id": str(change_request.decided_by_user_id) if change_request.decided_by_user_id else None,
+        "decided_at": change_request.decided_at.isoformat() if change_request.decided_at else None,
+        "decision_rationale": change_request.decision_rationale,
+        "created_at": change_request.created_at.isoformat() if change_request.created_at else None,
+    }
+
+
+@router.get("/engine/change-requests", response_model=None)
+def engine_change_requests(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+    status_filter: str | None = Query(default=None, alias="status"),
+) -> list[dict]:
+    """The project's governance queue: proposed changes with their evidence
+    bundles, plus decided/active ones for the audit view."""
+    stmt = select(ChangeRequest).where(ChangeRequest.project_id == project.id)
+    if status_filter:
+        stmt = stmt.where(ChangeRequest.status == status_filter)
+    rows = db.scalars(stmt.order_by(ChangeRequest.created_at.desc()).limit(200)).all()
+    return [_change_request_payload(row) for row in rows]
+
+
+@router.post("/engine/change-requests/{change_request_id}/decision", response_model=None)
+def engine_decide_change_request(
+    change_request_id: uuid.UUID,
+    payload: ChangeRequestDecision,
+    request: Request,
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """A named human approves or rejects a proposed change. Writes the decision
+    (actor, rationale, timestamp) and an immutable audit event atomically."""
+    change_request = db.get(ChangeRequest, change_request_id)
+    if change_request is None or change_request.project_id != project.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="change request not found")
+    _assert_member(user, project, db)
+    try:
+        governance.decide_change_request(
+            db,
+            change_request,
+            user=user,
+            approve=payload.action == "approve",
+            rationale=payload.rationale,
+            source_ip=client_ip(request),
+        )
+    except governance.GovernanceError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(change_request)
+    return _change_request_payload(change_request)
 
 
 @router.get("/engine/levers", response_model=None)
@@ -1422,11 +1510,14 @@ def proof_savings(
     }
     if performance:
         payload["verified"] = {
-            "label": "Verified savings, measured from the ledger",
+            "label": "Verified savings, measured from the ledger and net of optimization costs",
             "direct_measured_usd": summary["direct_measured_usd"],
             "holdback_measured_usd": summary["holdback_measured_usd"],
             "holdback_ci_low_usd": summary["holdback_ci_low_usd"],
             "holdback_ci_high_usd": summary["holdback_ci_high_usd"],
+            "measurement_cost_usd": summary["measurement_cost_usd"],
+            "optimization_overhead_cost_usd": summary["optimization_overhead_cost_usd"],
+            "verified_gross_savings_usd": summary["verified_gross_savings_usd"],
             "holdback_has_signal": summary["holdback_has_signal"],
             "verified_savings_usd": summary["verified_savings_usd"],
             "verified_fee_usd": summary["verified_fee_usd"],
@@ -1435,8 +1526,9 @@ def proof_savings(
         }
         payload["measurement_note"] = (
             "Verified savings are measured: direct (cache/batch/route avoided cost summed from the "
-            "ledger) plus holdback A/B with a 95% confidence interval. Estimated figures are the "
-            "modeled impact of applied optimizations and are shown separately, never as 'saved'."
+            "ledger) plus holdback A/B with a 95% confidence interval, minus holdback measurement "
+            "cost and optimization overhead. Estimated figures are the modeled impact of applied "
+            "optimizations and are shown separately, never as 'saved'."
         )
     else:
         payload["measurement_note"] = (

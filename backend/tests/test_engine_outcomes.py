@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.engine.outcomes import score_optimization_outcomes
@@ -14,8 +15,9 @@ def _decision(
     savings: str | None = "0.01",
     quality_ok: bool | None = True,
     confidence: str = "measured_priced",
+    created_at: datetime | None = None,
 ) -> dict:
-    return {
+    row = {
         "id": f"decision_{idx}",
         "provider_requested": "openai",
         "model_requested": model_requested,
@@ -32,6 +34,9 @@ def _decision(
         "quality_ok": quality_ok,
         "event_metadata": {"savings_proof": {"confidence": confidence}},
     }
+    if created_at is not None:
+        row["created_at"] = created_at
+    return row
 
 
 def _feedback(idx: int, *, outcome: str = "accepted", failure_mode: str | None = None) -> dict:
@@ -80,12 +85,11 @@ def test_outcome_scorer_marks_quality_failures_risky():
     assert candidate["readiness"]["status"] == "quality_risk"
     assert "quality_pass_rate_low" in candidate["readiness"]["reason_codes"]
     assert "corrective_feedback_present" in candidate["readiness"]["reason_codes"]
-    assert candidate["quality"] == {
-        "measured_count": 5,
-        "passed_count": 4,
-        "failed_count": 1,
-        "pass_rate": "0.8000",
-    }
+    assert candidate["quality"]["measured_count"] == 5
+    assert candidate["quality"]["passed_count"] == 4
+    assert candidate["quality"]["failed_count"] == 1
+    assert candidate["quality"]["pass_rate"] == "0.8000"
+    assert candidate["quality"]["raw_measured_count"] == 5
     assert candidate["feedback"]["corrective_count"] == 1
     assert candidate["feedback"]["top_failure_modes"] == [{"key": "missing_detail", "count": 1}]
 
@@ -132,3 +136,28 @@ def test_outcome_scorer_ignores_passthrough_and_unlinked_feedback():
     assert candidate["segment"]["lever"] == "exact_cache"
     assert candidate["feedback"]["feedback_count"] == 1
     assert candidate["feedback"]["corrective_count"] == 0
+
+
+def test_outcome_scorer_decays_stale_wins_but_keeps_raw_counts():
+    now = datetime(2026, 7, 2, tzinfo=UTC)
+    stale = now - timedelta(days=200)
+    recent = now - timedelta(hours=1)
+    decisions = [
+        *[_decision(idx, created_at=stale) for idx in range(1, 101)],
+        *[_decision(idx, quality_ok=False, created_at=recent) for idx in range(101, 106)],
+    ]
+    feedback = [_feedback(idx) for idx in range(1, 106)]
+
+    candidate = score_optimization_outcomes(
+        decisions,
+        feedback,
+        now=now,
+        half_life_days=14,
+    )[0]
+
+    assert candidate["readiness"]["status"] == "quality_risk"
+    assert "quality_pass_rate_low" in candidate["readiness"]["reason_codes"]
+    assert candidate["raw_sample_count"] == 105
+    assert candidate["sample_count"] == 5
+    assert candidate["quality"]["raw_measured_count"] == 105
+    assert candidate["quality"]["measured_count"] == 5

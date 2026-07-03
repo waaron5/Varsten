@@ -15,6 +15,9 @@ from enum import StrEnum
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.engine.request_facts import normalize_request_facts
+from app.engine.types import RequestFacts
+
 
 class ClientDialect(StrEnum):
     OPENAI = "openai"
@@ -34,9 +37,13 @@ class ParsedClientRequest:
     path: str
     headers: dict[str, str]
     body: dict[str, Any]
+    request_facts: RequestFacts = field(init=False)
     model: str | None = None
     models: tuple[str, ...] = field(default_factory=tuple)
     stream: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "request_facts", normalize_request_facts(self.body))
 
 
 _GEMINI_MODEL_ACTION = re.compile(r"^/(?:v1|v1beta)/models/(?P<model>[^:]+):(?P<action>[A-Za-z]+)$")

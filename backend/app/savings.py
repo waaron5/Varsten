@@ -68,6 +68,9 @@ class SavingsSummary(TypedDict):
     holdback_measured_usd: Decimal
     holdback_ci_low_usd: Decimal
     holdback_ci_high_usd: Decimal
+    measurement_cost_usd: Decimal
+    optimization_overhead_cost_usd: Decimal
+    verified_gross_savings_usd: Decimal
     holdback_has_signal: bool
     verified_savings_usd: Decimal
     verified_fee_usd: Decimal
@@ -182,9 +185,12 @@ def record_applied_savings(
     attribution.gross_savings_usd = gross
     attribution.varsten_fee_usd = fee
     attribution.net_savings_usd = net
-    attribution.confidence_low_usd = _q(gross * Decimal("0.80"))
-    attribution.confidence_high_usd = _q(gross * Decimal("1.15"))
-    attribution.notes = f"Derived from recommendation {recommendation.id} ({recommendation.measurement_method})."
+    attribution.confidence_low_usd = None
+    attribution.confidence_high_usd = None
+    attribution.notes = (
+        f"Derived from recommendation {recommendation.id} ({recommendation.measurement_method}); "
+        "no confidence interval is attached to estimated savings."
+    )
     action.realized_savings_usd = net
 
     db.flush()
@@ -241,9 +247,10 @@ def compute_savings_summary(db: Session, project: Project, now: datetime | None 
     # Verified (measured) savings from the ledger. This is the audited "saved"
     # number; the fee is charged on it (billable), never on the estimate.
     verified = compute_verified_savings(db, project.id, start, end)
-    verified_gross = verified["verified_savings_usd"]
-    verified_fee = _q(verified_gross * org_fee_percent(project))
-    verified_net = verified_gross - verified_fee
+    verified_net_basis = verified["verified_savings_usd"]
+    billable = max(verified_net_basis, Decimal("0"))
+    verified_fee = _q(billable * org_fee_percent(project))
+    verified_net = verified_net_basis - verified_fee
 
     return {
         "period_start": start,
@@ -258,11 +265,14 @@ def compute_savings_summary(db: Session, project: Project, now: datetime | None 
         "holdback_measured_usd": verified["holdback_measured_usd"],
         "holdback_ci_low_usd": verified["holdback_ci_low_usd"],
         "holdback_ci_high_usd": verified["holdback_ci_high_usd"],
+        "measurement_cost_usd": verified["measurement_cost_usd"],
+        "optimization_overhead_cost_usd": verified["optimization_overhead_cost_usd"],
+        "verified_gross_savings_usd": verified["verified_gross_savings_usd"],
         "holdback_has_signal": verified["holdback_has_signal"],
-        "verified_savings_usd": verified_gross,
+        "verified_savings_usd": verified_net_basis,
         "verified_fee_usd": verified_fee,
         "verified_net_usd": verified_net,
-        "billable_savings_usd": verified_gross,
+        "billable_savings_usd": billable,
     }
 
 
@@ -301,6 +311,10 @@ class WindowSavingsBase(TypedDict):
     holdback_measured_usd: Decimal
     holdback_ci_low_usd: Decimal
     holdback_ci_high_usd: Decimal
+    measurement_cost_usd: Decimal
+    optimization_overhead_cost_usd: Decimal
+    verified_gross_savings_usd: Decimal
+    verified_savings_usd: Decimal
     holdback_has_signal: bool
     estimated_opportunity_usd: Decimal
     fee_percent: Decimal
@@ -402,6 +416,10 @@ def compute_savings_for_window(
         "holdback_measured_usd": verified["holdback_measured_usd"],
         "holdback_ci_low_usd": verified["holdback_ci_low_usd"],
         "holdback_ci_high_usd": verified["holdback_ci_high_usd"],
+        "measurement_cost_usd": verified["measurement_cost_usd"],
+        "optimization_overhead_cost_usd": verified["optimization_overhead_cost_usd"],
+        "verified_gross_savings_usd": verified["verified_gross_savings_usd"],
+        "verified_savings_usd": verified["verified_savings_usd"],
         "holdback_has_signal": verified["holdback_has_signal"],
         "estimated_opportunity_usd": _q(opportunity),
         "fee_percent": percent,

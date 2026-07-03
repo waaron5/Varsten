@@ -102,9 +102,11 @@ def test_sweep_all_projects_rolls_back_drift(client, provision, db_session, monk
     db_session.add(policy)
     db_session.commit()
 
-    for _ in range(5):
+    # Peeking-safe rollback needs the confidence sequence for the quality drop to
+    # clear the tolerance, so a maximal split still needs enough samples to confirm.
+    for _ in range(15):
         _record_q(db_session, project, "control", INCUMBENT, True)
-    for _ in range(5):
+    for _ in range(15):
         _record_q(db_session, project, "treatment", CANDIDATE, False)
     db_session.commit()
 
@@ -179,11 +181,12 @@ def test_scheduler_start_stop_lifecycle():
     async def run():
         sched = Scheduler()
         sched.start()
-        # drift sweep + batch poll + cache purge + alert sweep.
-        assert len(sched._tasks) == 5
+        # drift sweep + batch poll + cache purge + alert sweep + trial sweep
+        # + learning promotion.
+        assert len(sched._tasks) == 6
         # Starting again is idempotent.
         sched.start()
-        assert len(sched._tasks) == 5
+        assert len(sched._tasks) == 6
         await sched.stop()
         assert sched._tasks == []
 

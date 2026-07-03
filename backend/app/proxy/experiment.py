@@ -7,19 +7,22 @@ same time, so any app-level or provider-price change lands on both and cancels.
 
 Savings per request is the measured cost-per-request difference between the arms;
 the realized savings is that times the treatment volume, reported with a
-confidence interval, never a bare point estimate. This is the number that
-survives a CFO.
+confidence interval, never a bare point estimate. Because the ledger is read
+continuously (dashboards, the drift sweep), the interval is a time-uniform
+*confidence sequence* (app/proxy/sequential.py), not a fixed-n 95% CI that would
+lose its coverage under repeated looks. This is the number that survives a CFO.
 """
 
-import math
 from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import UsageEvent
 from app.proxy.routing import ARM_CONTROL, ARM_TREATMENT
+from app.proxy.sequential import difference_confidence_sequence
 
 # Minimum requests per arm before the A/B reports a confidence interval. Below
 # this the point estimate is shown but flagged as not yet significant.
@@ -40,9 +43,19 @@ def compute_experiment(
     incumbent: str,
     candidate: str,
     period_start: datetime,
+    period_end: datetime | None = None,
 ) -> dict:
     """Arm aggregates and the measured A/B savings for one route this period."""
     meta = UsageEvent.event_metadata
+    conditions = [
+        UsageEvent.project_id == project_id,
+        UsageEvent.received_at >= period_start,
+        meta["holdback"].astext == "true",
+        meta["experiment_from"].astext == incumbent,
+        meta["experiment_to"].astext == candidate,
+    ]
+    if period_end is not None:
+        conditions.append(UsageEvent.received_at < period_end)
     rows = db.execute(
         select(
             meta["arm"].astext.label("arm"),
@@ -50,13 +63,7 @@ def compute_experiment(
             func.avg(UsageEvent.cost_usd).label("mean"),
             func.var_samp(UsageEvent.cost_usd).label("var"),
         )
-        .where(
-            UsageEvent.project_id == project_id,
-            UsageEvent.received_at >= period_start,
-            meta["holdback"].astext == "true",
-            meta["experiment_from"].astext == incumbent,
-            meta["experiment_to"].astext == candidate,
-        )
+        .where(*conditions)
         .group_by("arm")
     ).all()
 
@@ -76,19 +83,23 @@ def compute_experiment(
     if mean_c is not None and mean_t is not None:
         per_request = mean_c - mean_t
         measured = per_request * Decimal(n_t)
-        # 95% CI on the difference of means via the standard errors of both arms.
-        if (
-            control is not None
-            and treatment is not None
-            and n_c >= 2
-            and n_t >= 2
-            and control.var is not None
-            and treatment.var is not None
-        ):
-            se = math.sqrt((float(control.var) / n_c) + (float(treatment.var) / n_t))
-            half = Decimal(str(1.96 * se))
-            ci_low = per_request - half
-            ci_high = per_request + half
+        # Time-uniform confidence sequence on the difference of arm means, valid
+        # under the continuous re-reading this table gets. None (an arm too small
+        # or without dispersion) leaves the bare point estimate uncintervaled,
+        # exactly as the fixed-CI path did.
+        cs = difference_confidence_sequence(
+            n_c,
+            float(mean_c),
+            float(control.var) if control is not None and control.var is not None else None,
+            n_t,
+            float(mean_t),
+            float(treatment.var) if treatment is not None and treatment.var is not None else None,
+            alpha=settings.sequential_cs_alpha,
+            target_n=settings.sequential_cs_target_n,
+        )
+        if cs is not None:
+            ci_low = Decimal(str(cs.lo))
+            ci_high = Decimal(str(cs.hi))
             measured_low = ci_low * Decimal(n_t)
             measured_high = ci_high * Decimal(n_t)
 

@@ -43,6 +43,8 @@ class _PlannerTraceAccumulator:
         self.lever_policy_candidates: Counter[str] = Counter()
         self.runtime_stages: Counter[str] = Counter()
         self.runtime_actions: Counter[tuple[str, str, str, str, bool]] = Counter()
+        self.parity_outcomes: Counter[str] = Counter()
+        self.parity_mismatch_reasons: Counter[str] = Counter()
         self.proof_methods: Counter[str] = Counter()
         self.proof_confidences: Counter[str] = Counter()
         self.proof_quality_statuses: Counter[str] = Counter()
@@ -159,6 +161,11 @@ class _PlannerTraceAccumulator:
             self.runtime_enforced_count += 1
         self.runtime_stages.update([stage])
         self.runtime_actions.update([(stage, lever, action, reason_code, enforced)])
+        if stage == "planner_parity":
+            # action is "match" / "mismatch"; reason_code explains a mismatch.
+            self.parity_outcomes.update([action])
+            if action == "mismatch":
+                self.parity_mismatch_reasons.update([reason_code])
 
     def as_dict(self, *, total_decisions: int) -> dict[str, Any]:
         return {
@@ -222,10 +229,26 @@ class _PlannerTraceAccumulator:
         ]
 
     def _runtime_summary(self) -> dict[str, Any]:
+        parity_total = sum(self.parity_outcomes.values())
         return {
             "trace_count": self.runtime_trace_count,
             "enforced_count": self.runtime_enforced_count,
             "stages": dict(sorted(self.runtime_stages.items())),
+            "parity": {
+                "checked_count": parity_total,
+                "match_count": self.parity_outcomes.get("match", 0),
+                "mismatch_count": self.parity_outcomes.get("mismatch", 0),
+                "match_rate": (
+                    str(
+                        (Decimal(self.parity_outcomes.get("match", 0)) / Decimal(parity_total)).quantize(
+                            Decimal("0.0001")
+                        )
+                    )
+                    if parity_total
+                    else None
+                ),
+                "top_mismatch_reasons": _top_counts(self.parity_mismatch_reasons),
+            },
             "top_actions": [
                 {
                     "stage": stage,

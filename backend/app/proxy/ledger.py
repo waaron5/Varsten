@@ -14,9 +14,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.core.logging import get_logger
 from app.models import Project, UsageEvent
 from app.pricing import price_usage_event
 from app.proxy.request_context import RequestContext
+
+logger = get_logger("varsten.proxy.ledger")
 
 
 async def _cost_and_base_metadata(
@@ -224,6 +227,69 @@ async def record_proxy_usage(
     db.add(event)
     await db.commit()
     return event
+
+
+async def record_overhead_usage(
+    db: AsyncSession,
+    project: Project,
+    *,
+    provider: str,
+    model: str,
+    operation: str,
+    input_tokens: int,
+    output_tokens: int,
+    overhead: str,
+    now: datetime | None = None,
+) -> UsageEvent | None:
+    """Meter optimization overhead into the usage ledger.
+
+    These rows are not customer workload traffic, but they are real cost incurred
+    to prove or execute an optimization. Verified savings subtract them before
+    billing. Best-effort: failures are logged and return None.
+    """
+    at = now or datetime.now(UTC)
+    try:
+        cost, cost_source, pricing_status, price_version_id = await price_usage_event(
+            db,
+            organization_id=project.organization_id,
+            model_key=model,
+            provider=provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=0,
+            reported_cost_usd=None,
+            at=at,
+        )
+        event = UsageEvent(
+            project_id=project.id,
+            organization_id=project.organization_id,
+            api_key_id=None,
+            source="overhead",
+            provider=provider,
+            model=model,
+            operation=operation,
+            request_type=operation,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=0,
+            total_tokens=input_tokens + output_tokens,
+            cost_usd=cost,
+            cost_source=cost_source,
+            pricing_status=pricing_status,
+            price_version_id=price_version_id,
+            currency="USD",
+            status="success",
+            success=True,
+            event_metadata={"overhead": overhead},
+            occurred_at=at,
+            environment="production",
+        )
+        db.add(event)
+        await db.commit()
+        return event
+    except Exception:
+        logger.exception("overhead ledger write failed", extra={"project_id": str(project.id), "overhead": overhead})
+        return None
 
 
 def record_batch_usage(

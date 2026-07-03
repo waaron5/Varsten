@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.eval import capture as eval_capture
 from app.eval import scoring
 from app.eval.runner import run_eval
-from app.models import EvalRun, Project, Recommendation, ReplaySample
+from app.models import EvalRun, Project, Recommendation, ReplaySample, UsageEvent
 from app.models.eval import (
     RUN_COMPLETED,
     RUN_PENDING,
@@ -219,6 +219,33 @@ def test_golden_samples_scored_first(client, provision, db_session, monkeypatch)
 
     run = _run(db_session, rec, project, "gpt-4o-mini", replay_yes)
     assert run.scorer_type == "golden" and run.verdict == VERDICT_SAFE
+
+
+def test_eval_replay_overhead_is_metered(client, provision, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "eval_min_samples", 1)
+    project = _project(db_session, provision)
+    rec = _mk_rec(db_session, project)
+    _mk_sample(db_session, project, source=SOURCE_GOLDEN, incumbent_text="", expected="yes")
+
+    async def replay_yes(messages, params, model, key):
+        return _completion("yes", ptok=11, ctok=3)
+
+    run = _run(db_session, rec, project, "gpt-4o-mini", replay_yes)
+
+    overhead = list(
+        db_session.scalars(
+            select(UsageEvent).where(
+                UsageEvent.project_id == project.id,
+                UsageEvent.event_metadata["overhead"].astext == "eval_replay",
+            )
+        )
+    )
+    assert run.status == RUN_COMPLETED
+    assert len(overhead) == 1
+    assert overhead[0].source == "overhead"
+    assert overhead[0].operation == "eval_replay"
+    assert overhead[0].input_tokens == 11
+    assert overhead[0].output_tokens == 3
 
 
 # --- apply gate -----------------------------------------------------------------

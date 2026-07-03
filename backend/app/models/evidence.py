@@ -58,6 +58,8 @@ class RequestDecisionEvent(Base):
         Index("ix_request_decision_project_lever", "project_id", "lever"),
         Index("ix_request_decision_project_model_chosen", "project_id", "model_chosen"),
         Index("ix_request_decision_project_request", "project_id", "request_id"),
+        Index("ix_request_decision_project_route_key", "project_id", "route_key"),
+        Index("ix_request_decision_project_trace", "project_id", "trace_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -95,6 +97,17 @@ class RequestDecisionEvent(Base):
     task_confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
     risk_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
     quality_threshold: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Canonical route identity (feature|workflow|request_type|task_type|default),
+    # so learning segments, eval runs, and guardrails attach to one route object.
+    route_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Content-free fingerprint of the request's cacheable prefix (system messages
+    # + tools). Powers measured prompt-cache prefix-stability analysis. Hash only.
+    prefix_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Client-supplied trace/session id (X-Varsten-Trace-Id) grouping one agent
+    # workflow's calls, and a content-free whole-request fingerprint. Together they
+    # detect redundant calls within a trace (agent loops). Hashes/ids only.
+    trace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # --- decision context ---
     decision_type: Mapped[str] = mapped_column(String(32), nullable=False)

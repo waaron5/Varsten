@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
+from app.engine.route_identity import canonical_route_key
 from app.engine.types import OutcomePrior
 
 _ACCEPTED_OUTCOMES = {"accepted"}
@@ -27,6 +29,8 @@ def score_optimization_outcomes(
     feedback_rows: list[dict[str, Any]],
     *,
     limit: int = 10,
+    now: datetime | None = None,
+    half_life_days: int | None = None,
 ) -> list[dict[str, Any]]:
     """Score observed optimization paths using measured cost and outcome signals.
 
@@ -34,7 +38,7 @@ def score_optimization_outcomes(
     conservative candidate priors; it does not authorize any runtime behavior.
     """
     segments: dict[_SegmentKey, _SegmentStats] = defaultdict(_SegmentStats)
-    decision_segments: dict[str, _SegmentKey] = {}
+    decision_segments: dict[str, tuple[_SegmentKey, Decimal]] = {}
 
     for row in decision_rows:
         if _row_value(row, "optimization_applied") is not True:
@@ -43,17 +47,19 @@ def score_optimization_outcomes(
         decision_id = _decision_id(row)
         if key is None or decision_id is None:
             continue
-        segments[key].add_decision(row, decision_id)
-        decision_segments[decision_id] = key
+        weight = _decay_weight(row, now=now, half_life_days=half_life_days)
+        segments[key].add_decision(row, decision_id, weight)
+        decision_segments[decision_id] = (key, weight)
 
     for row in feedback_rows:
         decision_id = _decision_id(row)
         if decision_id is None:
             continue
-        key = decision_segments.get(decision_id)
-        if key is None:
+        segment = decision_segments.get(decision_id)
+        if segment is None:
             continue
-        segments[key].add_feedback(row, decision_id)
+        key, weight = segment
+        segments[key].add_feedback(row, decision_id, weight)
 
     candidates = [stats.as_dict(key) for key, stats in segments.items()]
     candidates.sort(
@@ -97,6 +103,7 @@ def outcome_prior_from_learning_candidate(candidate: dict[str, Any]) -> OutcomeP
 
 @dataclass(frozen=True)
 class _SegmentKey:
+    route_key: str
     task_type: str
     risk_level: str
     provider_requested: str
@@ -107,6 +114,7 @@ class _SegmentKey:
 
     def as_dict(self) -> dict[str, str]:
         return {
+            "route_key": self.route_key,
             "task_type": self.task_type,
             "risk_level": self.risk_level,
             "provider_requested": self.provider_requested,
@@ -119,26 +127,34 @@ class _SegmentKey:
 
 class _SegmentStats:
     def __init__(self) -> None:
-        self.sample_count = 0
-        self.measured_savings_count = 0
+        self.sample_weight = Decimal("0")
+        self.measured_savings_weight = Decimal("0")
+        self.raw_sample_count = 0
+        self.raw_measured_savings_count = 0
         self.total_gross_savings = Decimal("0")
         self.pricing_statuses: Counter[str] = Counter()
         self.proof_confidences: Counter[str] = Counter()
-        self.quality_measured_count = 0
-        self.quality_passed_count = 0
-        self.feedback_count = 0
-        self.feedback_decision_ids: set[str] = set()
-        self.accepted_count = 0
-        self.corrective_count = 0
+        self.quality_measured_weight = Decimal("0")
+        self.quality_passed_weight = Decimal("0")
+        self.raw_quality_measured_count = 0
+        self.raw_quality_passed_count = 0
+        self.feedback_weight = Decimal("0")
+        self.feedback_decision_weights: dict[str, Decimal] = {}
+        self.raw_feedback_count = 0
+        self.accepted_weight = Decimal("0")
+        self.corrective_weight = Decimal("0")
+        self.raw_accepted_count = 0
+        self.raw_corrective_count = 0
         self.failure_modes: Counter[str] = Counter()
 
-    def add_decision(self, row: dict[str, Any], decision_id: str) -> None:
-        del decision_id
-        self.sample_count += 1
+    def add_decision(self, row: dict[str, Any], decision_id: str, weight: Decimal) -> None:
+        self.raw_sample_count += 1
+        self.sample_weight += weight
         savings = _decision_savings(row)
         if savings is not None:
-            self.measured_savings_count += 1
-            self.total_gross_savings += savings
+            self.raw_measured_savings_count += 1
+            self.measured_savings_weight += weight
+            self.total_gross_savings += savings * weight
         self.pricing_statuses.update([str(_row_value(row, "pricing_status") or "unknown")])
         proof = _proof_from_row(row)
         if proof is not None:
@@ -146,54 +162,79 @@ class _SegmentStats:
 
         quality_ok = _row_value(row, "quality_ok")
         if quality_ok is not None:
-            self.quality_measured_count += 1
+            self.raw_quality_measured_count += 1
+            self.quality_measured_weight += weight
             if quality_ok is True:
-                self.quality_passed_count += 1
+                self.raw_quality_passed_count += 1
+                self.quality_passed_weight += weight
 
-    def add_feedback(self, row: dict[str, Any], decision_id: str) -> None:
-        self.feedback_count += 1
-        self.feedback_decision_ids.add(decision_id)
+    def add_feedback(self, row: dict[str, Any], decision_id: str, weight: Decimal) -> None:
+        self.raw_feedback_count += 1
+        self.feedback_weight += weight
+        self.feedback_decision_weights[decision_id] = max(
+            self.feedback_decision_weights.get(decision_id, Decimal("0")), weight
+        )
         outcome = str(_row_value(row, "outcome") or "unknown")
         if outcome in _ACCEPTED_OUTCOMES:
-            self.accepted_count += 1
+            self.raw_accepted_count += 1
+            self.accepted_weight += weight
         elif outcome in _CORRECTIVE_OUTCOMES:
-            self.corrective_count += 1
+            self.raw_corrective_count += 1
+            self.corrective_weight += weight
         failure_mode = _row_value(row, "failure_mode")
         if failure_mode:
             self.failure_modes.update([str(failure_mode)])
 
     def as_dict(self, key: _SegmentKey) -> dict[str, Any]:
-        savings_rate = _rate(self.measured_savings_count, self.sample_count)
-        quality_pass_rate = _rate(self.quality_passed_count, self.quality_measured_count)
-        feedback_coverage_rate = _rate(len(self.feedback_decision_ids), self.sample_count)
-        acceptance_rate = _rate(self.accepted_count, self.accepted_count + self.corrective_count)
+        feedback_decision_weight = sum(self.feedback_decision_weights.values(), Decimal("0"))
+        savings_rate = _rate(self.measured_savings_weight, self.sample_weight)
+        quality_pass_rate = _rate(self.quality_passed_weight, self.quality_measured_weight)
+        feedback_coverage_rate = _rate(feedback_decision_weight, self.sample_weight)
+        acceptance_rate = _rate(self.accepted_weight, self.accepted_weight + self.corrective_weight)
         readiness = self._readiness(
-            savings_rate=_rate_decimal(self.measured_savings_count, self.sample_count),
-            quality_pass_rate=_rate_decimal(self.quality_passed_count, self.quality_measured_count),
-            feedback_coverage_rate=_rate_decimal(len(self.feedback_decision_ids), self.sample_count),
-            acceptance_rate=_rate_decimal(self.accepted_count, self.accepted_count + self.corrective_count),
+            savings_rate=_rate_decimal(self.measured_savings_weight, self.sample_weight),
+            quality_pass_rate=_rate_decimal(self.quality_passed_weight, self.quality_measured_weight),
+            feedback_coverage_rate=_rate_decimal(feedback_decision_weight, self.sample_weight),
+            acceptance_rate=_rate_decimal(self.accepted_weight, self.accepted_weight + self.corrective_weight),
         )
         return {
             "segment": key.as_dict(),
-            "sample_count": self.sample_count,
-            "measured_savings_count": self.measured_savings_count,
+            "sample_count": _count(self.sample_weight),
+            "measured_savings_count": _count(self.measured_savings_weight),
+            "raw_sample_count": self.raw_sample_count,
+            "raw_measured_savings_count": self.raw_measured_savings_count,
+            "weighted_sample_count": _count_weight(self.sample_weight),
+            "weighted_measured_savings_count": _count_weight(self.measured_savings_weight),
             "savings_measurement_rate": savings_rate,
-            "total_gross_savings_usd": _money(self.total_gross_savings, self.measured_savings_count),
-            "average_gross_savings_usd": _average_money(self.total_gross_savings, self.measured_savings_count),
+            "total_gross_savings_usd": _money(self.total_gross_savings, self.measured_savings_weight),
+            "average_gross_savings_usd": _average_money(self.total_gross_savings, self.measured_savings_weight),
             "pricing_statuses": dict(sorted(self.pricing_statuses.items())),
             "proof_confidences": _top_counts(self.proof_confidences, limit=None),
             "quality": {
-                "measured_count": self.quality_measured_count,
-                "passed_count": self.quality_passed_count,
-                "failed_count": max(self.quality_measured_count - self.quality_passed_count, 0),
+                "measured_count": _count(self.quality_measured_weight),
+                "passed_count": _count(self.quality_passed_weight),
+                "failed_count": _count(max(self.quality_measured_weight - self.quality_passed_weight, Decimal("0"))),
+                "raw_measured_count": self.raw_quality_measured_count,
+                "raw_passed_count": self.raw_quality_passed_count,
+                "raw_failed_count": max(self.raw_quality_measured_count - self.raw_quality_passed_count, 0),
+                "weighted_measured_count": _count_weight(self.quality_measured_weight),
+                "weighted_passed_count": _count_weight(self.quality_passed_weight),
                 "pass_rate": quality_pass_rate,
             },
             "feedback": {
-                "feedback_count": self.feedback_count,
-                "decision_linked_count": len(self.feedback_decision_ids),
+                "feedback_count": _count(self.feedback_weight),
+                "decision_linked_count": _count(feedback_decision_weight),
+                "raw_feedback_count": self.raw_feedback_count,
+                "raw_decision_linked_count": len(self.feedback_decision_weights),
+                "weighted_feedback_count": _count_weight(self.feedback_weight),
+                "weighted_decision_linked_count": _count_weight(feedback_decision_weight),
                 "coverage_rate": feedback_coverage_rate,
-                "accepted_count": self.accepted_count,
-                "corrective_count": self.corrective_count,
+                "accepted_count": _count(self.accepted_weight),
+                "corrective_count": _count(self.corrective_weight),
+                "raw_accepted_count": self.raw_accepted_count,
+                "raw_corrective_count": self.raw_corrective_count,
+                "weighted_accepted_count": _count_weight(self.accepted_weight),
+                "weighted_corrective_count": _count_weight(self.corrective_weight),
                 "acceptance_rate": acceptance_rate,
                 "top_failure_modes": _top_counts(self.failure_modes),
             },
@@ -219,7 +260,7 @@ class _SegmentStats:
         )
         reason_codes.extend(quality_reasons)
 
-        if self.sample_count < _MIN_RECOMMEND_SAMPLES or self.feedback_count == 0:
+        if self.sample_weight < Decimal(_MIN_RECOMMEND_SAMPLES) or self.feedback_weight == 0:
             return {"status": "insufficient_data", "reason_codes": reason_codes}
         if not savings_proven:
             return {"status": "savings_unproven", "reason_codes": reason_codes}
@@ -236,28 +277,28 @@ class _SegmentStats:
 
         if feedback_coverage_rate is not None and feedback_coverage_rate < _MIN_RECOMMEND_FEEDBACK_COVERAGE:
             reason_codes.append("feedback_coverage_low_for_auto")
-        if self.sample_count < _MIN_AUTO_SAMPLES:
+        if self.sample_weight < Decimal(_MIN_AUTO_SAMPLES):
             reason_codes.append("sample_count_below_auto_threshold")
         return {"status": "recommendable", "reason_codes": reason_codes}
 
     def _base_readiness_reasons(self) -> list[str]:
         reasons: list[str] = []
-        if self.sample_count < _MIN_RECOMMEND_SAMPLES:
+        if self.sample_weight < Decimal(_MIN_RECOMMEND_SAMPLES):
             reasons.append("sample_count_insufficient")
-        if self.feedback_count == 0:
+        if self.feedback_weight == 0:
             reasons.append("no_decision_linked_feedback")
         return reasons
 
     def _savings_proven(self, savings_rate: Decimal | None) -> bool:
         return (
-            self.measured_savings_count > 0
+            self.measured_savings_weight > 0
             and self.total_gross_savings > 0
             and savings_rate is not None
             and savings_rate >= _MIN_RECOMMEND_SAVINGS_COVERAGE
         )
 
     def _savings_gap_reason(self) -> str:
-        if self.measured_savings_count == 0:
+        if self.measured_savings_weight == 0:
             return "no_measured_savings"
         if self.total_gross_savings <= 0:
             return "gross_savings_not_positive"
@@ -272,7 +313,7 @@ class _SegmentStats:
         reasons: list[str] = []
         if quality_pass_rate is not None and quality_pass_rate < _MIN_RECOMMEND_QUALITY_PASS_RATE:
             reasons.append("quality_pass_rate_low")
-        if self.corrective_count > 0:
+        if self.corrective_weight > 0:
             reasons.append("corrective_feedback_present")
         if acceptance_rate is not None and acceptance_rate < _MIN_RECOMMEND_ACCEPTANCE_RATE:
             reasons.append("acceptance_rate_low")
@@ -287,7 +328,7 @@ class _SegmentStats:
         acceptance_rate: Decimal | None,
     ) -> bool:
         return (
-            self.sample_count >= _MIN_AUTO_SAMPLES
+            self.sample_weight >= Decimal(_MIN_AUTO_SAMPLES)
             and savings_rate is not None
             and savings_rate >= _MIN_AUTO_SAVINGS_COVERAGE
             and feedback_coverage_rate is not None
@@ -303,6 +344,7 @@ def _segment_key(row: dict[str, Any]) -> _SegmentKey | None:
     if lever is None:
         return None
     return _SegmentKey(
+        route_key=_route_key(row),
         task_type=str(_row_value(row, "task_type") or "unknown"),
         risk_level=str(_row_value(row, "risk_level") or "unknown"),
         provider_requested=str(_row_value(row, "provider_requested") or "unknown"),
@@ -310,6 +352,20 @@ def _segment_key(row: dict[str, Any]) -> _SegmentKey | None:
         provider_chosen=str(_row_value(row, "provider_chosen") or "unknown"),
         model_chosen=str(_row_value(row, "model_chosen") or "unknown"),
         lever=lever,
+    )
+
+
+def _route_key(row: dict[str, Any]) -> str:
+    """The row's persisted canonical route key, or one derived from its allocation
+    tags when the row predates the column (keeps older evidence groupable)."""
+    persisted = _row_value(row, "route_key")
+    if persisted:
+        return str(persisted)
+    return canonical_route_key(
+        feature=_optional_str(_row_value(row, "feature")),
+        workflow=_optional_str(_row_value(row, "workflow")),
+        request_type=_optional_str(_row_value(row, "request_type")),
+        task_type=_optional_str(_row_value(row, "task_type")),
     )
 
 
@@ -356,6 +412,19 @@ def _row_value(row: dict[str, Any], key: str) -> Any:
     return getattr(row, key, None)
 
 
+def _decay_weight(row: dict[str, Any], *, now: datetime | None, half_life_days: int | None) -> Decimal:
+    if now is None or half_life_days is None or half_life_days <= 0:
+        return Decimal("1")
+    created_at = _row_value(row, "created_at")
+    if not isinstance(created_at, datetime):
+        return Decimal("1")
+    age_seconds = max((now - created_at).total_seconds(), 0.0)
+    if age_seconds < 86400:
+        return Decimal("1")
+    age_days = age_seconds / 86400.0
+    return Decimal(str(0.5 ** (age_days / float(half_life_days))))
+
+
 def _to_decimal(value: Any) -> Decimal | None:
     if value is None:
         return None
@@ -376,25 +445,33 @@ def _optional_str(value: Any) -> str | None:
     return str(value) if value is not None else None
 
 
-def _rate(numerator: int, denominator: int) -> str | None:
+def _rate(numerator: Decimal | int, denominator: Decimal | int) -> str | None:
     rate = _rate_decimal(numerator, denominator)
     return str(rate.quantize(_RATE_QUANT)) if rate is not None else None
 
 
-def _rate_decimal(numerator: int, denominator: int) -> Decimal | None:
+def _rate_decimal(numerator: Decimal | int, denominator: Decimal | int) -> Decimal | None:
     if denominator <= 0:
         return None
     return Decimal(numerator) / Decimal(denominator)
 
 
-def _money(value: Decimal, row_count: int) -> str | None:
+def _money(value: Decimal, row_count: Decimal | int) -> str | None:
     return str(value) if row_count else None
 
 
-def _average_money(total: Decimal, row_count: int) -> str | None:
+def _average_money(total: Decimal, row_count: Decimal | int) -> str | None:
     if row_count <= 0:
         return None
     return str(total / row_count)
+
+
+def _count(value: Decimal) -> int:
+    return int(value.to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def _count_weight(value: Decimal) -> str:
+    return str(value.quantize(_RATE_QUANT))
 
 
 def _top_counts(counter: Counter[str], limit: int | None = 10) -> list[dict[str, Any]]:

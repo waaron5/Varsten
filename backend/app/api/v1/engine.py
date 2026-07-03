@@ -60,10 +60,19 @@ class RuntimeActionBucket(BaseModel):
     count: int
 
 
+class PlannerParitySummary(BaseModel):
+    checked_count: int
+    match_count: int
+    mismatch_count: int
+    match_rate: str | None
+    top_mismatch_reasons: list[CountBucket]
+
+
 class RuntimeTraceSummary(BaseModel):
     trace_count: int
     enforced_count: int
     stages: dict[str, int]
+    parity: PlannerParitySummary
     top_actions: list[RuntimeActionBucket]
 
 
@@ -132,6 +141,7 @@ class FeedbackSummary(BaseModel):
 
 
 class LearningCandidateSegment(BaseModel):
+    route_key: str
     task_type: str
     risk_level: str
     provider_requested: str
@@ -227,6 +237,10 @@ def planner_summary(
                 RequestDecisionEvent.cache_status.label("cache_status"),
                 RequestDecisionEvent.optimization_applied.label("optimization_applied"),
                 RequestDecisionEvent.task_type.label("task_type"),
+                RequestDecisionEvent.route_key.label("route_key"),
+                RequestDecisionEvent.feature.label("feature"),
+                RequestDecisionEvent.workflow.label("workflow"),
+                RequestDecisionEvent.request_type.label("request_type"),
                 RequestDecisionEvent.risk_level.label("risk_level"),
                 RequestDecisionEvent.realized_savings_usd.label("realized_savings_usd"),
                 RequestDecisionEvent.pricing_status.label("pricing_status"),

@@ -10,6 +10,7 @@ OpenAI is mocked via an httpx MockTransport so no real key or network is needed.
 
 import json
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -18,7 +19,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.models import ProxyPolicy, RequestDecisionEvent, UsageEvent
+from app.models import EngineOutcomePrior, ProxyPolicy, RequestDecisionEvent, UsageEvent
 from app.proxy import circuit, evidence, http_client
 from app.proxy.request_context import parse_request_context
 
@@ -206,7 +207,9 @@ async def test_context_populates_usage_event_and_evidence(
     assert d.request_id == resp.headers["X-Varsten-Request-Id"]
     plan = d.event_metadata["optimization_plan"]
     assert plan["planner_version"] == "planner_v1_observe_only"
-    assert plan["selected"] == {"action": "observe", "mode": "observe_only", "reason_code": "planner_not_wired"}
+    # No lever is enforceable for this medium-risk request (cache needs an explicit
+    # policy, no routing/trim policy present), so the planner selects observe.
+    assert plan["selected"] == {"action": "observe", "mode": "observe_only", "reason_code": "no_actionable_candidate"}
     assert plan["classification"]["task_type"] == "support_reply.billing"
     assert plan["classification"]["risk_level"] == "medium"
     assert plan["classification"]["prompt_chars"] == len("Hi")
@@ -388,6 +391,53 @@ async def test_evidence_routed_treatment(async_client, async_provision, async_db
     assert proof["confidence"] in {"measured_priced", "measured_pricing_uncertain", "unmeasured"}
     assert proof["quality_status"] == "passed"
     assert proof["pricing_status"] == d.pricing_status
+
+
+@pytest.mark.anyio
+async def test_planner_trace_uses_persisted_outcome_prior(
+    async_client, async_provision, async_db_session, monkeypatch, mock_openai
+):
+    p = await async_provision()
+    _configure_key(monkeypatch, p["project_id"])
+    _add_routing_policy(async_db_session, p, holdback="0.0")
+    async_db_session.add(
+        EngineOutcomePrior(
+            organization_id=uuid.UUID(p["org_id"]),
+            project_id=uuid.UUID(p["project_id"]),
+            lever="model_downshift",
+            task_type="classification.intent",
+            risk_level="low",
+            provider_requested="openai",
+            model_requested=CHAT,
+            provider_chosen="openai",
+            model_chosen="gpt-3.5-turbo",
+            readiness_status="auto_apply_candidate",
+            sample_count=25,
+            measured_savings_count=25,
+            total_gross_savings_usd=Decimal("1.25"),
+            average_gross_savings_usd=Decimal("0.05"),
+            quality_pass_rate=Decimal("1.0000"),
+            feedback_acceptance_rate=Decimal("1.0000"),
+            reason_codes=[],
+            window_days=30,
+            computed_at=datetime.now(UTC),
+        )
+    )
+    await async_db_session.flush()
+
+    resp = await async_client.post("/v1/chat/completions", headers=_low_risk_headers(p["api_key"]), json=_body())
+    assert resp.status_code == 200
+
+    d = (await _decisions(async_db_session, p["project_id"]))[0]
+    route_candidate = next(
+        c for c in d.event_metadata["optimization_plan"]["candidates"] if c["lever"] == "model_routing"
+    )
+    assert route_candidate["status"] == "recommendable"
+    assert route_candidate["reason_code"] == "outcome_prior_recommendable"
+    prior = route_candidate["reason_detail"]["outcome_prior"]
+    assert prior["readiness_status"] == "auto_apply_candidate"
+    assert prior["sample_count"] == 25
+    assert route_candidate["estimated_savings_usd"] == "0.05000000"
 
 
 @pytest.mark.anyio

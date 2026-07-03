@@ -5,6 +5,7 @@ from dataclasses import replace
 from app.engine.cache_policy import evaluate_cache_eligibility
 from app.engine.classification import classify_request
 from app.engine.types import (
+    SELECTION_PRIORITY,
     CandidateOptimization,
     CandidateStatus,
     OptimizationPlan,
@@ -16,10 +17,18 @@ from app.engine.types import (
     SelectedAction,
 )
 
+# Statuses the proxy may act on now (no further gate) vs. those still shadowed.
+_ENFORCEABLE = {CandidateStatus.ELIGIBLE, CandidateStatus.RECOMMENDABLE}
 
-def build_observe_only_plan(planner_input: PlannerInput) -> OptimizationPlan:
-    """Build a conservative optimization plan without authorizing execution."""
-    classification = classify_request(planner_input.body, planner_input.context)
+
+def build_optimization_plan(planner_input: PlannerInput) -> OptimizationPlan:
+    """Build the optimization plan: classify the request, evaluate each lever into
+    a candidate, and select the primary action the planner authorizes.
+
+    The plan is advisory — the proxy still executes — but the selected action plus
+    the per-candidate statuses are the single record the proxy's decisions are
+    checked against (parity). Content-free: only derived flags and reason codes."""
+    classification = classify_request(planner_input.request_facts or planner_input.body, planner_input.context)
     candidates = (
         _with_outcome_prior(_exact_cache_candidate(planner_input, classification), planner_input),
         _with_outcome_prior(_semantic_cache_candidate(planner_input, classification), planner_input),
@@ -33,8 +42,38 @@ def build_observe_only_plan(planner_input: PlannerInput) -> OptimizationPlan:
         model=planner_input.model,
         classification=classification,
         candidates=candidates,
-        selected=SelectedAction(action="observe", mode="observe_only", reason_code="planner_not_wired"),
+        selected=select_action(candidates, optimize_enabled=planner_input.optimize_enabled),
     )
+
+
+# Backwards-compatible alias: callers and tests still import this name.
+build_observe_only_plan = build_optimization_plan
+
+
+def select_action(candidates: tuple[CandidateOptimization, ...], *, optimize_enabled: bool) -> SelectedAction:
+    """The primary optimization the planner authorizes, walking lever priority.
+
+    An enforceable candidate (eligible / recommendable) is selected in ``enforce``
+    mode; failing that, the first shadow-only candidate is selected in ``shadow``
+    mode so the intent is visible even before its gate clears; failing both, the
+    request is ``observe`` (passthrough). The proxy never has to apply the selected
+    action — it is the yardstick parity is measured against."""
+    if not optimize_enabled:
+        return SelectedAction(action="observe", mode="observe_only", reason_code="optimization_disabled")
+
+    by_lever = {candidate.lever: candidate for candidate in candidates}
+    shadow: CandidateOptimization | None = None
+    for lever in SELECTION_PRIORITY:
+        candidate = by_lever.get(lever)
+        if candidate is None:
+            continue
+        if candidate.status in _ENFORCEABLE:
+            return SelectedAction(action=lever, mode="enforce", reason_code=candidate.reason_code)
+        if shadow is None and candidate.status == CandidateStatus.SHADOW_ONLY:
+            shadow = candidate
+    if shadow is not None:
+        return SelectedAction(action=shadow.lever, mode="shadow", reason_code=shadow.reason_code)
+    return SelectedAction(action="observe", mode="observe_only", reason_code="no_actionable_candidate")
 
 
 def _exact_cache_candidate(

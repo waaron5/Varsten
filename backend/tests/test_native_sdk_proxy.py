@@ -180,6 +180,7 @@ async def test_gemini_native_generate_content_preserves_wire_and_records_usage(
     ws = await async_provision()
     _configure_native_keys(monkeypatch, ws["project_id"])
     body = _fixture_body("gemini_generate_content_request.json")
+    body["generationConfig"]["responseMimeType"] = "application/json"
 
     res = await async_client.post(
         "/v1beta/models/gemini-3.5-flash:generateContent",
@@ -196,6 +197,16 @@ async def test_gemini_native_generate_content_preserves_wire_and_records_usage(
     assert events[0].provider == "gemini"
     assert events[0].input_tokens == 17
     assert events[0].output_tokens == 13
+    decisions = await _decisions(async_db_session, ws["project_id"])
+    metadata = decisions[0].event_metadata
+    classification = metadata["optimization_plan"]["classification"]
+    system_text = "You are a concise assistant."
+    user_text = "Write one sentence about Varsten."
+    assert classification["prompt_chars"] == len(system_text) + len(user_text)
+    assert classification["message_count"] == 1
+    assert classification["wants_json"] is True
+    assert system_text not in str(metadata)
+    assert user_text not in str(metadata)
 
 
 @pytest.mark.anyio

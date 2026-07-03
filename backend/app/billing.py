@@ -38,7 +38,7 @@ class Billable:
 def compute_fee(verified_savings: Decimal, percent: Decimal, floor: Decimal) -> Billable:
     """The fee on verified savings: percent of savings, lifted to the floor, then
     capped at the savings so net is always >= 0."""
-    gross = _q(verified_savings)
+    gross = max(_q(verified_savings), Decimal("0"))
     fee = _q(gross * percent)
     if floor > 0:
         fee = max(fee, _q(floor))

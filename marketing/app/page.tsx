@@ -540,7 +540,7 @@ function Hero() {
       <div className="lp-container lp-hero-copy">
         <h1 className="lp-hero-title">
           Cut your AI bill
-          <span className="accent">with one line of code</span>
+          <span className="accent">with cost optimization</span>
         </h1>
         <p className="lp-hero-sub">
           Varsten is the cost layer for AI. It routes, caches, batches, and trims requests automatically,
@@ -890,14 +890,13 @@ function Pricing() {
         </div>
         <div className="lp-plans">
           <div className="lp-plan">
-            <span className="lp-plan-name">Observe · Free</span>
+            <span className="lp-plan-name">Free · Observe-only</span>
             <div className="lp-plan-price">$0 <span>/mo</span></div>
             <p className="lp-plan-body">See where the waste is before automating savings.</p>
             <PlanChecks items={OBSERVE_FEATURES} />
             <a className="lp-btn lp-btn-ghost" href={START_OBSERVE_HREF}>Explore observe-only mode</a>
           </div>
           <div className="lp-plan featured">
-            <span className="lp-plan-tag">RECOMMENDED</span>
             <span className="lp-plan-name">Performance</span>
             <div className="lp-plan-price">25% <span>of verified savings</span></div>
             <p className="lp-plan-body">Automate savings. Billed monthly in arrears.</p>

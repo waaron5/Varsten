@@ -7,8 +7,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.engine.agent_loops import detect_agent_loops
+from app.engine.route_identity import canonical_route_key
 from app.levers import LEVER_MODEL_DOWNSHIFT
-from app.models import ModelCatalog, ModelPrice, Project, Recommendation, UsageEvent
+from app.models import ModelCatalog, ModelPrice, Project, Recommendation, RequestDecisionEvent, UsageEvent
 
 OPEN = "open"
 
@@ -16,6 +18,19 @@ OPEN = "open"
 # swaps and routing only claim savings on an eligible share of traffic. A
 # documented assumption, refined per route by the eval harness later.
 ELIGIBLE_SHARE = Decimal("0.70")
+
+# Prefix-stability analysis (prompt-cache orchestration). Below MIN samples the
+# measured share is ignored and the conservative default applies; a dominant-hash
+# share at or above STABLE means "enable caching, the prefix already repeats";
+# at or below UNSTABLE (with big prompts) means "restructure the prompt so its
+# prefix stops churning".
+PREFIX_STABILITY_MIN_SAMPLES = 20
+PREFIX_STABLE_SHARE = 0.7
+PREFIX_UNSTABLE_SHARE = 0.4
+# The conservative fallback when no fingerprint evidence exists (metadata-mode
+# customers, pre-instrumentation traffic): assume half the uncached input is a
+# stable, cacheable prefix.
+PREFIX_DEFAULT_CACHEABLE_SHARE = Decimal("0.5")
 
 
 @dataclass(frozen=True)
@@ -229,11 +244,92 @@ def _add_token_trim_recommendation(
         return
 
 
+def _prefix_stability(db: Session, project: Project, start: datetime) -> dict[str, tuple[int, float]]:
+    """Measured prefix stability per route: route_key -> (samples, dominant share).
+
+    The dominant share is the fraction of the route's fingerprinted requests that
+    repeat its single most common cacheable-prefix hash — the share a provider
+    prompt cache could actually serve at the cache-read rate. Fail-open: any
+    error returns an empty map and the caller falls back to its default."""
+    try:
+        rows = db.execute(
+            select(
+                RequestDecisionEvent.route_key,
+                RequestDecisionEvent.prefix_hash,
+                func.count().label("n"),
+            )
+            .where(
+                RequestDecisionEvent.project_id == project.id,
+                RequestDecisionEvent.created_at >= start,
+                RequestDecisionEvent.prefix_hash.isnot(None),
+                RequestDecisionEvent.route_key.isnot(None),
+            )
+            .group_by(RequestDecisionEvent.route_key, RequestDecisionEvent.prefix_hash)
+        ).all()
+    except Exception:
+        return {}
+    totals: dict[str, int] = {}
+    dominant: dict[str, int] = {}
+    for row in rows:
+        key = str(row.route_key)
+        totals[key] = totals.get(key, 0) + int(row.n)
+        dominant[key] = max(dominant.get(key, 0), int(row.n))
+    return {key: (total, dominant[key] / total) for key, total in totals.items() if total > 0}
+
+
+def _add_agent_loop_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
+    """Redundant LLM calls inside client traces (agent loops), from measured
+    decision-ledger evidence. The fix lives in the customer's workflow, so this is
+    always a recommendation, never something the engine executes."""
+    findings = detect_agent_loops(db, project, start)
+    if not findings:
+        return
+    top = findings[0]
+    monthly_waste = _run_rate(top.wasted_cost_usd, now)
+    if monthly_waste <= 0:
+        return
+    _upsert(
+        db,
+        project,
+        RecommendationSeed(
+            dedupe_key=f"agent_loop:{top.route_key}:{now:%Y-%m}",
+            type="agent_loop",
+            lever=None,
+            title=f"Remove redundant LLM calls in {top.route_key}",
+            description=(
+                f"{top.affected_traces} traces on {top.route_key} repeated an identical request "
+                f"{top.redundant_calls} times this month ({top.total_calls_in_loops} calls where "
+                f"{top.total_calls_in_loops - top.redundant_calls} would do). Each repeat re-asks the model "
+                f"something the workflow already asked in the same run; memoize the first answer or drop the "
+                f"duplicate step."
+            ),
+            rationale=(
+                "Requests sharing a trace id and an identical request fingerprint are the same question asked "
+                "twice in one workflow run; the repeats' cost is measured from the ledger, not modeled."
+            ),
+            estimated_monthly_savings_usd=monthly_waste,
+            monthly_request_volume=top.total_calls_in_loops,
+            risk_level="low",
+            confidence="high",
+            target_type="route",
+            target_key=top.route_key,
+            related_model=top.model or None,
+        ),
+    )
+
+
 def _add_prompt_cache_recommendation(db: Session, project: Project, start: datetime, now: datetime) -> None:
     """Prompt caching from real token data. A route that repeatedly sends a large
     input prompt at a low cache hit rate is paying full input price for tokens a
     provider prompt cache would bill at the cheaper cache-read rate. Savings use
-    the catalog's real cache-read rate delta, not a flat percentage."""
+    the catalog's real cache-read rate delta, not a flat percentage.
+
+    Where the proxy has fingerprinted the route's cacheable prefix, the measured
+    dominant-hash share replaces the flat cacheable-share assumption: a stable
+    prefix strengthens the enable-caching recommendation with measured evidence,
+    and an unstable one flips it to a restructure recommendation (the cache
+    cannot help until the prefix stops churning)."""
+    stability = _prefix_stability(db, project, start)
     rows = db.execute(
         select(
             UsageEvent.provider,
@@ -272,13 +368,66 @@ def _add_prompt_cache_recommendation(db: Session, project: Project, start: datet
         rate_delta = price.input_cost_per_token - price.cache_read_input_token_cost
         if rate_delta <= 0:
             continue
-        # Conservatively assume half of the currently-uncached input is a stable,
-        # cacheable prefix (system prompt + shared context). The rate delta is real.
-        cacheable_tokens = Decimal(input_tokens - cached) * Decimal("0.5")
+
+        # Measured prefix stability for this route, when the proxy fingerprinted
+        # enough of its traffic; otherwise the conservative default share.
+        canonical = canonical_route_key(feature=row.feature, request_type=row.request_type)
+        samples, dominant_share = stability.get(canonical, (0, 0.0))
+        measured = samples >= PREFIX_STABILITY_MIN_SAMPLES
+        target = _target_name(row.request_type, row.feature)
+
+        if measured and dominant_share <= PREFIX_UNSTABLE_SHARE:
+            # The prefix churns: a provider cache cannot help until the prompt is
+            # restructured (volatile content out of the leading system/tools block).
+            # Savings are what a stabilized prefix would earn, so they stay a
+            # conservative estimate rather than a measured claim.
+            cacheable_tokens = Decimal(input_tokens - cached) * PREFIX_DEFAULT_CACHEABLE_SHARE
+            monthly_savings = _run_rate(cacheable_tokens * rate_delta, now)
+            if monthly_savings <= 0:
+                continue
+            _upsert(
+                db,
+                project,
+                RecommendationSeed(
+                    dedupe_key=f"prompt_prefix_restructure:{_route_key(row.request_type, row.feature)}:{row.model}:{now:%Y-%m}",
+                    type="prompt_prefix_restructure",
+                    lever="semantic_cache",
+                    title=f"Stabilize the prompt prefix for {target}",
+                    description=(
+                        f"{target} sends ~{avg_input:,.0f} input tokens per call across {requests} calls, but only "
+                        f"{dominant_share * 100:.0f}% of {samples} fingerprinted requests share a stable prefix, so "
+                        f"provider prompt caching cannot engage. Move volatile content (timestamps, per-user data) "
+                        f"out of the leading system/tool block to unlock {row.model}'s cache-read rate."
+                    ),
+                    rationale=(
+                        "Measured prefix stability is too low for a provider prompt cache to key on; the discount is "
+                        "forfeited on every call until the prefix stops changing."
+                    ),
+                    estimated_monthly_savings_usd=monthly_savings,
+                    monthly_request_volume=requests,
+                    risk_level="low",
+                    confidence="medium",
+                    target_type="route",
+                    target_key=_route_key(row.request_type, row.feature),
+                    related_provider=row.provider,
+                    related_model=row.model,
+                    related_feature=row.feature,
+                ),
+            )
+            return
+
+        if measured and dominant_share >= PREFIX_STABLE_SHARE:
+            cacheable_share = Decimal(str(round(dominant_share, 4)))
+            share_basis = (
+                f"a measured {dominant_share * 100:.0f}% of {samples} fingerprinted requests share one stable prefix"
+            )
+        else:
+            cacheable_share = PREFIX_DEFAULT_CACHEABLE_SHARE
+            share_basis = "conservatively assuming half the uncached input is a stable prefix"
+        cacheable_tokens = Decimal(input_tokens - cached) * cacheable_share
         monthly_savings = _run_rate(cacheable_tokens * rate_delta, now)
         if monthly_savings <= 0:
             continue
-        target = _target_name(row.request_type, row.feature)
         _upsert(
             db,
             project,
@@ -287,12 +436,16 @@ def _add_prompt_cache_recommendation(db: Session, project: Project, start: datet
                 type="prompt_cache",
                 lever="semantic_cache",
                 title=f"Enable prompt caching for {target}",
-                description=f"{target} sends ~{avg_input:,.0f} input tokens per call across {requests} calls at a {hit_rate * 100:.0f}% cache hit rate. Cache the stable prompt prefix so it bills at {row.model}'s cache-read rate.",
+                description=(
+                    f"{target} sends ~{avg_input:,.0f} input tokens per call across {requests} calls at a "
+                    f"{hit_rate * 100:.0f}% cache hit rate. Cache the stable prompt prefix so it bills at "
+                    f"{row.model}'s cache-read rate ({share_basis})."
+                ),
                 rationale="Large, repeated input prompts with a low cache hit rate are billed at full input price; the cache-read rate is materially cheaper.",
                 estimated_monthly_savings_usd=monthly_savings,
                 monthly_request_volume=requests,
                 risk_level="low",
-                confidence="high",
+                confidence="high" if measured and dominant_share >= PREFIX_STABLE_SHARE else "medium",
                 target_type="route",
                 target_key=_route_key(row.request_type, row.feature),
                 related_provider=row.provider,
@@ -653,6 +806,7 @@ def refresh_recommendations(db: Session, project: Project) -> None:
 
     _add_token_trim_recommendation(db, project, start, now, spend)
     _add_prompt_cache_recommendation(db, project, start, now)
+    _add_agent_loop_recommendation(db, project, start, now)
     _add_semantic_cache_recommendation(db, project, start, now)
     _add_batching_recommendation(db, project, start, now)
     _add_model_downshift_recommendation(db, project, start, now)

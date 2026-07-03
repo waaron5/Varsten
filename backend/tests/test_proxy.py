@@ -74,7 +74,10 @@ def _fake_embedding(text: str) -> list[float]:
 
 def _embeddings_response(request: httpx.Request) -> httpx.Response:
     payload = json.loads(request.content)
-    return httpx.Response(200, json={"data": [{"embedding": _fake_embedding(payload["input"])}]})
+    return httpx.Response(
+        200,
+        json={"data": [{"embedding": _fake_embedding(payload["input"])}], "usage": {"prompt_tokens": 7}},
+    )
 
 
 @pytest.fixture
@@ -382,6 +385,8 @@ async def test_circuit_opens_and_fails_fast(async_client, async_provision, contr
     ws = await async_provision(sub="auth0|cb", email="cb@example.com")
     _configure_key(monkeypatch, ws["project_id"])
     monkeypatch.setattr(settings, "circuit_breaker_fail_threshold", 2)
+    # Isolate the breaker: retries (a separate feature) would multiply upstream hits.
+    monkeypatch.setattr(settings, "proxy_retry_enabled", False)
     controllable_openai["mode"] = "fail_503"
     hdr = _b(ws["api_key"])
 
@@ -527,6 +532,30 @@ async def test_semantic_miss_below_threshold(async_client, async_provision, mock
 
 
 @pytest.mark.anyio
+async def test_semantic_cache_embedding_overhead_is_metered(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
+    ws = await async_provision(sub="auth0|s-overhead", email="s-overhead@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    hdr = {**_b(ws["api_key"]), **_low_risk_metadata()}
+    monkeypatch.setattr(settings, "semantic_cache_enabled", True)
+
+    res = await async_client.post("/v1/chat/completions", headers=hdr, json=_msg("classify capital letters"))
+
+    assert res.status_code == 200
+    events = (
+        await async_db_session.scalars(
+            select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]).order_by(UsageEvent.received_at.asc())
+        )
+    ).all()
+    overhead = [event for event in events if event.event_metadata.get("overhead") == "embedding"]
+    assert len(overhead) == 1
+    assert overhead[0].source == "overhead"
+    assert overhead[0].operation == "embedding"
+    assert overhead[0].input_tokens == 7
+
+
+@pytest.mark.anyio
 async def test_exact_repeat_skips_embedding(async_client, async_provision, mock_openai, monkeypatch):
     ws = await async_provision(sub="auth0|s", email="s@example.com")
     _configure_key(monkeypatch, ws["project_id"])
@@ -549,7 +578,7 @@ async def test_embedding_failure_fails_open(async_client, async_provision, mock_
     hdr = {**_b(ws["api_key"]), **_low_risk_metadata()}
     monkeypatch.setattr(settings, "semantic_cache_enabled", True)
 
-    async def no_embedding(text, client_key):
+    async def no_embedding(text, client_key, **kwargs):
         return None
 
     monkeypatch.setattr(proxy_router, "embed", no_embedding)

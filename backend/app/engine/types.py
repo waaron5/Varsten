@@ -57,6 +57,26 @@ class RequestClassification:
 
 
 @dataclass(frozen=True)
+class RequestFacts:
+    """Provider-normalized, content-free request facts for planning.
+
+    Raw request text is inspected only while building these booleans/counts. This
+    object is safe to attach to planner metadata; it must never carry prompt,
+    completion, tool-argument, or request-body content.
+    """
+
+    prompt_chars: int
+    message_count: int
+    has_tools: bool
+    wants_json: bool
+    has_multimodal: bool
+    freshness_signal: bool
+    personalized_signal: bool
+    high_risk_signal: bool
+    source: str = "provider_body"
+
+
+@dataclass(frozen=True)
 class OutcomePrior:
     """Measured prior for one optimization lever and segment.
 
@@ -87,6 +107,7 @@ class PlannerInput:
     provider: str
     model: str
     body: dict[str, Any]
+    request_facts: RequestFacts | None = None
     context: RequestContext = field(default_factory=lambda: EMPTY_CONTEXT)
     optimize_enabled: bool = True
     exact_cache_enabled: bool = True
@@ -112,15 +133,25 @@ class CandidateOptimization:
 
 @dataclass(frozen=True)
 class SelectedAction:
-    """What the planner authorizes for this request.
+    """The primary optimization the planner authorizes for this request.
 
-    In this first chunk, selected actions are always observe-only so the proxy can
-    later record planner output without behavior changes.
+    ``action`` names the lever the planner would apply first (or ``observe`` when
+    nothing is actionable). ``mode`` is how much authority it carries:
+    - ``enforce`` — an eligible, gate-cleared lever the proxy may apply now;
+    - ``shadow``  — a candidate that still needs a quality gate before it applies;
+    - ``observe_only`` — nothing actionable (passthrough).
+    The proxy records this alongside what it actually did (parity) so the planner
+    can be trusted as the decision point before it is made authoritative per lever.
     """
 
     action: str
     mode: str
     reason_code: str
+
+
+# Lever names in the order the proxy would apply them (cache short-circuits the
+# forward first, then routing, then trim). Selection walks this order.
+SELECTION_PRIORITY: tuple[str, ...] = ("exact_cache", "semantic_cache", "model_routing", "token_trim")
 
 
 @dataclass(frozen=True)
@@ -132,3 +163,15 @@ class OptimizationPlan:
     candidates: tuple[CandidateOptimization, ...]
     selected: SelectedAction
     planner_version: str = "planner_v1_observe_only"
+
+    def candidate_for(self, lever: str) -> CandidateOptimization | None:
+        """The candidate for a lever, matching the routing aliases the proxy uses
+        (``model_downshift``/``smart_routing`` both map to ``model_routing``)."""
+        target = "model_routing" if lever in {"model_downshift", "smart_routing"} else lever
+        for candidate in self.candidates:
+            candidate_lever = (
+                "model_routing" if candidate.lever in {"model_downshift", "smart_routing"} else candidate.lever
+            )
+            if candidate_lever == target:
+                return candidate
+        return None

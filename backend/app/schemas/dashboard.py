@@ -112,11 +112,14 @@ class DashboardSnapshot(BaseModel):
     gross_savings_usd: Decimal | None  # lever-footer total; reconciles with the gross_saved KPI
     # Auditable measured-savings provenance, surfaced at the top level so the UI can
     # bind the headline "Saved" figures directly to ledger facts instead of the
-    # estimate-derived gross. verified = direct_measured + holdback_measured (when
-    # the holdback has signal) -- the exact number billing charges the fee on.
+    # estimate-derived gross. verified is net of measurement and optimization
+    # overhead -- the exact number billing charges the fee on.
     # Distinct from proof_trust.verified_savings_usd, which is clamped to the claimed
     # gross because it is the basis for the measured_share ratio.
     verified_savings_usd: Decimal | None
+    verified_gross_savings_usd: Decimal | None = None
+    measurement_cost_usd: Decimal | None = None
+    optimization_overhead_cost_usd: Decimal | None = None
     direct_measured_usd: Decimal | None
     holdback_measured_usd: Decimal | None
     holdback_has_signal: bool
