@@ -11,14 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.engine.bandit import CandidateStats
 from app.engine.outcomes import outcome_prior_from_learning_candidate
 from app.engine.types import OutcomePrior
-from app.models import EngineOutcomePrior, Project
+from app.models import ROUTING_LEVERS, EngineOutcomePrior, Project
 
 logger = get_logger("varsten.engine.priors")
 
 _PRIOR_CACHE_TTL_SECONDS = 60
 _prior_cache: TTLCache[tuple[str, str], tuple[OutcomePrior, ...]] = TTLCache(
+    maxsize=4096,
+    ttl=_PRIOR_CACHE_TTL_SECONDS,
+)
+_candidate_stats_cache: TTLCache[tuple[str, str], tuple[CandidateStats, ...]] = TTLCache(
     maxsize=4096,
     ttl=_PRIOR_CACHE_TTL_SECONDS,
 )
@@ -29,11 +34,13 @@ def clear_outcome_prior_cache(project_id: uuid.UUID | None = None) -> None:
     with _prior_lock:
         if project_id is None:
             _prior_cache.clear()
+            _candidate_stats_cache.clear()
             return
         prefix = str(project_id)
-        for key in list(_prior_cache.keys()):
-            if key[0] == prefix:
-                _prior_cache.pop(key, None)
+        for cache in (_prior_cache, _candidate_stats_cache):
+            for key in list(cache.keys()):
+                if key[0] == prefix:
+                    cache.pop(key, None)
 
 
 def refresh_project_outcome_priors(
@@ -127,6 +134,80 @@ async def outcome_priors_for_request(
     with _prior_lock:
         _prior_cache[key] = priors
     return priors
+
+
+async def candidate_stats_for_request(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    model_requested: str,
+) -> tuple[CandidateStats, ...]:
+    """Per-candidate measured routing evidence for this incumbent model, merged
+    across segments (task type / risk), for the bandit's hot-path selection.
+
+    Every number is an aggregated ledger fact from the persisted priors sweep.
+    Fail-open: any error returns an empty tuple and the caller routes to the
+    policy's primary candidate exactly as before."""
+    if not model_requested:
+        return ()
+    key = (str(project_id), model_requested)
+    with _prior_lock:
+        cached = _candidate_stats_cache.get(key)
+    if cached is not None:
+        return cached
+
+    try:
+        with db.no_autoflush:
+            async with db.begin_nested():
+                rows = (
+                    await db.scalars(
+                        select(EngineOutcomePrior).where(
+                            EngineOutcomePrior.project_id == project_id,
+                            EngineOutcomePrior.model_requested == model_requested,
+                            EngineOutcomePrior.lever.in_(ROUTING_LEVERS),
+                        )
+                    )
+                ).all()
+        stats = _merge_candidate_rows(rows)
+    except Exception:
+        logger.exception("bandit candidate stats lookup failed; falling back to primary candidate")
+        return ()
+
+    with _prior_lock:
+        _candidate_stats_cache[key] = stats
+    return stats
+
+
+def _merge_candidate_rows(rows: list[EngineOutcomePrior]) -> tuple[CandidateStats, ...]:
+    """Merge segment-level prior rows into one stats record per candidate model.
+
+    Quality is sample-weighted across segments that measured it; mean savings is
+    weighted by the count of decisions whose savings were actually measured."""
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        if not row.model_chosen or row.model_chosen == "unknown":
+            continue
+        key = (row.model_chosen, row.provider_chosen or "openai")
+        agg = merged.setdefault(
+            key,
+            {"samples": 0, "q_weighted": Decimal("0"), "q_weight": 0, "s_weighted": Decimal("0"), "s_weight": 0},
+        )
+        agg["samples"] += row.sample_count
+        if row.quality_pass_rate is not None and row.sample_count > 0:
+            agg["q_weighted"] += Decimal(row.quality_pass_rate) * row.sample_count
+            agg["q_weight"] += row.sample_count
+        if row.average_gross_savings_usd is not None and row.measured_savings_count > 0:
+            agg["s_weighted"] += Decimal(row.average_gross_savings_usd) * row.measured_savings_count
+            agg["s_weight"] += row.measured_savings_count
+    return tuple(
+        CandidateStats(
+            model=model,
+            provider=provider,
+            sample_count=agg["samples"],
+            quality_pass_rate=float(agg["q_weighted"] / agg["q_weight"]) if agg["q_weight"] else None,
+            average_savings_usd=(agg["s_weighted"] / agg["s_weight"]) if agg["s_weight"] else None,
+        )
+        for (model, provider), agg in merged.items()
+    )
 
 
 def _row_to_prior(row: EngineOutcomePrior) -> OutcomePrior:

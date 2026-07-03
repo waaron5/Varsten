@@ -206,13 +206,47 @@ Closed so far:
   fabricated ±15% band removed, reconciliation test in test_savings_measurement)
   and automation-upgrade proposals (`propose_automation_upgrade_candidates`).
 
-Still open. **Everything through F is done except D2 and E:**
-- **D2 (learned prompt compression)** — deferred until a compression approach is
-  chosen (it requires an off-path LLM compression pipeline + eval-gated rollout;
-  a product decision, not just code).
-- **E (bandit policy)** — unblocked (B1 + A5 done). Thompson sampling over
-  eval-cleared candidates, exploration budget ≤2%, guardrails as hard
-  constraints. Hot-path work in `routing.py`/`router.py`; wants its own session.
+- **E (done).** Bandit routing over eval-cleared candidates.
+  `app/engine/bandit.py` (selection policy) + `candidate_stats_for_request` in
+  `priors.py` (TTL-cached per-candidate ledger aggregates, merged across
+  segments) + `_maybe_bandit_select` in `routing.py::resolve_route` +
+  `routing.add_bandit_candidate` / `remove_bandit_candidate` (control plane) +
+  per-candidate drift removal in `drift.py::_check_bandit_candidates` +
+  add/list/remove endpoints under `/engine/routes/{id}/bandit-candidates`.
+  Design facts the next agent must know:
+  - **Modes** (`bandit_routing_mode`, default `off`): `off` = pure no-op;
+    `shadow` = sampler runs, choice recorded in the `bandit_routing` runtime
+    trace, traffic still goes to the primary; `active` = sampled candidate
+    routed. Fail-open on its own inner try: a bandit error routes to the
+    primary — it can only change *which cleared candidate* serves, never
+    whether the request is served.
+  - **Selection is deliberately NOT Thompson over savings magnitude**: the
+    persisted priors carry mean savings but no variance, and inventing one
+    would be fake learning. It is a quality-gated exploit/explore split:
+    Thompson (Beta) draw on measured quality must clear `bandit_quality_floor`
+    (hard constraint); exploit = highest measured mean savings among candidates
+    with ≥ `bandit_min_samples`; explore = uniform over under-sampled cleared
+    candidates under the hard `bandit_exploration_budget` (2%). A
+    savings-variance column on `EngineOutcomePrior` upgrades exploit to full
+    Thompson later.
+  - **Eligibility is off-path**: `add_bandit_candidate` requires a completed
+    eval with verdict `safe`, or `needs_human` + approved/active ChangeRequest
+    — the same bar as a single-candidate apply. The drift sweep removes a
+    regressed candidate surgically (policy + primary stay live), logging a
+    `bandit_candidate_removed` system action.
+  - **Savings/learning honesty**: the holdback control arm is assigned *after*
+    selection and stays on the incumbent, so per-pair A/B math is untouched;
+    chosen models land in the decision ledger (`model_chosen`) and flow back
+    into the priors sweep — the learning loop uses only persisted evidence.
+
+Still open. **Only D2 remains:**
+- **D2 (learned prompt compression)** — the next slice. Pipeline shape agreed:
+  candidate generation off-path, replay/eval gated, approval/canary/holdback
+  before any live transform, never silently compress inline, compression
+  evidence persisted, rollback on quality drift. The open product decision is
+  the compression generator itself (LLM-based rewrite vs deterministic
+  distillation) — build the pipeline around an injectable generator the way
+  `eval/runner.py` injects `replay_fn`/`judge_fn`.
 
 **Reuse the B1 confidence sequence**
 (`ConfidenceSequence`, `difference_confidence_sequence`, `mean_confidence_sequence`)
@@ -502,13 +536,12 @@ of arm assignment.
   opt-in *transform* (restructuring prompts to stabilize prefixes) remains
   later work: it touches content — treat like trim: deterministic, eval-gated,
   holdback-measured.
-- **D2. Learned prompt compression — OPEN:** off-path only, behind the eval gate,
-  approve-mode only. Never inline. Blocked on a compression-approach decision.
+- **D2. Learned prompt compression — OPEN (the last slice):** off-path only,
+  behind the eval gate, approve-mode only. Never inline. Build around an
+  injectable compression generator (see §2 "Still open").
 - **D3. Trace/session model — DONE (see §2).** The audit's "agent loop detector."
-- **E. Bandit policy — OPEN:** Thompson sampling over eval-cleared candidates
-  only, exploration budget ≤ 2% of route traffic, guardrails as hard constraints.
-  Requires B1 (honest inference) and A5 (route identity) — both done. Hot-path
-  work; wants its own session.
+- **E. Bandit policy — DONE (see §2).** Default off; shadow mode for zero-risk
+  telemetry; candidates enter only via the eval/ChangeRequest clearance gate.
 - **F. `ChangeRequest` governance object — DONE (see §2).** Enforcement is
   opt-in via `governance_change_requests_enabled` (default off).
 

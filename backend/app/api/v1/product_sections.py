@@ -53,6 +53,7 @@ from app.models import (
     User,
 )
 from app.periods import Period, resolve_period
+from app.proxy import routing
 from app.proxy.budget_enforcement import clear_budget_cache
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.execution import activate_execution, deactivate_execution
@@ -1270,6 +1271,97 @@ def engine_update_route(
         "enabled": rule.enabled,
         "holdback_percent": _route_str(rule.holdback_percent),
     }
+
+
+class BanditCandidateAdd(BaseModel):
+    candidate_model: str = Field(min_length=1, max_length=128)
+    candidate_provider: str | None = Field(default=None, max_length=64)
+
+
+@router.get("/engine/routes/{rule_id}/bandit-candidates", response_model=None)
+def engine_list_bandit_candidates(
+    rule_id: uuid.UUID,
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    rule = db.get(ProxyPolicy, rule_id)
+    if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
+    return {
+        "id": rule.id,
+        "primary_candidate": rule.candidate_model,
+        "bandit_candidates": routing.bandit_candidate_entries(rule),
+        "bandit_routing_mode": settings.bandit_routing_mode,
+    }
+
+
+@router.post("/engine/routes/{rule_id}/bandit-candidates", response_model=None)
+def engine_add_bandit_candidate(
+    rule_id: uuid.UUID,
+    payload: BanditCandidateAdd,
+    request: Request,
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Add an eval-cleared candidate to a route's bandit set. The clearance gate
+    (safe verdict, or needs_human + approved ChangeRequest) is enforced in
+    routing.add_bandit_candidate; this endpoint adds identity + audit."""
+    rule = db.get(ProxyPolicy, rule_id)
+    if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
+    _assert_member(user, project, db)
+    require_performance(db, project, action="Adding a bandit routing candidate")
+    try:
+        routing.add_bandit_candidate(
+            db, rule, payload.candidate_model, candidate_provider=payload.candidate_provider
+        )
+    except routing.BanditCandidateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    record_audit(
+        db,
+        action="bandit_candidate.added",
+        actor=user,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        target_type="proxy_policy",
+        target_id=str(rule.id),
+        source_ip=client_ip(request),
+        details={"candidate_model": payload.candidate_model, "incumbent_model": rule.incumbent_model},
+    )
+    db.commit()
+    return {"id": rule.id, "bandit_candidates": routing.bandit_candidate_entries(rule)}
+
+
+@router.delete("/engine/routes/{rule_id}/bandit-candidates/{candidate_model}", response_model=None)
+def engine_remove_bandit_candidate(
+    rule_id: uuid.UUID,
+    candidate_model: str,
+    request: Request,
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Remove a candidate from the bandit set (always allowed: narrowing is safe)."""
+    rule = db.get(ProxyPolicy, rule_id)
+    if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
+    _assert_member(user, project, db)
+    if not routing.remove_bandit_candidate(db, rule, candidate_model):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="candidate not in the bandit set")
+    record_audit(
+        db,
+        action="bandit_candidate.removed",
+        actor=user,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        target_type="proxy_policy",
+        target_id=str(rule.id),
+        source_ip=client_ip(request),
+        details={"candidate_model": candidate_model},
+    )
+    db.commit()
+    return {"id": rule.id, "bandit_candidates": routing.bandit_candidate_entries(rule)}
 
 
 @router.patch("/engine/trims/{policy_id}", response_model=None)

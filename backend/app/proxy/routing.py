@@ -23,8 +23,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.engine import bandit
+from app.engine.priors import candidate_stats_for_request
 from app.levers import LEVER_MODEL_DOWNSHIFT, LEVER_SMART_ROUTING
-from app.models import ROUTING_LEVERS, Project, ProxyPolicy, Recommendation
+from app.models import (
+    CR_ACTIVE,
+    CR_APPROVED,
+    ROUTING_LEVERS,
+    ChangeRequest,
+    EvalRun,
+    Project,
+    ProxyPolicy,
+    Recommendation,
+)
+from app.models.eval import RUN_COMPLETED, VERDICT_NEEDS_HUMAN, VERDICT_SAFE
 from app.proxy import canary
 from app.proxy import predicate as predicate_mod
 
@@ -46,6 +58,18 @@ class RouteDecision(NamedTuple):
     lever: str | None = None
     policy_id: uuid.UUID | None = None
     source_recommendation_id: uuid.UUID | None = None
+    # Content-free record of the bandit's selection (or shadow would-be
+    # selection) for the runtime trace; None when the bandit did not run.
+    bandit_trace: dict | None = None
+
+
+def bandit_candidate_entries(policy: ProxyPolicy) -> list[dict]:
+    """The policy's eval-cleared additional candidates: [{"model", "provider"}].
+    Only ``add_bandit_candidate`` may grow this list (it enforces clearance)."""
+    entries = (policy.params or {}).get("bandit_candidates")
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if isinstance(e, dict) and e.get("model")]
 
 
 async def _routing_policy_for_model(
@@ -96,17 +120,73 @@ async def resolve_route(
         # the holdback arm draw the caller makes next.
         if not canary.in_rollout(policy.rollout_percent):
             return None
+        chosen_model = policy.candidate_model
+        chosen_provider = policy.candidate_provider or requested_provider
+        chosen_model, chosen_provider, bandit_trace = await _maybe_bandit_select(
+            db, project_id, requested_model, policy, chosen_model, chosen_provider
+        )
         return RouteDecision(
-            policy.candidate_model,
-            policy.candidate_provider or requested_provider,
+            chosen_model,
+            chosen_provider,
             policy.holdback_percent or Decimal("0"),
             lever=policy.lever,
             policy_id=policy.id,
             source_recommendation_id=policy.source_recommendation_id,
+            bandit_trace=bandit_trace,
         )
     except Exception:
         logger.exception("routing lookup failed; forwarding original model", extra={"project_id": str(project_id)})
         return None
+
+
+async def _maybe_bandit_select(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    requested_model: str,
+    policy: ProxyPolicy,
+    primary_model: str,
+    primary_provider: str,
+) -> tuple[str, str, dict | None]:
+    """Bandit selection among the policy's eval-cleared candidates, when enabled.
+
+    Off (default): a pure no-op. Shadow: the sampler runs and its would-be choice
+    is returned in the trace, but the primary still gets the traffic. Active: the
+    sampled candidate is routed. Fail-open on its own: any error keeps the
+    primary, so the bandit can only ever change *which cleared candidate* serves,
+    never whether the request is served."""
+    mode = bandit.mode()
+    if mode == bandit.MODE_OFF:
+        return primary_model, primary_provider, None
+    extra_entries = bandit_candidate_entries(policy)
+    if not extra_entries:
+        return primary_model, primary_provider, None
+    try:
+        stats_by_model = {s.model: s for s in await candidate_stats_for_request(db, project_id, requested_model)}
+        allowed: list[bandit.CandidateStats] = []
+        for entry in ({"model": primary_model, "provider": primary_provider}, *extra_entries):
+            known = stats_by_model.get(entry["model"])
+            if known is not None:
+                allowed.append(known)
+            else:
+                # Cold candidate: no ledger evidence yet. It can only win via the
+                # budgeted exploration path.
+                allowed.append(
+                    bandit.CandidateStats(
+                        model=entry["model"],
+                        provider=entry.get("provider") or primary_provider,
+                        sample_count=0,
+                        quality_pass_rate=None,
+                        average_savings_usd=None,
+                    )
+                )
+        choice = bandit.select_candidate(primary_model, primary_provider, allowed)
+        trace = {"mode": mode, **choice.trace_detail()}
+        if mode == bandit.MODE_ACTIVE:
+            return choice.model, choice.provider, trace
+        return primary_model, primary_provider, trace  # shadow: telemetry only
+    except Exception:
+        logger.exception("bandit selection failed; routing to primary candidate")
+        return primary_model, primary_provider, None
 
 
 def assign_arm(holdback_percent: Decimal) -> str:
@@ -197,3 +277,114 @@ def deactivate_rules_for_recommendation(db: Session, recommendation: Recommendat
     db.execute(
         update(ProxyPolicy).where(ProxyPolicy.source_recommendation_id == recommendation.id).values(enabled=False)
     )
+
+
+# --- bandit candidate management (control plane) --------------------------------
+
+
+class BanditCandidateError(Exception):
+    """Adding/removing a bandit candidate failed a precondition (not eval-cleared,
+    duplicate, wrong lever, ...). Message is safe to surface to the operator."""
+
+
+def _latest_completed_run(db: Session, project_id, incumbent: str, candidate: str) -> EvalRun | None:
+    return db.scalar(
+        select(EvalRun)
+        .where(
+            EvalRun.project_id == project_id,
+            EvalRun.incumbent_model == incumbent,
+            EvalRun.candidate_model == candidate,
+            EvalRun.status == RUN_COMPLETED,
+        )
+        .order_by(EvalRun.created_at.desc())
+        .limit(1)
+    )
+
+
+def _assert_candidate_cleared(db: Session, policy: ProxyPolicy, candidate_model: str) -> EvalRun:
+    """The eval/governance clearance gate for adding a bandit candidate.
+
+    ``safe`` clears on the eval alone; ``needs_human`` (subjective route) clears
+    only with an approved/active ChangeRequest behind the run's recommendation —
+    the same bar a single-candidate apply has to meet. Anything else is blocked."""
+    run = _latest_completed_run(db, policy.project_id, policy.incumbent_model, candidate_model)
+    if run is None:
+        raise BanditCandidateError(
+            f"{candidate_model} has no completed shadow eval against {policy.incumbent_model}; "
+            "run one before it can join the bandit candidate set."
+        )
+    if run.verdict == VERDICT_SAFE:
+        return run
+    if run.verdict == VERDICT_NEEDS_HUMAN:
+        if run.recommendation_id is not None:
+            approved = db.scalar(
+                select(ChangeRequest).where(
+                    ChangeRequest.recommendation_id == run.recommendation_id,
+                    ChangeRequest.status.in_([CR_APPROVED, CR_ACTIVE]),
+                )
+            )
+            if approved is not None:
+                return run
+        raise BanditCandidateError(
+            f"{candidate_model} cleared its eval for human approval only; approve its "
+            "ChangeRequest before it can join the bandit candidate set."
+        )
+    raise BanditCandidateError(
+        f"{candidate_model} did not clear its shadow eval (verdict: {run.verdict}); it cannot join the candidate set."
+    )
+
+
+def add_bandit_candidate(
+    db: Session,
+    policy: ProxyPolicy,
+    candidate_model: str,
+    *,
+    candidate_provider: str | None = None,
+) -> ProxyPolicy:
+    """Add an eval-cleared candidate to a routing policy's bandit set.
+
+    This is the only writer of ``params["bandit_candidates"]``; every entry in
+    that list has passed the clearance gate above. The bandit itself never widens
+    the set — it only chooses within it."""
+    if policy.lever not in ROUTING_LEVERS:
+        raise BanditCandidateError("bandit candidates only apply to routing-lever policies")
+    if not candidate_model or candidate_model == policy.incumbent_model:
+        raise BanditCandidateError("candidate must be a real model different from the incumbent")
+    if candidate_model == policy.candidate_model:
+        raise BanditCandidateError(f"{candidate_model} is already the policy's primary candidate")
+    entries = bandit_candidate_entries(policy)
+    if any(entry["model"] == candidate_model for entry in entries):
+        raise BanditCandidateError(f"{candidate_model} is already in the bandit candidate set")
+
+    run = _assert_candidate_cleared(db, policy, candidate_model)
+    entries = [
+        *entries,
+        {
+            "model": candidate_model,
+            "provider": candidate_provider or "openai",
+            "eval_run_id": str(run.id),
+        },
+    ]
+    policy.params = {**(policy.params or {}), "bandit_candidates": entries}
+    logger.info(
+        "bandit candidate added",
+        extra={"project_id": str(policy.project_id), "policy_id": str(policy.id), "candidate": candidate_model},
+    )
+    return policy
+
+
+def remove_bandit_candidate(db: Session, policy: ProxyPolicy, candidate_model: str) -> bool:
+    """Remove a candidate from the bandit set (operator action or drift guard).
+    Returns whether it was present. The primary candidate is not removable here —
+    rolling back the primary is the whole-policy rollback path."""
+    del db  # symmetry with add; the caller owns flush/commit
+    entries = bandit_candidate_entries(policy)
+    remaining = [entry for entry in entries if entry["model"] != candidate_model]
+    if len(remaining) == len(entries):
+        return False
+    policy.params = {**(policy.params or {}), "bandit_candidates": remaining}
+    logger.info(
+        "bandit candidate removed",
+        extra={"project_id": str(policy.project_id), "policy_id": str(policy.id), "candidate": candidate_model},
+    )
+    return True

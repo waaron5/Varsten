@@ -1018,6 +1018,19 @@ def _tag_route_policy(draft: DecisionDraft, decision: Any) -> None:
     draft.lever = decision.lever
     draft.policy_id = decision.policy_id
     draft.source_recommendation_id = decision.source_recommendation_id
+    # Bandit selection telemetry (shadow or active): which cleared candidate the
+    # sampler picked and why. Content-free; absent when the bandit did not run.
+    bandit_trace = getattr(decision, "bandit_trace", None)
+    if bandit_trace:
+        draft.add_runtime_trace(
+            stage="bandit_routing",
+            lever=decision.lever or "model_routing",
+            action="selected",
+            reason_code=str(bandit_trace.get("reason") or "unknown"),
+            enforced=bandit_trace.get("mode") == "active",
+            policy_id=decision.policy_id,
+            detail=bandit_trace,
+        )
 
 
 def _attach_openai_routing_plan(

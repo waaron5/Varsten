@@ -39,6 +39,7 @@ from app.models import (
     UsageEvent,
 )
 from app.proxy import canary
+from app.proxy import routing as routing_mod
 from app.proxy.experiment import MIN_ARM_SAMPLES
 from app.proxy.routing import ARM_CONTROL, ARM_TREATMENT
 from app.proxy.sequential import (
@@ -365,8 +366,68 @@ def check_and_rollback_drift(
         else:
             # No regression this stage: if the route is mid-canary, ramp it up.
             _maybe_promote_canary(db, project, rule, now, route_label, q, lat)
+
+        # Bandit candidates carry their own per-pair drift guard: a regressed
+        # candidate is removed from the set (surgical) while the policy and its
+        # primary stay live. The primary's regression above rolls back everything.
+        if rule.lever in ROUTING_LEVERS and rule.enabled:
+            rolled.extend(_check_bandit_candidates(db, project, rule, period_start, now))
     db.commit()
     return rolled
+
+
+def _check_bandit_candidates(
+    db: Session,
+    project: Project,
+    rule: ProxyPolicy,
+    period_start: datetime,
+    now: datetime,
+) -> list[dict]:
+    """Evaluate each bandit candidate's own holdback pair; remove any that has a
+    confirmed quality or latency regression. Same peeking-safe confidence
+    sequences as the primary; the response is surgical (drop the candidate, keep
+    the policy) because one bad candidate must not kill a healthy route."""
+    removed: list[dict] = []
+    incumbent = rule.incumbent_model
+    for entry in routing_mod.bandit_candidate_entries(rule):
+        candidate = entry["model"]
+        q = evaluate_drift(db, project.id, incumbent, candidate, period_start)
+        lat = evaluate_latency_drift(db, project.id, incumbent, candidate, period_start)
+        trigger = (
+            "quality"
+            if q["drifted"]
+            else "latency"
+            if lat["regressed"]
+            else "latency_slo"
+            if lat["slo_breached"]
+            else None
+        )
+        if trigger is None:
+            continue
+        if not routing_mod.remove_bandit_candidate(db, rule, candidate):
+            continue
+        label = f"{incumbent} -> {candidate} (bandit)"
+        db.add(
+            RecommendationAction(
+                organization_id=project.organization_id,
+                project_id=project.id,
+                recommendation_id=rule.source_recommendation_id,
+                actor_user_id=None,
+                lever=rule.lever,
+                action_type="bandit_candidate_removed",
+                status="completed",
+                source="system",
+                title=f"Bandit candidate removed {label}: {trigger} regression",
+                detail="This candidate's holdback pair showed a confirmed regression; it left the candidate set.",
+                occurred_at=now,
+            )
+        )
+        logger.warning(
+            "bandit candidate removed on drift",
+            extra={"project_id": str(project.id), "route": label, "trigger": trigger},
+        )
+        removed.append({"route": label, "trigger": trigger, **(q if trigger == "quality" else lat)})
+    return removed
 
 
 def _maybe_promote_canary(

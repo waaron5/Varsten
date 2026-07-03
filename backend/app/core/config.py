@@ -268,6 +268,25 @@ class Settings(BaseSettings):
     canary_initial_percent: int = 10
     canary_stages: tuple[int, ...] = (10, 50, 100)
 
+    # --- Bandit routing over eval-cleared candidates ---
+    # "off" (default): the bandit never runs; a routing policy behaves exactly as
+    # a single-candidate swap. "shadow": the sampler runs and its would-be choice
+    # is recorded in the runtime trace, but traffic still goes to the policy's
+    # primary candidate — zero behavior change, real selection telemetry.
+    # "active": traffic is routed to the sampled candidate. Candidates enter a
+    # policy's set only through routing.add_bandit_candidate, which requires an
+    # eval-cleared verdict (safe, or needs_human + approved ChangeRequest), and
+    # the drift guard removes a candidate on measured quality/latency regression.
+    bandit_routing_mode: str = "off"
+    # Hard quality floor a candidate's sampled Beta posterior must clear per
+    # request; below it the candidate is ineligible for that request.
+    bandit_quality_floor: float = 0.95
+    # Hard cap on the share of routed traffic exploration may spend on
+    # under-sampled candidates (the plan's <= 2% exploration budget).
+    bandit_exploration_budget: float = 0.02
+    # Evidence a candidate needs before the exploit step will consider it.
+    bandit_min_samples: int = 25
+
     # --- Always-valid sequential inference (holdback + drift) ---
     # The holdback A/B and the drift guard are read continuously, so their
     # intervals are time-uniform confidence sequences rather than fixed-n CIs
