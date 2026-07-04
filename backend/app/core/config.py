@@ -268,6 +268,22 @@ class Settings(BaseSettings):
     canary_initial_percent: int = 10
     canary_stages: tuple[int, ...] = (10, 50, 100)
 
+    # --- Learned prompt compression ---
+    # The pipeline is generate (off-path LLM rewrite of a route's stable system
+    # prompt, metered as overhead) -> shadow eval on the route's real replayed
+    # traffic -> human approval (approve-mode lever; needs_human verdicts also
+    # need a ChangeRequest) -> canary + holdback activation. At request time the
+    # proxy only substitutes the approved compressed prompt when the request's
+    # system prompt hashes exactly to the evaluated original; it NEVER compresses
+    # inline. A system prompt below min_chars is not worth the quality risk, and
+    # a rewrite that does not shrink to at most max_ratio of the original is
+    # rejected at generation time.
+    compression_min_prompt_chars: int = 1000
+    compression_max_ratio: float = 0.8
+    # The off-path model that writes the compressed rewrite (billed to the
+    # customer's key and metered as optimization overhead).
+    compression_generator_model: str = "gpt-4o-mini"
+
     # --- Bandit routing over eval-cleared candidates ---
     # "off" (default): the bandit never runs; a routing policy behaves exactly as
     # a single-candidate swap. "shadow": the sampler runs and its would-be choice

@@ -95,6 +95,52 @@ async def replay_candidate(messages: list[dict], params: dict, model: str, key: 
         return None
 
 
+_COMPRESSION_INSTRUCTION = (
+    "You rewrite system prompts to be shorter without changing their meaning or "
+    "behavior. Preserve every rule, constraint, output-format requirement, tone "
+    "instruction, and safety directive exactly; remove only redundancy, filler, "
+    "and verbose phrasing. Return ONLY the rewritten prompt text with no "
+    "commentary, preamble, or quotation marks."
+)
+
+
+async def compress_system_prompt(system_prompt: str, key: str) -> tuple[str | None, int, int]:
+    """Off-path LLM rewrite of a route's system prompt (the default compression
+    generator). Returns (compressed_text, input_tokens, output_tokens) so the
+    caller can meter the generation as optimization overhead; (None, 0, 0) on any
+    failure. Never called from the request hot path."""
+    body = {
+        "model": settings.compression_generator_model,
+        "messages": [
+            {"role": "system", "content": _COMPRESSION_INSTRUCTION},
+            {"role": "user", "content": system_prompt},
+        ],
+        "temperature": 0,
+        "stream": False,
+    }
+    try:
+        resp = await _post_with_retry(
+            _openai.endpoint(),
+            _openai.headers(key),
+            body,
+            settings.proxy_upstream_timeout_seconds,
+        )
+        if resp.status_code != 200:
+            logger.warning("compression generation non-200", extra={"status": resp.status_code})
+            return None, 0, 0
+        payload = resp.json()
+        text = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        usage = payload.get("usage") or {}
+        return (
+            text.strip() or None,
+            int(usage.get("prompt_tokens") or 0),
+            int(usage.get("completion_tokens") or 0),
+        )
+    except Exception:
+        logger.exception("compression generation failed")
+        return None, 0, 0
+
+
 async def _judge_once(prompt: str, first: str, second: str, key: str) -> tuple[str, str]:
     """Returns (winner, reasoning). winner is 'first' | 'second' | 'tie'."""
     body = {

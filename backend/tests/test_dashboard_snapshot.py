@@ -88,13 +88,14 @@ def test_snapshot_is_all_null_on_empty_project(client, provision):
     assert all(kpi["delta"]["delta_pct"] is None for kpi in snap["kpis"])
     assert snap["savings_trend"] == []
     assert snap["proof_trust"]["score"] is None
-    # All five levers are always present; an unconfigured project shows them Off.
+    # Every lever is always present; an unconfigured project shows them Off.
     assert {lever["lever"] for lever in snap["levers"]} == {
         "semantic_cache",
         "model_downshift",
         "batching",
         "token_trim",
         "smart_routing",
+        "prompt_compression",
     }
     assert all(lever["value_usd"] is None for lever in snap["levers"])
     # Fallback coverage always lists all three providers; an empty project has none

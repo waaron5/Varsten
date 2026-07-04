@@ -44,6 +44,7 @@ class DecisionDraft:
     policy_id: uuid.UUID | None = None
     source_recommendation_id: uuid.UUID | None = None
     trim_applied: bool = False
+    compression_applied: bool = False
     route_eligible: bool | None = None
     route_ineligible_reason: str | None = None
     # Content-free fingerprint of the request's cacheable prefix (system/tools),
@@ -91,7 +92,13 @@ def _to_decimal(value) -> Decimal | None:
 
 
 def _decision_type(
-    *, cache_status: str | None, bypassed: bool, arm: str | None, trim_applied: bool, routed: bool
+    *,
+    cache_status: str | None,
+    bypassed: bool,
+    arm: str | None,
+    trim_applied: bool,
+    routed: bool,
+    compression_applied: bool = False,
 ) -> str:
     if cache_status in {"hit", "semantic"}:
         return "cache"
@@ -101,12 +108,21 @@ def _decision_type(
         return f"experiment_{arm}"
     if trim_applied:
         return "trim"
+    if compression_applied:
+        return "compression"
     if routed:
         return "route"
     return "passthrough"
 
 
-def _applied_lever(*, cache_status: str | None, arm: str | None, trim_applied: bool, routed: bool) -> str | None:
+def _applied_lever(
+    *,
+    cache_status: str | None,
+    arm: str | None,
+    trim_applied: bool,
+    routed: bool,
+    compression_applied: bool = False,
+) -> str | None:
     """The primary optimization lever the proxy actually applied, in planner
     vocabulary, or None for plain passthrough. A held-back control arm applied no
     optimization (it stayed on the incumbent), so it is passthrough here."""
@@ -114,10 +130,14 @@ def _applied_lever(*, cache_status: str | None, arm: str | None, trim_applied: b
         return "exact_cache"
     if cache_status == "semantic":
         return "semantic_cache"
-    if routed or arm == "treatment":
+    if routed:
         return "model_routing"
     if trim_applied:
         return "token_trim"
+    if compression_applied:
+        return "prompt_compression"
+    if arm == "treatment":
+        return "model_routing"
     return None
 
 
@@ -128,6 +148,7 @@ def add_planner_parity_trace(
     arm: str | None,
     trim_applied: bool,
     routed: bool,
+    compression_applied: bool = False,
 ) -> None:
     """Record whether the optimization the proxy applied was authorized by the
     planner (parity). This is the A4 shadow: every applied lever must trace back to
@@ -137,7 +158,13 @@ def add_planner_parity_trace(
     plan = draft.optimization_plan
     if plan is None or draft.bypassed:
         return
-    applied = _applied_lever(cache_status=cache_status, arm=arm, trim_applied=trim_applied, routed=routed)
+    applied = _applied_lever(
+        cache_status=cache_status,
+        arm=arm,
+        trim_applied=trim_applied,
+        routed=routed,
+        compression_applied=compression_applied,
+    )
     if applied is None:
         # Passthrough is always consistent with an advisory planner (it forces
         # nothing); record it so parity coverage is visible, not silently skipped.
@@ -185,6 +212,7 @@ def _savings_method(
     arm: str | None,
     trim_applied: bool,
     routed: bool,
+    compression_applied: bool = False,
 ) -> str:
     if cache_status in {"hit", "semantic"}:
         return "cache_avoidance"
@@ -192,6 +220,8 @@ def _savings_method(
         return "route_counterfactual"
     if arm and trim_applied:
         return "trim_holdback_observation"
+    if arm and compression_applied:
+        return "compression_holdback_observation"
     if arm:
         return "holdback_observation"
     if bypassed:
@@ -255,6 +285,7 @@ def _savings_proof(
     realized_actual: Decimal | None,
     realized_savings: Decimal | None,
     quality_ok: bool | None,
+    compression_applied: bool = False,
 ) -> dict[str, Any]:
     overhead_cost: Decimal | None = None
     return {
@@ -264,6 +295,7 @@ def _savings_proof(
             arm=arm,
             trim_applied=trim_applied,
             routed=routed,
+            compression_applied=compression_applied,
         ),
         "baseline_cost_usd": _money(realized_naive),
         "actual_cost_usd": _money(realized_actual),
@@ -333,6 +365,7 @@ async def record_request_decision(
         ctx = draft.ctx or EMPTY_CONTEXT
         meta = event.event_metadata or {}
         routed = routed_from is not None
+        compression_applied = draft.compression_applied
 
         add_planner_parity_trace(
             draft,
@@ -340,6 +373,7 @@ async def record_request_decision(
             arm=arm,
             trim_applied=trim_applied,
             routed=routed,
+            compression_applied=compression_applied,
         )
 
         decision_type = _decision_type(
@@ -348,8 +382,11 @@ async def record_request_decision(
             arm=arm,
             trim_applied=trim_applied,
             routed=routed,
+            compression_applied=compression_applied,
         )
-        optimization_applied = bool(cache_status in {"hit", "semantic"} or trim_applied or routed)
+        optimization_applied = bool(
+            cache_status in {"hit", "semantic"} or trim_applied or routed or compression_applied
+        )
 
         # Realized economics come from the ledger row (single source of truth), so
         # pricing is never recomputed here.
@@ -364,6 +401,7 @@ async def record_request_decision(
             arm=arm,
             trim_applied=trim_applied,
             routed=routed,
+            compression_applied=compression_applied,
             optimization_applied=optimization_applied,
             realized_naive=realized_naive,
             realized_actual=realized_actual,

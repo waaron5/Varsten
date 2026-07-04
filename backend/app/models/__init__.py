@@ -15,6 +15,7 @@ from app.models.audit import (
 )
 from app.models.base import Base
 from app.models.batch import BatchJob
+from app.models.compression import PromptCompression
 from app.models.billing import (
     INVOICE_DRAFT,
     INVOICE_FINALIZED,
@@ -123,6 +124,7 @@ __all__ = [
     "OrgModelPriceOverride",
     "Organization",
     "Project",
+    "PromptCompression",
     "ProviderConnection",
     "ProxyCacheEntry",
     "ProxyPolicy",

@@ -34,6 +34,7 @@ def build_optimization_plan(planner_input: PlannerInput) -> OptimizationPlan:
         _with_outcome_prior(_semantic_cache_candidate(planner_input, classification), planner_input),
         _with_outcome_prior(_model_routing_candidate(planner_input, classification), planner_input),
         _with_outcome_prior(_token_trim_candidate(planner_input, classification), planner_input),
+        _with_outcome_prior(_prompt_compression_candidate(planner_input, classification), planner_input),
     )
 
     return OptimizationPlan(
@@ -195,6 +196,41 @@ def _token_trim_candidate(
         risk=OptimizationRisk.MEDIUM,
         reason_code="trim_requires_quality_gate",
         policy_id=planner_input.trim_policy_id,
+    )
+
+
+def _prompt_compression_candidate(
+    planner_input: PlannerInput,
+    classification: RequestClassification,
+) -> CandidateOptimization:
+    """Same conservative blockers as trim: compression is also a body transform,
+    and a risky/tool-coordinating/JSON-contract prompt is exactly where an
+    approved rewrite could still surprise. The exact-hash match at execution time
+    is the second, stricter gate."""
+    if not planner_input.optimize_enabled:
+        return _unavailable("prompt_compression", classification, "optimization_disabled")
+    if not planner_input.compression_policy_present:
+        return _unavailable("prompt_compression", classification, "compression_policy_missing")
+
+    blockers = _trim_blockers(classification)
+    if blockers:
+        return CandidateOptimization(
+            lever="prompt_compression",
+            status=CandidateStatus.REJECTED,
+            quality_gate=QualityGateStatus.BLOCKED,
+            risk=classification.risk_level,
+            reason_code="compression_blocked_by_context_risk",
+            reason_detail={"blockers": blockers},
+            policy_id=planner_input.compression_policy_id,
+        )
+
+    return CandidateOptimization(
+        lever="prompt_compression",
+        status=CandidateStatus.SHADOW_ONLY,
+        quality_gate=QualityGateStatus.REQUIRED,
+        risk=OptimizationRisk.MEDIUM,
+        reason_code="compression_requires_quality_gate",
+        policy_id=planner_input.compression_policy_id,
     )
 
 

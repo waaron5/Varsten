@@ -5,40 +5,71 @@ import Image from "next/image";
 import Link from "next/link";
 import { APP_URL, CONTACT_EMAIL, DPA_REQUEST_HREF, START_OBSERVE_HREF, START_TRIAL_HREF } from "./site-links";
 
-/* ── Static data for the dashboard product shot (decorative, fixed numbers) ── */
-const LEVER_GROSS_SAVED = 31570;
-const LEVER_GROSS_SAVED_LABEL = `$${LEVER_GROSS_SAVED.toLocaleString("en-US")}`;
+/* ── Static preview data for the dashboard product shot (reconciled numbers) ── */
+const PERFORMANCE_FEE_RATE = 0.25;
+const TRUST_SCORE = 98;
+const PRICING_COVERAGE_RATE = 100;
+
+const formatUsd = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
+const formatPct = (value: number, digits = 1) => `${value.toFixed(digits)}%`;
+const sum = (values: readonly number[]) => values.reduce((total, value) => total + value, 0);
+
+// Each bar: actual provider spend + gross savings, in dollars, against a $5K axis.
+// Totals reconcile to the KPI cards, lever table, daily averages, and savings rate.
+const DAILY_AXIS_MAX_USD = 5000;
+const DAILY_BARS: Array<[number, number]> = [
+  [2050, 1480], [1980, 1390], [2240, 1720], [2180, 1610], [1890, 1280],
+  [2360, 1810], [2480, 1920], [2120, 1550], [2300, 1690], [2410, 1880],
+  [1950, 1340], [2260, 1700], [2390, 1830], [2180, 1560], [2520, 1990],
+  [2090, 1450], [2330, 1740], [2210, 1620], [2670, 2010],
+];
+
+const ACTUAL_SPEND = sum(DAILY_BARS.map(([spend]) => spend));
+const GROSS_SAVED = sum(DAILY_BARS.map(([, saved]) => saved));
+const COUNTERFACTUAL_SPEND = ACTUAL_SPEND + GROSS_SAVED;
+const NET_SAVED = Math.round(GROSS_SAVED * (1 - PERFORMANCE_FEE_RATE));
+const AVG_DAILY_SPEND = ACTUAL_SPEND / DAILY_BARS.length;
+const AVG_DAILY_SAVED = GROSS_SAVED / DAILY_BARS.length;
+const GROSS_SAVINGS_RATE = (GROSS_SAVED / COUNTERFACTUAL_SPEND) * 100;
 
 const KPIS = [
-  { label: "Net saved", value: "$23,678", delta: "↑ 18%", hl: true },
-  { label: "Gross saved", value: LEVER_GROSS_SAVED_LABEL, delta: "↑ 14%" },
-  { label: "Without Varsten", value: "$74,180", delta: "↑ 9%" },
-  { label: "Actual spend", value: "$42,610", delta: "↑ 6%" },
+  { label: "Net saved", value: formatUsd(NET_SAVED), delta: "↑ 14%", hl: true },
+  { label: "Gross saved", value: formatUsd(GROSS_SAVED), delta: "↑ 14%" },
+  { label: "Without Varsten", value: formatUsd(COUNTERFACTUAL_SPEND), delta: "↑ 9%" },
+  { label: "Actual spend", value: formatUsd(ACTUAL_SPEND), delta: "↑ 6%" },
 ];
 
-// Each bar: actual spend (beige) + savings (green), in $K against a $5K axis.
-const DAILY_BARS: Array<[number, number]> = [
-  [2.0, 1.3], [1.7, 1.1], [2.2, 1.5], [1.9, 1.0], [2.4, 1.7], [2.0, 1.4],
-  [1.6, 1.2], [2.3, 1.9], [2.1, 1.5], [1.8, 1.3], [2.5, 2.0], [2.2, 1.6],
-  [1.9, 1.4], [2.4, 1.8], [2.0, 1.5], [1.7, 1.1], [2.3, 1.9], [2.1, 1.7], [2.6, 2.2],
+const LEVER_AMOUNTS = [
+  { name: "Semantic cache", state: "Active", amount: 14800 },
+  { name: "Model downshift", state: "Active", amount: 11200 },
+  { name: "Batching", state: "Active", amount: 3300 },
+  { name: "Token trim", state: "Active", amount: 2270 },
+  { name: "Smart routing", state: "Off", amount: 0 },
 ];
 
-const LEVER_ROWS = [
-  { name: "Semantic cache", state: "Active", amount: "$14,800", pct: 47 },
-  { name: "Model downshift", state: "Active", amount: "$11,200", pct: 36 },
-  { name: "Batching", state: "Active", amount: "$3,300", pct: 10 },
-  { name: "Token trim", state: "Active", amount: "$2,270", pct: 7 },
-  { name: "Smart routing", state: "Off", amount: "$0", pct: 0 },
-];
+const LEVER_ROWS = LEVER_AMOUNTS.map((lever) => ({
+  ...lever,
+  amount: formatUsd(lever.amount),
+  pct: GROSS_SAVED > 0 ? (lever.amount / GROSS_SAVED) * 100 : 0,
+}));
 
-const DRIVERS = [
-  { team: "Engineering", amount: "$18,300", pct: 42.9, color: "#2B4A5A" },
-  { team: "Product", amount: "$9,800", pct: 23.0, color: "#3B6275" },
-  { team: "Data Science", amount: "$6,400", pct: 15.0, color: "#4F7A90" },
-  { team: "Marketing", amount: "$4,200", pct: 9.9, color: "#6E96AA" },
-  { team: "Support", amount: "$2,510", pct: 5.9, color: "#B8CED8" },
-  { team: "Untagged", amount: "$1,400", pct: 3.3, color: "#E9F1F5" },
+const DRIVER_AMOUNTS = [
+  { team: "Engineering", amount: 18300, color: "#2B4A5A" },
+  { team: "Product", amount: 9800, color: "#3B6275" },
+  { team: "Data Science", amount: 6400, color: "#4F7A90" },
+  { team: "Marketing", amount: 4200, color: "#6E96AA" },
+  { team: "Support", amount: 2510, color: "#B8CED8" },
+  { team: "Untagged", amount: 1400, color: "#E9F1F5" },
 ];
+const DRIVER_TOTAL = sum(DRIVER_AMOUNTS.map((driver) => driver.amount));
+const UNTAGGED_DRIVER_AMOUNT = DRIVER_AMOUNTS.find((driver) => driver.team === "Untagged")?.amount ?? 0;
+const SPEND_ATTRIBUTION_RATE = ((DRIVER_TOTAL - UNTAGGED_DRIVER_AMOUNT) / DRIVER_TOTAL) * 100;
+
+const DRIVERS = DRIVER_AMOUNTS.map((driver) => ({
+  ...driver,
+  amount: formatUsd(driver.amount),
+  pct: DRIVER_TOTAL > 0 ? (driver.amount / DRIVER_TOTAL) * 100 : 0,
+}));
 
 const PROBLEMS = [
   { n: "01", t: "What's driving spend—by model, route, feature, and team?" },
@@ -47,9 +78,10 @@ const PROBLEMS = [
   { n: "04", t: "What savings proof do we have?" },
 ];
 
-const PROBLEM_SPEND_BARS = [16, 19, 23, 26, 31, 35, 42, 48, 55, 62, 68, 74];
-const PROBLEM_CHART_MAX = 80;
+const PROBLEM_SPEND_BARS = [18000, 19000, 23000, 26000, 31000, 35000, 42000, 48000, 55000, 62000, 68000, COUNTERFACTUAL_SPEND];
+const PROBLEM_CHART_MAX = 80000;
 const PROBLEM_BUDGET_FRACTION = 0.58;
+const PROBLEM_YOY_RATE = ((COUNTERFACTUAL_SPEND - PROBLEM_SPEND_BARS[0]) / PROBLEM_SPEND_BARS[0]) * 100;
 
 const SOLUTION = [
   {
@@ -69,11 +101,10 @@ const SOLUTION = [
   },
 ];
 
-const SOLUTION_BREAKDOWN = [
-  { team: "Engineering", pct: 43 },
-  { team: "Product", pct: 23 },
-  { team: "Data Science", pct: 15 },
-];
+const SOLUTION_BREAKDOWN = DRIVERS.slice(0, 3).map((driver) => ({
+  team: driver.team,
+  pct: Math.round(driver.pct),
+}));
 
 const LEVERS = [
   { n: "01", t: "Smart routing", d: "Send each request to the most cost-effective model that balances quality and latency." },
@@ -123,7 +154,7 @@ const PERFORMANCE_FEATURES = [
   "Routing, caching, batching, token trimming, and model selection",
   "Quality guardrails and automatic rollback",
   "Finance-grade savings ledger",
-  "You keep 75% of every dollar saved",
+  `You keep ${Math.round((1 - PERFORMANCE_FEE_RATE) * 100)}% of every dollar saved`,
   "Monthly billing, cancel anytime",
 ];
 
@@ -147,7 +178,7 @@ function ConfidenceCardHeader() {
             <h3>High confidence</h3>
           </div>
         </div>
-        <div className="lp-conf-score"><b>98</b><span> / 100</span></div>
+        <div className="lp-conf-score"><b>{TRUST_SCORE}</b><span> / 100</span></div>
       </div>
     </>
   );
@@ -390,8 +421,8 @@ function SavingsChart() {
     <div className="vchart" aria-hidden="true">
       {DAILY_BARS.map(([spend, save], i) => (
         <div className="vbar" key={i}>
-          <div className="seg seg-save" style={{ height: `${(save / 5) * 100}%` }} />
-          <div className="seg seg-spend" style={{ height: `${(spend / 5) * 100}%` }} />
+          <div className="seg seg-save" style={{ height: `${(save / DAILY_AXIS_MAX_USD) * 100}%` }} />
+          <div className="seg seg-spend" style={{ height: `${(spend / DAILY_AXIS_MAX_USD) * 100}%` }} />
         </div>
       ))}
     </div>
@@ -439,7 +470,7 @@ function DashboardShot() {
                       <span className="vlever-name">{l.name}</span>
                       <span className="vlever-amt">{l.amount}</span>
                     </div>
-                    <div className="vlever-track"><i style={{ width: `${l.pct * 2}%` }} /></div>
+                    <div className="vlever-track"><i style={{ width: `${Math.min(100, l.pct * 2)}%` }} /></div>
                   </div>
                 ))}
               </div>
@@ -451,11 +482,11 @@ function DashboardShot() {
               <ConfidenceCardHeader />
               <div className="lp-conf-row">
                 <span className="name">Pricing coverage</span>
-                <span className="stat">100%</span>
+                <span className="stat">{formatPct(PRICING_COVERAGE_RATE, 0)}</span>
               </div>
               <div className="lp-conf-row">
                 <span className="name">Spend attribution</span>
-                <span className="stat">96.7%</span>
+                <span className="stat">{formatPct(SPEND_ATTRIBUTION_RATE)}</span>
               </div>
               <div className="lp-conf-row">
                 <span className="name">Holdback test</span>
@@ -472,9 +503,9 @@ function DashboardShot() {
 function SavingsStats() {
   return (
     <div className="vds-stats">
-      <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">$2,243</div></div>
-      <div className="vds-stat pos"><div className="s-label">Avg daily saved</div><div className="s-value">$1,662</div></div>
-      <div className="vds-stat"><div className="s-label">Effective rate</div><div className="s-value">42.6%</div></div>
+      <div className="vds-stat"><div className="s-label">Avg daily spend</div><div className="s-value">{formatUsd(AVG_DAILY_SPEND)}</div></div>
+      <div className="vds-stat pos"><div className="s-label">Avg gross saved</div><div className="s-value">{formatUsd(AVG_DAILY_SAVED)}</div></div>
+      <div className="vds-stat"><div className="s-label">Gross savings rate</div><div className="s-value">{formatPct(GROSS_SAVINGS_RATE)}</div></div>
     </div>
   );
 }
@@ -574,8 +605,8 @@ function ProblemSpendChart() {
           <h3>Monthly AI spend</h3>
         </div>
         <div className="lp-problem-chart-value">
-          <strong>$74,180</strong>
-          <span>↑ 312% YoY</span>
+          <strong>{formatUsd(COUNTERFACTUAL_SPEND)}</strong>
+          <span>↑ {formatPct(PROBLEM_YOY_RATE, 0)} YoY</span>
         </div>
       </div>
       <div className="lp-problem-bars" aria-hidden="true">
@@ -652,8 +683,8 @@ function SolutionPreview({ kind }: { kind: string }) {
         <b>Confidence</b>
       </div>
       <div className="lp-step-chip-ledger-row">
-        <strong>$23,678</strong>
-        <em>98/100</em>
+        <strong>{formatUsd(NET_SAVED)}</strong>
+        <em>{TRUST_SCORE}/100</em>
       </div>
     </div>
   );
@@ -804,12 +835,12 @@ function Ledger() {
               <ConfidenceCardHeader />
               <div className="lp-conf-row">
                 <span className="name">Pricing coverage <span className="vstate on">Catalog-verified</span></span>
-                <span className="stat">100%</span>
+                <span className="stat">{formatPct(PRICING_COVERAGE_RATE, 0)}</span>
                 <span className="desc">Every dollar priced from official provider catalogs.</span>
               </div>
               <div className="lp-conf-row">
                 <span className="name">Spend attribution <span className="vstate on">Tagged</span></span>
-                <span className="stat">96.7%</span>
+                <span className="stat">{formatPct(SPEND_ATTRIBUTION_RATE)}</span>
                 <span className="desc">Share of spend tied to a team or feature.</span>
               </div>
               <div className="lp-conf-row">
@@ -898,7 +929,7 @@ function Pricing() {
           </div>
           <div className="lp-plan featured">
             <span className="lp-plan-name">Performance</span>
-            <div className="lp-plan-price">25% <span>of verified savings</span></div>
+            <div className="lp-plan-price">{Math.round(PERFORMANCE_FEE_RATE * 100)}% <span>of verified savings</span></div>
             <p className="lp-plan-body">Automate savings. Billed monthly in arrears.</p>
             <PlanChecks items={PERFORMANCE_FEATURES} />
             <a className="lp-btn lp-btn-primary" href={START_TRIAL_HREF}>Start your 14-day free trial</a>
@@ -985,7 +1016,7 @@ function FinalCta() {
           <a className="lp-btn lp-btn-primary lp-btn-lg" href={START_TRIAL_HREF}>Start your 14-day free trial</a>
           <a className="lp-btn lp-btn-ghost lp-btn-lg" href={START_OBSERVE_HREF}>Explore observe-only mode</a>
         </div>
-        <p className="lp-final-note">Pay 25% of verified savings. If we save you nothing, you pay nothing.</p>
+        <p className="lp-final-note">Pay {Math.round(PERFORMANCE_FEE_RATE * 100)}% of verified savings. If we save you nothing, you pay nothing.</p>
       </div>
     </section>
   );

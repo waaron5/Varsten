@@ -239,14 +239,46 @@ Closed so far:
     chosen models land in the decision ledger (`model_chosen`) and flow back
     into the priors sweep — the learning loop uses only persisted evidence.
 
-Still open. **Only D2 remains:**
-- **D2 (learned prompt compression)** — the next slice. Pipeline shape agreed:
-  candidate generation off-path, replay/eval gated, approval/canary/holdback
-  before any live transform, never silently compress inline, compression
-  evidence persisted, rollback on quality drift. The open product decision is
-  the compression generator itself (LLM-based rewrite vs deterministic
-  distillation) — build the pipeline around an injectable generator the way
-  `eval/runner.py` injects `replay_fn`/`judge_fn`.
+- **D2 (done).** Learned prompt compression as a real pipeline.
+  `models/compression.py` (`PromptCompression` artifact, migration
+  `a9b0c1d2e3f5`; the compressed text is a documented content-store exception,
+  the original stored as hash only) + `engine/compression.py` (pure
+  extract/hash/substitute helpers; off-path generation from the replay corpus
+  with an injectable `compress_fn` — default `openai_ops.compress_system_prompt`
+  on the customer's key, metered as `overhead: "compression"` on the caller's
+  session; validation rejects empty/identical/insufficient-shrink rewrites via
+  `compression_min_prompt_chars` / `compression_max_ratio`; creates the
+  Recommendation + pending EvalRun) + `proxy/compression.py` (hot path:
+  policy resolve → canary gate → holdback arm → TTL-cached artifact →
+  **exact-hash substitution only** — a request whose system prompt is not
+  byte-identical to the evaluated original passes through untouched, traced
+  `compression_prompt_mismatch`; `TransformConflictError` blocks activation
+  while a trim policy is live on the same model, closing the same-model
+  experiment-pair collision from the compression side). Integration facts:
+  - Lever `prompt_compression` added to the vocabulary (approve-mode default),
+    `GATED_LEVERS` (apply requires a completed eval) and `GOVERNED_LEVERS`
+    (needs_human proposes a ChangeRequest).
+  - Eval = the standard runner with a substituting `replay_fn`
+    (`run_compression_eval`); samples not carrying the exact original are
+    skipped, so the verdict covers only traffic the lever would touch; the
+    same-model cost delta measures the input-token saving for free. The
+    evaluate endpoint reuses the generation-created pending run; the background
+    executor dispatches by lever.
+  - Planner gained a `prompt_compression` candidate (trim's blockers) +
+    `SELECTION_PRIORITY` entry, so A4 parity covers compressed requests;
+    evidence gained `compression_applied` (decision_type `compression`,
+    savings method `compression_holdback_observation`); the client
+    Idempotency-Key is not forwarded upstream when compression changed the
+    body. Drift sweep covers the lever (same-model pair) for auto-rollback.
+  - Endpoints: `POST /v1/engine/compressions` (background generation; audit
+    event; Performance-gated) and `GET /v1/engine/compressions` (artifact list
+    — sizes and hashes, deliberately not the compressed text).
+  - Also: `LEVER_DEFAULT_AUTOMATION` now drives the demo seed's lever configs
+    (was a drifted hard-coded copy), and lever-set test assertions moved to 6.
+
+**The roadmap (A–F) is complete.** The next phase of work is
+`ENGINE_VALIDATION_PLAN.md` — proving the whole loop end to end with
+adversarial simulations, chaos, reconciliation audits, and replay tapes.
 
 **Reuse the B1 confidence sequence**
 (`ConfidenceSequence`, `difference_confidence_sequence`, `mean_confidence_sequence`)
@@ -536,9 +568,8 @@ of arm assignment.
   opt-in *transform* (restructuring prompts to stabilize prefixes) remains
   later work: it touches content — treat like trim: deterministic, eval-gated,
   holdback-measured.
-- **D2. Learned prompt compression — OPEN (the last slice):** off-path only,
-  behind the eval gate, approve-mode only. Never inline. Build around an
-  injectable compression generator (see §2 "Still open").
+- **D2. Learned prompt compression — DONE (see §2).** Off-path generation,
+  eval-gated, governed, canary+holdback, exact-hash substitution only.
 - **D3. Trace/session model — DONE (see §2).** The audit's "agent loop detector."
 - **E. Bandit policy — DONE (see §2).** Default off; shadow mode for zero-risk
   telemetry; candidates enter only via the eval/ChangeRequest clearance gate.

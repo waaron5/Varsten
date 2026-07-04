@@ -40,7 +40,7 @@ MEASURED_METHODS = frozenset({METHOD_DIRECT_MEASURED, METHOD_HOLDBACK_MEASURED, 
 
 _CENTS = Decimal("0.01")
 _meta = UsageEvent.event_metadata
-_OVERHEAD_TAGS = ("eval_replay", "embedding")
+_OVERHEAD_TAGS = ("eval_replay", "embedding", "compression")
 # saved_usd is stored as a JSON string (e.g. "1.230000"); absent or JSON-null
 # rows yield SQL NULL on .astext and are excluded by the not-null filter below.
 _saved = cast(_meta["saved_usd"].astext, Numeric(20, 12))

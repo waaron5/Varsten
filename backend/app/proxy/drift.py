@@ -40,6 +40,7 @@ from app.models import (
 )
 from app.proxy import canary
 from app.proxy import routing as routing_mod
+from app.proxy.compression import LEVER as COMPRESSION_LEVER
 from app.proxy.experiment import MIN_ARM_SAMPLES
 from app.proxy.routing import ARM_CONTROL, ARM_TREATMENT
 from app.proxy.sequential import (
@@ -272,7 +273,7 @@ def sweep_all_projects(db: Session, *, now: datetime | None = None) -> dict[str,
             select(ProxyPolicy.project_id)
             .where(
                 ProxyPolicy.enabled.is_(True),
-                ProxyPolicy.lever.in_((*ROUTING_LEVERS, TRIM_LEVER)),
+                ProxyPolicy.lever.in_((*ROUTING_LEVERS, TRIM_LEVER, COMPRESSION_LEVER)),
             )
             .distinct()
         )
@@ -307,7 +308,7 @@ def check_and_rollback_drift(
         db.scalars(
             select(ProxyPolicy).where(
                 ProxyPolicy.project_id == project.id,
-                ProxyPolicy.lever.in_((*ROUTING_LEVERS, TRIM_LEVER)),
+                ProxyPolicy.lever.in_((*ROUTING_LEVERS, TRIM_LEVER, COMPRESSION_LEVER)),
                 ProxyPolicy.enabled.is_(True),
             )
         )
@@ -317,7 +318,7 @@ def check_and_rollback_drift(
         candidate = rule.candidate_model if rule.lever in ROUTING_LEVERS else incumbent
         if not candidate:
             continue
-        route_label = f"{incumbent} -> {candidate}" if rule.lever in ROUTING_LEVERS else f"{incumbent} (trim)"
+        route_label = f"{incumbent} -> {candidate}" if rule.lever in ROUTING_LEVERS else f"{incumbent} ({rule.lever})"
 
         q = evaluate_drift(db, project.id, incumbent, candidate, period_start)
         lat = evaluate_latency_drift(db, project.id, incumbent, candidate, period_start)

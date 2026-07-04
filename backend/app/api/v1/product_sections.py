@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 import secrets
@@ -6,7 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,7 +19,8 @@ from app.core import ratelimit
 from app.core.audit import client_ip, record_audit
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
+from app.engine import compression as engine_compression
 from app.engine import governance
 from app.eval.gate import (
     EvalGateError,
@@ -43,6 +45,7 @@ from app.models import (
     MonthlyReport,
     OrgMembership,
     Project,
+    PromptCompression,
     ProviderConnection,
     ProxyPolicy,
     QualityGuardrail,
@@ -55,6 +58,7 @@ from app.models import (
 from app.periods import Period, resolve_period
 from app.proxy import routing
 from app.proxy.budget_enforcement import clear_budget_cache
+from app.proxy.compression import TransformConflictError
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
 from app.proxy.execution import activate_execution, deactivate_execution
 from app.proxy.experiment import compute_experiment
@@ -988,7 +992,10 @@ def engine_update_recommendation(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         apply_measured_savings(recommendation, gating_run)
         # Execution: activate the lever's policy (routing swap, trim transform, ...).
-        activate_execution(db, project, recommendation, gating_run, now=now)
+        try:
+            activate_execution(db, project, recommendation, gating_run, now=now)
+        except TransformConflictError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         # Keep the governance object's lifecycle in sync (best-effort, even when
         # enforcement is off, so the audit trail stays continuous).
         governance.mark_change_request_active(db, recommendation, now=now)
@@ -1276,6 +1283,96 @@ def engine_update_route(
 class BanditCandidateAdd(BaseModel):
     candidate_model: str = Field(min_length=1, max_length=128)
     candidate_provider: str | None = Field(default=None, max_length=64)
+
+
+class CompressionGenerateRequest(BaseModel):
+    model: str = Field(min_length=1, max_length=128)
+
+
+def _generate_compression_background(project_id: uuid.UUID, model: str, key: str) -> None:
+    """Background entrypoint for candidate generation: own session, own loop; the
+    LLM rewrite runs here, never inside the HTTP request."""
+    db = SessionLocal()
+    try:
+        project = db.get(Project, project_id)
+        if project is None:
+            return
+        asyncio.run(engine_compression.generate_compression_candidate(db, project, model, key=key))
+    except engine_compression.CompressionGenerationError as exc:
+        logger.info("compression generation declined", extra={"project_id": str(project_id), "reason": str(exc)})
+    except Exception:
+        logger.exception("compression generation failed", extra={"project_id": str(project_id)})
+    finally:
+        db.close()
+
+
+@router.post("/engine/compressions", response_model=None, status_code=status.HTTP_202_ACCEPTED)
+def engine_generate_compression(
+    payload: CompressionGenerateRequest,
+    background: BackgroundTasks,
+    request: Request,
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Kick off off-path generation of a compression candidate for a route.
+
+    Nothing goes live from this call: it produces an artifact, an open
+    recommendation, and a pending eval run. The eval gate, approval, canary, and
+    holdback all still stand between the candidate and production traffic."""
+    _assert_member(user, project, db)
+    require_performance(db, project, action="Generating a prompt-compression candidate")
+    key = provider_key_for_project(project.id, "openai")
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="no OpenAI key configured for this project; cannot generate",
+        )
+    record_audit(
+        db,
+        action="prompt_compression.generation_requested",
+        actor=user,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        target_type="model",
+        target_id=payload.model,
+        source_ip=client_ip(request),
+        details={"model": payload.model},
+    )
+    db.commit()
+    background.add_task(_generate_compression_background, project.id, payload.model, key)
+    return {"status": "generating", "model": payload.model}
+
+
+@router.get("/engine/compressions", response_model=None)
+def engine_list_compressions(
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """The project's compression artifacts with their evidence-chain links. The
+    compressed text itself is deliberately not returned here; sizes and hashes
+    describe it without re-exposing content."""
+    rows = db.scalars(
+        select(PromptCompression)
+        .where(PromptCompression.project_id == project.id)
+        .order_by(PromptCompression.created_at.desc())
+        .limit(100)
+    ).all()
+    return [
+        {
+            "id": str(row.id),
+            "model": row.model,
+            "route_key": row.route_key,
+            "recommendation_id": str(row.recommendation_id) if row.recommendation_id else None,
+            "original_chars": row.original_chars,
+            "compressed_chars": row.compressed_chars,
+            "compression_ratio": round(row.compressed_chars / row.original_chars, 4) if row.original_chars else None,
+            "generator": row.generator,
+            "original_system_hash": row.original_system_hash,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
 
 
 @router.get("/engine/routes/{rule_id}/bandit-candidates", response_model=None)

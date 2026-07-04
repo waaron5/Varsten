@@ -63,7 +63,9 @@ def test_seed_demo_creates_product_story_data_idempotently(db_session):
     assert summary["counterfactual_spend_usd"] > summary["actual_spend_usd"]
     assert summary["gross_savings_usd"] < summary["counterfactual_spend_usd"]
     assert summary["net_savings_usd"] < summary["gross_savings_usd"]
-    assert levers == 5
+    # One LeverConfig per lever in LEVER_DEFAULT_AUTOMATION (now includes
+    # prompt_compression).
+    assert levers == 6
     assert connections == 3
     assert customers == 3
     assert 1 <= proof_rows <= 3

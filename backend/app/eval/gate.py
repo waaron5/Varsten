@@ -20,7 +20,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.levers import ROUTING_LEVERS
+from app.levers import LEVER_PROMPT_COMPRESSION, ROUTING_LEVERS
 from app.models import EvalRun, Recommendation
 from app.models.eval import (
     RUN_COMPLETED,
@@ -28,7 +28,9 @@ from app.models.eval import (
     VERDICT_SAFE,
 )
 
-GATED_LEVERS = set(ROUTING_LEVERS)
+# Model-swap levers plus learned prompt compression: anything that changes what
+# the model reads or which model answers must clear a shadow eval before apply.
+GATED_LEVERS = {*ROUTING_LEVERS, LEVER_PROMPT_COMPRESSION}
 
 
 class EvalGateError(Exception):

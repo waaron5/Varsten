@@ -30,6 +30,7 @@ from app.core.audit import record_audit
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine.route_identity import canonical_route_key
+from app.levers import LEVER_PROMPT_COMPRESSION
 from app.models import (
     CR_ACTIVE,
     CR_APPROVED,
@@ -48,6 +49,11 @@ logger = get_logger("varsten.engine.governance")
 
 # Verdicts that put a change in front of a human (or make it auto-eligible).
 _ACTIONABLE_VERDICTS = {VERDICT_SAFE, VERDICT_NEEDS_HUMAN}
+
+# Levers whose changes get a ChangeRequest: the model swaps plus learned prompt
+# compression (it changes what the model reads, so it carries the same
+# named-approver bar as changing which model answers).
+GOVERNED_LEVERS = (*ROUTING_LEVERS, LEVER_PROMPT_COMPRESSION)
 
 
 class GovernanceError(Exception):
@@ -98,7 +104,7 @@ def ensure_change_request(db: Session, run: EvalRun) -> ChangeRequest | None:
         if run.status != RUN_COMPLETED or run.verdict not in _ACTIONABLE_VERDICTS or run.recommendation_id is None:
             return None
         recommendation = db.get(Recommendation, run.recommendation_id)
-        if recommendation is None or recommendation.lever not in ROUTING_LEVERS:
+        if recommendation is None or recommendation.lever not in GOVERNED_LEVERS:
             return None
         existing = change_request_for_recommendation(db, recommendation.id)
         if existing is not None:
@@ -180,7 +186,7 @@ def assert_change_request_approved(db: Session, recommendation: Recommendation) 
     (routing) lever. Raises GovernanceError when no approved request exists."""
     if not settings.governance_change_requests_enabled:
         return
-    if recommendation.lever not in ROUTING_LEVERS:
+    if recommendation.lever not in GOVERNED_LEVERS:
         return
     change_request = change_request_for_recommendation(db, recommendation.id)
     if change_request is None:

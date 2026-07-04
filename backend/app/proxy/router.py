@@ -36,7 +36,18 @@ from app.engine import (
 from app.engine.priors import outcome_priors_for_request
 from app.eval import capture as eval_capture
 from app.models import Project
-from app.proxy import budget_enforcement, cache, http_client, origin, prompt_prefix, quality, resilience, routing, trim
+from app.proxy import (
+    budget_enforcement,
+    cache,
+    compression,
+    http_client,
+    origin,
+    prompt_prefix,
+    quality,
+    resilience,
+    routing,
+    trim,
+)
 from app.proxy.circuit import get_breaker, is_upstream_failure
 from app.proxy.client_dialects import (
     ClientDialect,
@@ -91,6 +102,7 @@ class OpenAIOptimizationState(NamedTuple):
     exp_from: str | None
     exp_to: str | None
     trim_applied: bool
+    compression_applied: bool = False
 
 
 class OpenAIDialectContext(NamedTuple):
@@ -357,6 +369,8 @@ def _attach_observe_plan(
     routing_policy_id: str | None = None,
     trim_policy_present: bool = False,
     trim_policy_id: str | None = None,
+    compression_policy_present: bool = False,
+    compression_policy_id: str | None = None,
     outcome_priors: tuple = (),
 ) -> None:
     """Attach a content-free planner snapshot without affecting execution."""
@@ -381,6 +395,8 @@ def _attach_observe_plan(
                 routing_policy_id=routing_policy_id,
                 trim_policy_present=trim_policy_present,
                 trim_policy_id=trim_policy_id,
+                compression_policy_present=compression_policy_present,
+                compression_policy_id=compression_policy_id,
                 outcome_priors=tuple(outcome_priors),
             )
         )
@@ -589,7 +605,9 @@ async def _openai_dialect_completions(
     # differs from what the SDK would send on a direct fallback, so reusing the key
     # could collide at the provider; omit it then (the fallback uses the key fresh).
     forward_idem = (
-        request.headers.get("idempotency-key") if (opt.routed_from is None and not opt.trim_applied) else None
+        request.headers.get("idempotency-key")
+        if (opt.routed_from is None and not opt.trim_applied and not opt.compression_applied)
+        else None
     )
 
     if ctx.stream:
@@ -1116,7 +1134,19 @@ async def _resolve_openai_trim_state(
             action="skipped",
             reason_code="trim_policy_missing",
         )
-        return _openai_passthrough_state(body, model, requested_provider)
+        # No trim policy: the other body transform (prompt compression) gets its
+        # turn. Activation guarantees at most one transform is live per model.
+        return await _resolve_openai_compression_state(
+            db=db,
+            project=project,
+            body=body,
+            model=model,
+            requested_provider=requested_provider,
+            bypass=bypass,
+            draft=draft,
+            request_facts=request_facts,
+            outcome_priors=outcome_priors,
+        )
 
     draft.lever = trim.LEVER
     draft.policy_id = tdecision.policy_id
@@ -1178,6 +1208,109 @@ async def _resolve_openai_trim_state(
         model,
         model,
         trim_applied,
+    )
+
+
+async def _resolve_openai_compression_state(
+    *,
+    db: AsyncSession,
+    project: Project,
+    body: dict,
+    model: str,
+    requested_provider: str,
+    bypass: bool,
+    draft: DecisionDraft,
+    request_facts: RequestFacts,
+    outcome_priors: tuple,
+) -> OpenAIOptimizationState:
+    """Prompt-compression state: mirror of the trim state for the learned lever.
+
+    On treatment, the approved rewrite is substituted only when the request's
+    system prompt hashes exactly to the evaluated original; a non-matching
+    request forwards untouched and is traced as a noop, so the lever never
+    compresses anything it did not prove."""
+    cdecision = await compression.resolve_compression(db, project.id, model)
+    if not cdecision or cdecision.artifact_id is None:
+        draft.add_runtime_trace(
+            stage="compression",
+            lever=compression.LEVER,
+            action="skipped",
+            reason_code="compression_policy_missing",
+        )
+        return _openai_passthrough_state(body, model, requested_provider)
+
+    draft.lever = compression.LEVER
+    draft.policy_id = cdecision.policy_id
+    draft.source_recommendation_id = cdecision.source_recommendation_id
+    _attach_observe_plan(
+        draft,
+        body=body,
+        request_facts=request_facts,
+        provider=requested_provider,
+        model=model,
+        optimize_enabled=not bypass,
+        exact_cache_enabled=settings.proxy_cache_enabled,
+        semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
+        compression_policy_present=True,
+        compression_policy_id=str(cdecision.policy_id) if cdecision.policy_id else None,
+        outcome_priors=outcome_priors,
+    )
+    rejected = _rejected_candidate(draft, "prompt_compression")
+    if rejected is not None:
+        _trace_rejected_candidate(
+            draft,
+            stage="compression",
+            lever=compression.LEVER,
+            candidate=rejected,
+            policy_id=cdecision.policy_id,
+            source_recommendation_id=cdecision.source_recommendation_id,
+        )
+        return _openai_passthrough_state(body, model, requested_provider)
+    arm = routing.assign_arm(cdecision.holdback_percent)
+    if arm != routing.ARM_TREATMENT:
+        draft.add_runtime_trace(
+            stage="compression",
+            lever=compression.LEVER,
+            action="control",
+            reason_code="holdback_control",
+            policy_id=cdecision.policy_id,
+            source_recommendation_id=cdecision.source_recommendation_id,
+            detail={"arm": arm, "requested_model": model},
+        )
+        return OpenAIOptimizationState(body, model, requested_provider, None, None, arm, model, model, False)
+    artifact = await compression.load_artifact(db, cdecision.artifact_id)
+    if artifact is None:
+        draft.add_runtime_trace(
+            stage="compression",
+            lever=compression.LEVER,
+            action="error",
+            reason_code="compression_artifact_unavailable",
+            detail={"fail_open": True},
+        )
+        return _openai_passthrough_state(body, model, requested_provider)
+    original_hash, compressed_text = artifact
+    compressed_body, applied = compression.apply_compression(body, original_hash, compressed_text)
+    draft.compression_applied = applied
+    draft.add_runtime_trace(
+        stage="compression",
+        lever=compression.LEVER,
+        action="applied" if applied else "noop",
+        reason_code="compression_treatment_applied" if applied else "compression_prompt_mismatch",
+        policy_id=cdecision.policy_id,
+        source_recommendation_id=cdecision.source_recommendation_id,
+        detail={"arm": arm, "requested_model": model},
+    )
+    return OpenAIOptimizationState(
+        compressed_body,
+        model,
+        requested_provider,
+        None,
+        None,
+        arm,
+        model,
+        model,
+        False,
+        applied,
     )
 
 

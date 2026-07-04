@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_api_key
 from app.db.session import AsyncSessionLocal, SessionLocal
+from app.levers import LEVER_DEFAULT_AUTOMATION
 from app.models import (
     AlertRule,
     ApiKey,
@@ -67,13 +68,9 @@ class SeedResult(TypedDict):
 
 # Lever automation modes only. Savings-to-date is NOT seeded; it is derived from
 # the recommendations the seed applies, just like in the running product.
-LEVER_MODES = {
-    "smart_routing": "approve",
-    "semantic_cache": "auto",
-    "token_trim": "auto",
-    "model_downshift": "approve",
-    "batching": "auto",
-}
+# One LeverConfig per canonical lever, with its default automation mode. Sourced
+# from the vocabulary so a new lever lands in the demo automatically.
+LEVER_MODES = dict(LEVER_DEFAULT_AUTOMATION)
 
 # How many of the highest-value open recommendations to "apply" so the demo shows
 # realized savings and Proof while leaving the rest in the decision queue.

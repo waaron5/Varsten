@@ -116,6 +116,8 @@ class PlannerInput:
     routing_policy_id: str | None = None
     trim_policy_present: bool = False
     trim_policy_id: str | None = None
+    compression_policy_present: bool = False
+    compression_policy_id: str | None = None
     outcome_priors: tuple[OutcomePrior, ...] = ()
 
 
@@ -150,8 +152,14 @@ class SelectedAction:
 
 
 # Lever names in the order the proxy would apply them (cache short-circuits the
-# forward first, then routing, then trim). Selection walks this order.
-SELECTION_PRIORITY: tuple[str, ...] = ("exact_cache", "semantic_cache", "model_routing", "token_trim")
+# forward first, then routing, then the body transforms). Selection walks this order.
+SELECTION_PRIORITY: tuple[str, ...] = (
+    "exact_cache",
+    "semantic_cache",
+    "model_routing",
+    "token_trim",
+    "prompt_compression",
+)
 
 
 @dataclass(frozen=True)

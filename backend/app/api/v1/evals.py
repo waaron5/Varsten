@@ -23,8 +23,10 @@ from app.api.deps import require_user, resolve_project
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal, get_db
+from app.engine import compression as engine_compression
 from app.eval.gate import GATED_LEVERS
 from app.eval.runner import create_run_for_recommendation, run_eval
+from app.levers import LEVER_PROMPT_COMPRESSION
 from app.models import (
     EvalRun,
     EvalSampleResult,
@@ -75,13 +77,18 @@ def _candidate_model(db: Session, recommendation: Recommendation) -> str | None:
 
 def _execute_run_background(run_id: uuid.UUID, key: str) -> None:
     """Background entrypoint: own DB session, own event loop. Isolated from the
-    request so a long replay never holds the HTTP connection open."""
+    request so a long replay never holds the HTTP connection open. Dispatches by
+    lever: a prompt-compression run replays with the compressed prompt
+    substituted; everything else is the standard candidate-model replay."""
     db = SessionLocal()
     try:
         run = db.get(EvalRun, run_id)
         if run is None:
             return
-        asyncio.run(run_eval(db, run, key=key))
+        if run.lever == LEVER_PROMPT_COMPRESSION:
+            asyncio.run(engine_compression.run_compression_eval(db, run, key=key))
+        else:
+            asyncio.run(run_eval(db, run, key=key))
     except Exception:
         logger.exception("background eval run failed", extra={"eval_run_id": str(run_id)})
     finally:
@@ -109,7 +116,17 @@ def evaluate_recommendation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"the {recommendation.lever} lever does not require a shadow eval",
         )
-    candidate = _candidate_model(db, recommendation)
+    if recommendation.lever == LEVER_PROMPT_COMPRESSION:
+        # Same-model run: the candidate is the same model reading the compressed
+        # prompt. Requires a generated artifact to substitute.
+        if engine_compression.artifact_for_recommendation(db, recommendation.id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="no compression artifact for this recommendation; generate one first",
+            )
+        candidate = recommendation.related_model or recommendation.target_key
+    else:
+        candidate = _candidate_model(db, recommendation)
     if not candidate:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -123,7 +140,16 @@ def evaluate_recommendation(
             detail="no OpenAI key configured for this project; cannot replay",
         )
 
-    run = create_run_for_recommendation(db, project, recommendation, candidate)
+    # Compression generation opens a pending run alongside the artifact; reuse it
+    # instead of stacking a second one.
+    run = db.scalar(
+        select(EvalRun)
+        .where(EvalRun.recommendation_id == recommendation.id, EvalRun.status == "pending")
+        .order_by(EvalRun.created_at.desc())
+        .limit(1)
+    )
+    if run is None:
+        run = create_run_for_recommendation(db, project, recommendation, candidate)
     background.add_task(_execute_run_background, run.id, key)
     return run
 
