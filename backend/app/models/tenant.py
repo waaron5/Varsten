@@ -62,6 +62,10 @@ class Organization(Base, TimestampMixin):
     subscription_status: Mapped[str] = mapped_column(
         String(24), nullable=False, server_default=text(f"'{SUBSCRIPTION_ACTIVE}'")
     )
+    # Per-org governance enforcement: when true, gated levers require an approved
+    # ChangeRequest before apply, regardless of the global default. The enterprise
+    # "default-on approvals" option; toggling it is owner/admin-only and audited.
+    governance_enforced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     plan_effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Self-serve trial window. Set when the workspace is provisioned; trial_ends_at
     # is the hard stop after which an unpaid org falls back to Free observe-only.

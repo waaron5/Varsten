@@ -614,3 +614,12 @@ of arm assignment.
   prior table) is model-keyed and does NOT store route_key; the in-memory learning
   segment does. If per-route priors are ever needed at request time, add route_key
   to that table and the `outcome_priors_for_request` lookup.
+- **Compression holdback endpoint (V1 finding).** Routing policies have
+  `PATCH /v1/engine/routes/{id}` for holdback tuning; prompt-compression
+  policies have no equivalent (the V1 validation scenario uses an ORM
+  surrogate). Add it when the compression operator surface is next touched.
+- ~~**Per-org governance enforcement (F).**~~ **DONE 2026-07-04**:
+  `Organization.governance_enforced` (migration `b2c3d4e5f6a8`) is the
+  enterprise default-on option; `governance_enforced_for` gates apply as
+  global-OR-org; `GET/PATCH /v1/engine/governance` (owner/admin PATCH,
+  audited as `governance.enforcement_changed`).

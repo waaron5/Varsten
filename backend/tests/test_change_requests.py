@@ -22,6 +22,8 @@ from app.models import (
     AuditEvent,
     ChangeRequest,
     EvalRun,
+    Organization,
+    OrgMembership,
     Project,
     Recommendation,
     User,
@@ -296,3 +298,92 @@ def test_decision_is_tenant_scoped(client, provision, db_session):
         json={"action": "approve", "rationale": "x"},
     )
     assert res.status_code == 404
+
+
+# --- per-org enforcement (enterprise default-on option) -----------------------------
+
+
+def test_org_level_enforcement_blocks_without_global(db_session, provision, monkeypatch):
+    """With the global default OFF, an org that opted in is still enforced."""
+    monkeypatch.setattr(settings, "governance_change_requests_enabled", False)
+    project, user = _project(db_session, provision)
+    org = db_session.get(Organization, project.organization_id)
+    org.governance_enforced = True
+    db_session.flush()
+
+    rec = _recommendation(db_session, project)
+    with pytest.raises(governance.GovernanceError):
+        governance.assert_change_request_approved(db_session, rec)
+
+    # Ungated levers stay exempt even under org enforcement.
+    trim = _recommendation(db_session, project, lever="token_trim")
+    governance.assert_change_request_approved(db_session, trim)
+
+    # The normal approve flow unblocks it.
+    run = _completed_run(db_session, project, rec)
+    change_request = governance.ensure_change_request(db_session, run)
+    assert change_request is not None
+    governance.decide_change_request(db_session, change_request, user=user, approve=True, rationale="ok")
+    governance.assert_change_request_approved(db_session, rec)
+
+
+def test_governance_settings_endpoint_roundtrip(client, provision, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "governance_change_requests_enabled", False)
+    p = provision()
+    project = db_session.get(Project, uuid.UUID(p["project_id"]))
+    headers = {"Authorization": f"Bearer {p['sub']}"}
+    params = {"project_id": str(project.id)}
+
+    shown = client.get("/v1/engine/governance", headers=headers, params=params)
+    assert shown.status_code == 200
+    body = shown.json()
+    assert body["enforced"] is False
+    assert body["org_enforced"] is False
+    assert body["global_enforced"] is False
+    assert "model_downshift" in body["governed_levers"]
+
+    updated = client.patch("/v1/engine/governance", headers=headers, params=params, json={"enforced": True})
+    assert updated.status_code == 200
+    assert updated.json()["org_enforced"] is True
+    assert updated.json()["enforced"] is True
+
+    # The toggle is audited and the gate actually bites now.
+    audit = db_session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.organization_id == project.organization_id,
+            AuditEvent.action == "governance.enforcement_changed",
+        )
+    )
+    assert audit is not None
+    assert audit.after == {"governance_enforced": True}
+    rec = _recommendation(db_session, project)
+    with pytest.raises(governance.GovernanceError):
+        governance.assert_change_request_approved(db_session, rec)
+
+    # And it can be turned back off (org flag only; global stays whatever it is).
+    off = client.patch("/v1/engine/governance", headers=headers, params=params, json={"enforced": False})
+    assert off.status_code == 200
+    assert off.json()["enforced"] is False
+    governance.assert_change_request_approved(db_session, rec)
+
+
+def test_governance_toggle_requires_owner_or_admin(client, provision, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "governance_change_requests_enabled", False)
+    p = provision()
+    project = db_session.get(Project, uuid.UUID(p["project_id"]))
+    member = User(email="plain-member@example.com", auth_provider_subject="auth0|gv-member")
+    db_session.add(member)
+    db_session.flush()
+    db_session.add(OrgMembership(organization_id=project.organization_id, user_id=member.id, role="member"))
+    db_session.flush()
+
+    headers = {"Authorization": "Bearer auth0|gv-member"}
+    params = {"project_id": str(project.id)}
+
+    # Members can see the setting but not change it.
+    shown = client.get("/v1/engine/governance", headers=headers, params=params)
+    assert shown.status_code == 200
+    denied = client.patch("/v1/engine/governance", headers=headers, params=params, json={"enforced": True})
+    assert denied.status_code == 403
+    db_session.expire_all()
+    assert db_session.get(Organization, project.organization_id).governance_enforced is False

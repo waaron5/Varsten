@@ -43,6 +43,7 @@ from app.models import (
     CustomerEconomics,
     LeverConfig,
     MonthlyReport,
+    Organization,
     OrgMembership,
     Project,
     PromptCompression,
@@ -113,6 +114,10 @@ class MonthlyReportUpdate(BaseModel):
 class ChangeRequestDecision(BaseModel):
     action: Literal["approve", "reject"]
     rationale: str | None = Field(default=None, max_length=2000)
+
+
+class GovernanceSettingsUpdate(BaseModel):
+    enforced: bool
 
 
 class QualityGuardrailCreate(BaseModel):
@@ -1047,6 +1052,77 @@ def _change_request_payload(change_request) -> dict:
         "decision_rationale": change_request.decision_rationale,
         "created_at": change_request.created_at.isoformat() if change_request.created_at else None,
     }
+
+
+def _assert_org_admin(user: User, project: Project, db: Session) -> None:
+    """Owner/admin gate for org-level governance controls. Plain members can see
+    the setting; only an owner or admin may change what blocks applies."""
+    role = db.scalar(
+        select(OrgMembership.role).where(
+            OrgMembership.user_id == user.id,
+            OrgMembership.organization_id == project.organization_id,
+        )
+    )
+    if role is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not a member")
+    if role not in {"owner", "admin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="owner or admin role required")
+
+
+def _governance_settings_payload(db: Session, project: Project) -> dict:
+    org = db.get(Organization, project.organization_id)
+    org_enforced = bool(org is not None and org.governance_enforced)
+    return {
+        "enforced": settings.governance_change_requests_enabled or org_enforced,
+        "org_enforced": org_enforced,
+        "global_enforced": settings.governance_change_requests_enabled,
+        "governed_levers": sorted(governance.GOVERNED_LEVERS),
+    }
+
+
+@router.get("/engine/governance", response_model=None)
+def engine_governance_settings(
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Whether applying a gated lever requires an approved ChangeRequest here,
+    and why (org opt-in vs the global default)."""
+    _assert_member(user, project, db)
+    return _governance_settings_payload(db, project)
+
+
+@router.patch("/engine/governance", response_model=None)
+def engine_update_governance_settings(
+    payload: GovernanceSettingsUpdate,
+    request: Request,
+    project: Project = Depends(resolve_project),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Org-level opt-in to default-on approvals (the enterprise governance
+    option). Owner/admin only; every change writes an immutable audit event.
+    Cannot switch OFF the global default — only the org's own flag."""
+    _assert_org_admin(user, project, db)
+    org = db.get(Organization, project.organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
+    before = {"governance_enforced": org.governance_enforced}
+    org.governance_enforced = payload.enforced
+    record_audit(
+        db,
+        action="governance.enforcement_changed",
+        actor=user,
+        organization_id=org.id,
+        project_id=project.id,
+        target_type="organization",
+        target_id=str(org.id),
+        source_ip=client_ip(request),
+        before=before,
+        after={"governance_enforced": org.governance_enforced},
+    )
+    db.commit()
+    return _governance_settings_payload(db, project)
 
 
 @router.get("/engine/change-requests", response_model=None)

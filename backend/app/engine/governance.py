@@ -10,9 +10,11 @@ wrapping a proposed model-swap change. This module owns its transitions:
 - ``decide_change_request`` — a named human approves or rejects, with rationale;
   every decision writes an immutable audit event.
 - ``assert_change_request_approved`` — when governance enforcement is on
-  (``governance_change_requests_enabled``, off by default), applying a gated
-  recommendation requires an approved ChangeRequest. Off means propose/decide
-  still work but never block, so the object can be adopted incrementally.
+  (globally via ``governance_change_requests_enabled``, off by default, or
+  per-org via ``Organization.governance_enforced`` — the enterprise default-on
+  option), applying a gated recommendation requires an approved ChangeRequest.
+  Off means propose/decide still work but never block, so the object can be
+  adopted incrementally.
 - ``mark_change_request_active`` / ``mark_change_request_rolled_back`` — applying
   the recommendation activates the request; a drift rollback closes the loop.
 
@@ -40,6 +42,7 @@ from app.models import (
     ROUTING_LEVERS,
     ChangeRequest,
     EvalRun,
+    Organization,
     Recommendation,
     User,
 )
@@ -180,13 +183,25 @@ def decide_change_request(
     return change_request
 
 
+def governance_enforced_for(db: Session, organization_id) -> bool:
+    """Whether ChangeRequest enforcement applies: the global default OR the
+    organization's own opt-in (the enterprise default-on option). Fail toward
+    the global setting if the org row is unreadable — enforcement must never
+    silently widen or narrow because of a lookup error."""
+    if settings.governance_change_requests_enabled:
+        return True
+    org = db.get(Organization, organization_id)
+    return bool(org is not None and org.governance_enforced)
+
+
 def assert_change_request_approved(db: Session, recommendation: Recommendation) -> None:
-    """Enforcement gate for the apply path, active only when
-    ``governance_change_requests_enabled`` is on and the lever is a gated
-    (routing) lever. Raises GovernanceError when no approved request exists."""
-    if not settings.governance_change_requests_enabled:
-        return
+    """Enforcement gate for the apply path, active when governance enforcement
+    is on for this org (globally via ``governance_change_requests_enabled`` or
+    per-org via ``Organization.governance_enforced``) and the lever is a gated
+    lever. Raises GovernanceError when no approved request exists."""
     if recommendation.lever not in GOVERNED_LEVERS:
+        return
+    if not governance_enforced_for(db, recommendation.organization_id):
         return
     change_request = change_request_for_recommendation(db, recommendation.id)
     if change_request is None:
