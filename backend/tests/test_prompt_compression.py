@@ -319,6 +319,7 @@ async def test_activation_creates_policy_with_artifact(db_session, provision, mo
     policy = proxy_compression.activate_compression_policy(db_session, project, rec)
     db_session.flush()
 
+    assert policy is not None
     assert policy.lever == LEVER_PROMPT_COMPRESSION
     assert policy.params["artifact_id"] == str(artifact.id)
     assert policy.rollout_percent == 10  # canary ramp applies

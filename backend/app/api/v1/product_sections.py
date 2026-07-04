@@ -1410,9 +1410,7 @@ def engine_add_bandit_candidate(
     _assert_member(user, project, db)
     require_performance(db, project, action="Adding a bandit routing candidate")
     try:
-        routing.add_bandit_candidate(
-            db, rule, payload.candidate_model, candidate_provider=payload.candidate_provider
-        )
+        routing.add_bandit_candidate(db, rule, payload.candidate_model, candidate_provider=payload.candidate_provider)
     except routing.BanditCandidateError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     record_audit(

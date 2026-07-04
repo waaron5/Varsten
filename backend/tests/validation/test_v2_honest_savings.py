@@ -66,8 +66,8 @@ def _recompute_from_ledger(events: list[UsageEvent]) -> dict:
     for arms in pairs.values():
         if not arms["control"] or not arms["treatment"]:
             continue
-        mean_c = sum(arms["control"]) / len(arms["control"])
-        mean_t = sum(arms["treatment"]) / len(arms["treatment"])
+        mean_c = sum(arms["control"], Decimal("0")) / len(arms["control"])
+        mean_t = sum(arms["treatment"], Decimal("0")) / len(arms["treatment"])
         per_request = mean_c - mean_t
         holdback_total += per_request * len(arms["treatment"])
         measurement_cost += max(per_request, Decimal("0")) * len(arms["control"])

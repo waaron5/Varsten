@@ -135,6 +135,7 @@ async def test_v1_golden_path(sim_env, data_plane, monkeypatch):
             (r for r in recs if r.lever == LEVER_MODEL_DOWNSHIFT and r.related_model == env.model_big), None
         )
         report.check("detect_downshift_recommended", downshift is not None, [r.type for r in recs])
+        assert downshift is not None  # narrow for the stages below; checked above
         report.check(
             "detect_estimates_are_labeled_estimates",
             all(r.measurement_method == "estimated" for r in recs),
@@ -150,6 +151,7 @@ async def test_v1_golden_path(sim_env, data_plane, monkeypatch):
             "generate_artifact_linked",
             compression_rec is not None and compression_rec.lever == LEVER_PROMPT_COMPRESSION,
         )
+        assert compression_rec is not None
         overhead_rows = db.scalars(
             select(UsageEvent).where(UsageEvent.project_id == env.project_id, UsageEvent.source == "overhead")
         ).all()
@@ -166,6 +168,7 @@ async def test_v1_golden_path(sim_env, data_plane, monkeypatch):
         compression_run = db.scalar(
             select(EvalRun).where(EvalRun.recommendation_id == compression_rec.id, EvalRun.status == "pending")
         )
+        assert compression_run is not None
         await run_compression_eval(
             db, compression_run, key="sk-vsim", replay_fn=sim_replay_fn(env.provider), judge_fn=tie_judge
         )
@@ -229,6 +232,7 @@ async def test_v1_golden_path(sim_env, data_plane, monkeypatch):
             and compression_policy.rollout_percent == 50,
             {p.lever: p.rollout_percent for p in policies},
         )
+        assert routing_policy is not None and compression_policy is not None
 
         # Operator turns the measurement dial up so arms fill quickly. Routing has
         # an endpoint; compression does not yet (documented gap -> ORM surrogate).

@@ -161,6 +161,7 @@ async def test_candidate_stats_merge_across_segments(async_provision, async_db_s
     merged = stats[0]
     assert merged.model == PRIMARY
     assert merged.sample_count == 40
+    assert merged.quality_pass_rate is not None
     assert abs(merged.quality_pass_rate - 0.975) < 1e-9  # (30*1.0 + 10*0.9) / 40
     assert merged.average_savings_usd == Decimal("0.015")  # (30*.01 + 10*.03) / 40
 
@@ -204,6 +205,7 @@ async def test_resolve_route_off_mode_is_untouched(async_provision, async_db_ses
     await _seed_winning_challenger(async_db_session, project)
 
     decision = await routing.resolve_route(async_db_session, project.id, INCUMBENT, {"messages": []})
+    assert decision is not None
     assert decision.candidate_model == PRIMARY
     assert decision.bandit_trace is None
 
@@ -218,10 +220,12 @@ async def test_resolve_route_shadow_traces_but_routes_primary(async_provision, a
     await _seed_winning_challenger(async_db_session, project)
 
     decision = await routing.resolve_route(async_db_session, project.id, INCUMBENT, {"messages": []})
+    assert decision is not None
     assert decision.candidate_model == PRIMARY  # traffic unchanged
     assert decision.bandit_trace is not None
-    assert decision.bandit_trace["mode"] == "shadow"
-    assert decision.bandit_trace["chosen_model"] == CHALLENGER  # would-be pick
+    trace = decision.bandit_trace
+    assert trace["mode"] == "shadow"
+    assert trace["chosen_model"] == CHALLENGER  # would-be pick
 
 
 @pytest.mark.anyio
@@ -234,7 +238,9 @@ async def test_resolve_route_active_routes_to_bandit_choice(async_provision, asy
     await _seed_winning_challenger(async_db_session, project)
 
     decision = await routing.resolve_route(async_db_session, project.id, INCUMBENT, {"messages": []})
+    assert decision is not None
     assert decision.candidate_model == CHALLENGER
+    assert decision.bandit_trace is not None
     assert decision.bandit_trace["mode"] == "active"
     assert decision.bandit_trace["reason"] == "exploit"
 
@@ -253,6 +259,7 @@ async def test_resolve_route_bandit_failure_falls_back_to_primary(async_provisio
     await async_db_session.flush()
 
     decision = await routing.resolve_route(async_db_session, project.id, INCUMBENT, {"messages": []})
+    assert decision is not None
     assert decision is not None
     assert decision.candidate_model == PRIMARY
     assert decision.bandit_trace is None

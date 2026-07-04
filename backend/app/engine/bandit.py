@@ -149,5 +149,5 @@ def select_candidate(
     ]
     if not proven:
         return BanditChoice(primary_model, primary_provider, reason="fallback_primary")
-    best, best_draw = max(proven, key=lambda item: item[0].average_savings_usd)
+    best, best_draw = max(proven, key=lambda item: item[0].average_savings_usd or Decimal("0"))
     return BanditChoice(best.model, best.provider, reason="exploit", sampled_quality=best_draw)

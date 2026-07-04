@@ -18,7 +18,7 @@ Usage:
 import argparse
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 - fixed-argument pytest invocation, no untrusted input
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,7 +75,7 @@ def run(suite: str, report_dir: Path) -> int:
     if suite == "fast":
         cmd += ["-k", FAST_SELECTOR]
     print(f"[validate_engine] running {suite} suite -> {report_dir}")
-    proc = subprocess.run(cmd, cwd=BACKEND_DIR, env=env)
+    proc = subprocess.run(cmd, cwd=BACKEND_DIR, env=env)  # nosec B603 - literal argv, argparse-validated suite
 
     scenarios = []
     for path in sorted(report_dir.glob("*.json")):
