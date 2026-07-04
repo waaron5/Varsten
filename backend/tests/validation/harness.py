@@ -233,14 +233,19 @@ def _sweep_stale_runs(db) -> None:
     db.commit()
 
 
-def create_sim_env(provider: SimProvider) -> SimEnv:
+def create_sim_env(provider: SimProvider, *, sweep_stale: bool = True) -> SimEnv:
     """Create the committed, namespaced environment: org + owner + project + API
     key, three priced models (big -> small catalog substitute, plus a compression
-    route), and a control-plane client with no test session overrides."""
+    route), and a control-plane client with no test session overrides.
+
+    ``sweep_stale=False`` skips the stale-run cleanup — required when creating a
+    *second* tenant inside a scenario, or the sweep would delete the live first
+    tenant (it removes every vsim-* org)."""
     rid = uuid.uuid4().hex[:8]
     db = SessionLocal()
     try:
-        _sweep_stale_runs(db)
+        if sweep_stale:
+            _sweep_stale_runs(db)
 
         org = Organization(name=f"{_NAMESPACE}-{rid}", plan_tier="performance", subscription_status="active")
         db.add(org)

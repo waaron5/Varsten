@@ -51,10 +51,62 @@ Carried from the implementation plan's follow-ups; the validation must
 
 ## Status (updated 2026-07-04)
 
-**V0, V1, V2, V4 are DONE** — `backend/tests/validation/` (22 scenarios, all
-green; the unit suite of 719 stays green). Remaining: V3, V5, V6, V7, V8.
+**ALL WORKSTREAMS (V0–V8) ARE DONE** — `backend/tests/validation/` holds 38
+scenarios (182 invariant checks), all green, with the 719-test unit suite
+unaffected. `scripts/validate_engine.py` runs the suites, aggregates the
+scenario reports, evaluates the seven acceptance gates, and writes
+`validation_reports/PROOF_PACK.md` + `validation_report.json` (gitignored
+artifacts). Current result: **all gates met, 0 failed checks**.
+`--suite fast` is the PR subset (V0 + V1 + reconciliation + chaos matrix).
 
 As-built notes and findings:
+
+- **V3 quality battery.** Injected mid-run degradation through the live proxy:
+  rollback confirmed with exposure measured and reported (requests exposed +
+  sweeps-to-rollback); a ~3% sub-tolerance dip survived **50 deliberate
+  peeking sweeps** with zero rollbacks (time-uniform guarantee on the real SQL
+  path); a slow-but-correct candidate rolled back on the latency trigger alone
+  (real handler sleeps, wide margins); the judge ceiling proven behaviorally on
+  three paths (gate refuses automated=True, HTTP apply 409s without approval,
+  the learning sweep proposes but never applies). *Scenario-design finding:*
+  incumbent texts ≤ 40 chars trip the objective exact-match scoring tier —
+  "judge-only" fixtures must use long freeform text.
+- **V5 learning integrity — found and fixed two real bandit design flaws.**
+  The regret-vs-oracle simulation exposed that the sampled quality floor
+  throttled exploration of young candidates twice over: a cold Beta(1,1) draw
+  cleared the 0.95 floor only ~5% of the time (cutting the declared budget
+  ~20×), and even a *perfect* candidate at n=5 failed the sampled floor ~74%
+  of draws (an evidence-accrual catch-22). Fix in `bandit.py::_quality_draw`:
+  candidates below `bandit_min_samples` of quality evidence are floor-exempt —
+  their real guards are eval clearance at entry, the hard exploration budget,
+  and the drift guard; the sampled floor takes over once evidence is
+  sufficient. Post-fix regret vs oracle: ~10% at a 10% exploration budget;
+  the default 2% budget's slower convergence is reported unasserted as the
+  documented cost of no-Thompson-over-savings (variance column remains the
+  follow-up). Also proven: priors reconcile exactly to raw decisions (counts,
+  quality, savings); a paused proven path is re-proposed with measured
+  receipts; a degraded path is marked quality-risk and never re-proposed; no
+  phantom evidence.
+- **V6 tenancy/concurrency.** Two interleaved tenants: exact per-tenant event
+  counts, cross-tenant canary scans clean both directions, control plane
+  rejects foreign projects. 30 parallel requests: exactly-once metering and
+  decisions. Drift rollback racing live traffic and two sweeps racing on
+  separate sessions both converge to consistent state (policy disabled ↔
+  recommendation rolled_back); duplicate system-action rows under the
+  no-advisory-lock worst case are counted and reported (≤2), not hidden.
+  *Harness note:* `create_sim_env(..., sweep_stale=False)` is required for a
+  second in-scenario tenant, or the stale sweep deletes the first.
+- **V7 replay tapes (capture rate).** Tape 1 (support agent, 40% planted
+  duplicates): every duplicate served from cache, **capture rate ≥ 90%** of
+  theoretical, stable prefix + downshift both detected. Tape 2 (agent loop, 16
+  planted redundant calls in 8 traces): redundancy quantified **exactly**,
+  waste within 5% of plant, restructure flagged. Tape 3 (high-variance chat):
+  zero savings claimed, zero findings invented. *Interplay finding worth
+  knowing:* with the exact cache ON, byte-identical repeats are served at $0
+  *before* they can register as agent-loop waste — the detector's niche is
+  redundancy the cache can't absorb (tape 2 runs with cache off to plant
+  honest ground truth). Detector thresholds (≥1500 avg input tokens) must be
+  respected by fixtures.
 
 - **Harness architecture (V0).** The savepoint-isolated unit fixtures wall the
   sync and async DB connections off from each other, so a closed-loop scenario

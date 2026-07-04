@@ -92,10 +92,20 @@ def mode() -> str:
 def _quality_draw(stats: CandidateStats) -> float:
     """Thompson draw from the candidate's measured quality posterior.
 
-    Beta(1 + passes, 1 + fails) with exposure = sample_count; a candidate with no
-    quality data draws from Beta(1, 1) — maximal honest uncertainty."""
-    if stats.quality_pass_rate is None or stats.sample_count <= 0:
-        return random.betavariate(1, 1)  # nosec B311 - statistical, not security
+    Beta(1 + passes, 1 + fails) with exposure = sample_count — once the
+    candidate has ``bandit_min_samples`` of evidence. Below that the candidate
+    is floor-exempt (returns 1.0): with tiny n the sampled posterior is so wide
+    that even a perfect candidate fails a 0.95 floor most draws, which silently
+    throttles the declared exploration budget for exactly the candidates
+    exploration exists to measure (found by the V5 regret simulation, twice: a
+    Beta(1,1) cold draw cut the budget twentyfold, and small-n draws created an
+    accrual catch-22). A young candidate's real guards are the eval/governance
+    clearance at entry, the hard exploration budget bounding its traffic share,
+    and the drift guard's confirmed-regression removal. Once evidence is
+    sufficient the sampled floor takes over and a measured-bad candidate is
+    excluded per request."""
+    if stats.quality_pass_rate is None or stats.sample_count < settings.bandit_min_samples:
+        return 1.0
     passes = max(0.0, min(1.0, stats.quality_pass_rate)) * stats.sample_count
     fails = stats.sample_count - passes
     return random.betavariate(1 + passes, 1 + fails)  # nosec B311
