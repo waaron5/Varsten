@@ -202,7 +202,7 @@ async def _openai_dialect_setup(
         optimize_enabled=optimize_enabled,
         exact_cache_enabled=settings.proxy_cache_enabled,
         semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
-        outcome_priors=await outcome_priors_for_request(db, project.id, model),
+        outcome_priors=await _safe_outcome_priors(db, project.id, model),
     )
     return OpenAISetup(
         OpenAIDialectContext(
@@ -353,6 +353,17 @@ def _bypass_reason(project: Project) -> str:
     if project.proxy_bypass_enabled:
         return "project_bypass"
     return "unknown"
+
+
+async def _safe_outcome_priors(db: AsyncSession, project_id, model: str) -> tuple:
+    """Learned priors for the planner, guarded at the seam: the lookup has its own
+    internal fail-open, but a bug in the lookup itself must also cost only the
+    priors, never the request (found by the V4 chaos battery)."""
+    try:
+        return await outcome_priors_for_request(db, project_id, model)
+    except Exception:
+        logger.exception("outcome prior lookup raised; planning without priors")
+        return ()
 
 
 def _attach_observe_plan(
@@ -539,20 +550,28 @@ async def _openai_dialect_completions(
     ctx = setup.context
     assert ctx is not None
 
-    cache_probe = await _maybe_serve_openai_cache(
-        db,
-        project,
-        api_key_id,
-        ctx.client_key,
-        ctx.body,
-        ctx.model,
-        ctx.cache_key,
-        ctx.stream,
-        background_tasks,
-        started,
-        not ctx.optimize_enabled,
-        ctx.draft,
-    )
+    # Seam-level fail-open (V4 chaos finding): each lookup inside the probe and
+    # the resolvers is individually guarded, but a bug in the resolution code
+    # itself must also cost only the optimization, never the request. Any
+    # exception here degrades to a plain passthrough forward.
+    try:
+        cache_probe = await _maybe_serve_openai_cache(
+            db,
+            project,
+            api_key_id,
+            ctx.client_key,
+            ctx.body,
+            ctx.model,
+            ctx.cache_key,
+            ctx.stream,
+            background_tasks,
+            started,
+            not ctx.optimize_enabled,
+            ctx.draft,
+        )
+    except Exception:
+        logger.exception("cache probe raised; passing through (fail-open)", extra={"project_id": str(project.id)})
+        cache_probe = OpenAICacheProbe(None, None, False)
     if cache_probe.response is not None:
         return cache_probe.response
 
@@ -564,16 +583,29 @@ async def _openai_dialect_completions(
         if blocked is not None:
             return blocked
 
-    opt = await _resolve_openai_optimizations(
-        db,
-        project,
-        ctx.parsed,
-        ctx.adapter.provider,
-        ctx.request_id,
-        not ctx.optimize_enabled,
-        ctx.draft,
-        ctx.request_facts,
-    )
+    try:
+        opt = await _resolve_openai_optimizations(
+            db,
+            project,
+            ctx.parsed,
+            ctx.adapter.provider,
+            ctx.request_id,
+            not ctx.optimize_enabled,
+            ctx.draft,
+            ctx.request_facts,
+        )
+    except Exception:
+        logger.exception(
+            "optimization resolution raised; passing through (fail-open)", extra={"project_id": str(project.id)}
+        )
+        ctx.draft.add_runtime_trace(
+            stage="optimization_resolution",
+            lever="none",
+            action="error",
+            reason_code="resolution_failed_fail_open",
+            detail={"fail_open": True},
+        )
+        opt = _openai_passthrough_state(ctx.body, ctx.model, ctx.adapter.provider)
     body = opt.body
     adapter, client_key, opt = _resolve_openai_candidate_provider(project, ctx.adapter, ctx.client_key, opt, ctx.draft)
 
@@ -859,7 +891,7 @@ async def _resolve_openai_optimizations(
     if bypass:
         return _openai_passthrough_state(body, model, requested_provider)
 
-    outcome_priors = await outcome_priors_for_request(db, project.id, model)
+    outcome_priors = await _safe_outcome_priors(db, project.id, model)
     decision = await routing.resolve_route(db, project.id, model, body, requested_provider=requested_provider)
     if _has_cross_provider_route(decision, model, requested_provider):
         return await _resolve_openai_route_state(
@@ -1491,7 +1523,7 @@ async def _native_provider_passthrough(
         optimize_enabled=not bypass and not observe_only,
         exact_cache_enabled=False,
         semantic_cache_enabled=False,
-        outcome_priors=await outcome_priors_for_request(db, project.id, parsed.model or ""),
+        outcome_priors=await _safe_outcome_priors(db, project.id, parsed.model or ""),
     )
     # Hard-cap budget enforcement (native passthrough has no cache, so every
     # forward costs money). Only optimization-enabled traffic; fail-open.
@@ -1598,7 +1630,7 @@ async def _maybe_route_native_cross_provider(
         return None
     assert decision is not None
 
-    outcome_priors = await outcome_priors_for_request(db, project.id, model)
+    outcome_priors = await _safe_outcome_priors(db, project.id, model)
     if not await _native_route_allowed(
         db,
         project,

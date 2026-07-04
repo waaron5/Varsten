@@ -15,7 +15,6 @@ from app.models.audit import (
 )
 from app.models.base import Base
 from app.models.batch import BatchJob
-from app.models.compression import PromptCompression
 from app.models.billing import (
     INVOICE_DRAFT,
     INVOICE_FINALIZED,
@@ -25,6 +24,7 @@ from app.models.billing import (
     INVOICE_VOID,
     Invoice,
 )
+from app.models.compression import PromptCompression
 from app.models.engine import (
     AlertRule,
     BudgetRule,

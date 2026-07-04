@@ -49,6 +49,52 @@ Carried from the implementation plan's follow-ups; the validation must
 
 ---
 
+## Status (updated 2026-07-04)
+
+**V0, V1, V2, V4 are DONE** — `backend/tests/validation/` (22 scenarios, all
+green; the unit suite of 719 stays green). Remaining: V3, V5, V6, V7, V8.
+
+As-built notes and findings:
+
+- **Harness architecture (V0).** The savepoint-isolated unit fixtures wall the
+  sync and async DB connections off from each other, so a closed-loop scenario
+  can't run under them. The harness (`tests/validation/harness.py`) instead
+  runs like production: committed rows namespaced per run (`vsim-<id>` org,
+  model keys, canary string), the app's own session factories on both stacks,
+  cascade teardown plus a stale-run sweep, SimProvider (stateful scripted mock)
+  at the HTTP boundary only, and a content-canary scan over every metadata-only
+  store in every scenario. Reports emit as JSON when `VALIDATION_REPORT_DIR` is
+  set. Scenarios must seed the global RNG (holdback/canary/bandit draws use it)
+  or arm fills flake.
+- **V1 golden path** runs the entire lifecycle closed-loop — capture → detect →
+  generate → eval (real runner, injected provider boundary) → ChangeRequest
+  approval with enforcement ON (apply 409s before approval — proven) → apply →
+  canary 50→100 → holdback measurement → priors learned — with the evidence
+  chain asserted end to end and planner parity at zero mismatches.
+  *Findings:* (1) the published savings fields are quantized independently, so
+  `net` vs `gross − costs` can differ by a rounding cent — reconciled within
+  ±$0.02 and reported as a metric; the unrounded identity is proven in V2.
+  (2) Gap: no operator endpoint tunes a compression policy's holdback (routing
+  has one); an ORM surrogate is used and flagged in the report.
+- **V2 honest-savings audit**: engine numbers re-derived blind from raw ledger
+  rows match to the cent (direct, holdback, measurement cost); holdback
+  treatments are never double-counted as direct; control arms never carry
+  `saved_usd`; overhead can push net **negative** and is reported as such, not
+  clamped; a do-nothing customer gets exact zeros and estimate-labeled
+  recommendations only; a mid-experiment 3× price shock cancels across arms.
+- **V4 chaos battery — found and fixed two real fail-open gaps.** Injecting a
+  *bug* (not an infra failure inside a guard) at the `resolve_route` seam or
+  the priors-lookup seam 500'd live requests. Hardened in `router.py`:
+  `_safe_outcome_priors` wraps all prior lookups, and the cache probe +
+  optimization resolution now degrade to passthrough on any exception (traced
+  `resolution_failed_fail_open`). The matrix now proves 10 fault points
+  (infra-level and seam-level), poisoned policy params, upstream 500 storms
+  (faithful relay, then honestly-labeled breaker 503s), and primary-down →
+  fallback-served with zero savings claimed. Evidence-write faults cost
+  telemetry only; the loss is measured and reported, never hidden.
+  *Note:* trim/compression fault cases run without a routing policy — with one
+  active those resolvers never execute and the pass would be vacuous.
+
 ## Workstreams (each is one focused session, in this order)
 
 ### V0 — Validation harness foundation
