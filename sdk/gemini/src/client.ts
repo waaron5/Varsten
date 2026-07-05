@@ -9,7 +9,20 @@ import {
 } from "@varsten/core";
 
 import { geminiErrorAdapter } from "./errors.js";
-import { PROVIDER, SDK_VERSION, type VarstenGeminiOptions } from "./types.js";
+import {
+  PROVIDER,
+  SDK_VERSION,
+  metadataHeaderValue,
+  VARSTEN_METADATA_HEADER,
+  type VarstenGeminiOptions,
+  type VarstenRequestMetadata,
+} from "./types.js";
+
+/** Per-request options: `varsten` carries workflow metadata (trace id, feature,
+ * task hints). Sent to Varsten only; the direct provider fallback never sees it. */
+export interface VarstenGeminiRequestOptions {
+  varsten?: VarstenRequestMetadata;
+}
 
 const DEFAULT_HOST = "https://api.varsten.ai";
 const DEFAULT_VARSTEN_TOTAL_MS = 60_000;
@@ -17,10 +30,14 @@ const DEFAULT_VARSTEN_TOTAL_MS = 60_000;
 /** Inject the idempotency key as a request header without mutating the caller's
  * params object. Gemini has no per-call options arg, so it rides in
  * `config.httpOptions.headers`. */
-function withIdempotency(params: any, idempotencyKey: string): any {
+function withVarstenHeaders(params: any, idempotencyKey: string, metadataValue: string | null): any {
   const config = params?.config ?? {};
   const httpOptions = config.httpOptions ?? {};
-  const headers = { ...(httpOptions.headers ?? {}), "Idempotency-Key": idempotencyKey };
+  const headers: Record<string, string> = {
+    ...(httpOptions.headers ?? {}),
+    "Idempotency-Key": idempotencyKey,
+  };
+  if (metadataValue) headers[VARSTEN_METADATA_HEADER] = metadataValue;
   return { ...params, config: { ...config, httpOptions: { ...httpOptions, headers } } };
 }
 
@@ -49,8 +66,8 @@ function withIdempotency(params: any, idempotencyKey: string): any {
  */
 export class VarstenGemini {
   readonly models: {
-    generateContent: (params: any) => Promise<any>;
-    generateContentStream: (params: any) => Promise<any>;
+    generateContent: (params: any, options?: VarstenGeminiRequestOptions) => Promise<any>;
+    generateContentStream: (params: any, options?: VarstenGeminiRequestOptions) => Promise<any>;
   };
 
   private readonly primary: GoogleGenAI;
@@ -102,14 +119,17 @@ export class VarstenGemini {
     this.emitTelemetry = makeTelemetryEmitter({ baseURL: `${host}/v1`, varstenApiKey });
 
     this.models = {
-      generateContent: (params: any) => this.run(params, false),
-      generateContentStream: (params: any) => this.run(params, true),
+      generateContent: (params: any, options?: VarstenGeminiRequestOptions) => this.run(params, false, options),
+      generateContentStream: (params: any, options?: VarstenGeminiRequestOptions) => this.run(params, true, options),
     };
   }
 
-  private run(params: any, streaming: boolean): Promise<any> {
+  private run(params: any, streaming: boolean, options?: VarstenGeminiRequestOptions): Promise<any> {
+    // Workflow metadata goes to Varsten only: the header rides the primary
+    // attempt's httpOptions; the direct fallback gets the caller's params as-is.
+    const metadataValue = metadataHeaderValue(options?.varsten);
     const callPrimary = (b: any, idem: string) => {
-      const p = withIdempotency(b, idem);
+      const p = withVarstenHeaders(b, idem, metadataValue);
       return streaming
         ? (this.primary.models.generateContentStream(p) as Promise<any>)
         : (this.primary.models.generateContent(p) as Promise<any>);

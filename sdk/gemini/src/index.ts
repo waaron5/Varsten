@@ -1,4 +1,4 @@
-export { VarstenGemini } from "./client.js";
+export { VarstenGemini, type VarstenGeminiRequestOptions } from "./client.js";
 export { geminiErrorAdapter } from "./errors.js";
 export {
   PROVIDER,
@@ -11,3 +11,4 @@ export {
   type VarstenMeta,
   type VarstenTimeouts,
 } from "./types.js";
+export { VarstenTrace, metadataHeaderValue, VARSTEN_METADATA_HEADER, type VarstenRequestMetadata } from "./types.js";

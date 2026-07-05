@@ -17,6 +17,12 @@ export {
   type ProviderErrorAdapter,
 } from "./classify.js";
 export { annotate, executeWithFallback, type CreateFn, type ExecuteParams } from "./execute.js";
+export {
+  VARSTEN_METADATA_HEADER,
+  VarstenTrace,
+  metadataHeaderValue,
+  type VarstenRequestMetadata,
+} from "./metadata.js";
 export { makeTelemetryEmitter } from "./telemetry.js";
 export { varstenHost } from "./url.js";
 export {

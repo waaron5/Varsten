@@ -9,7 +9,14 @@ import {
 } from "@varsten/core";
 
 import { anthropicErrorAdapter } from "./errors.js";
-import { PROVIDER, SDK_VERSION, type VarstenAnthropicOptions } from "./types.js";
+import {
+  PROVIDER,
+  SDK_VERSION,
+  metadataHeaderValue,
+  VARSTEN_METADATA_HEADER,
+  type VarstenAnthropicOptions,
+  type VarstenRequestMetadata,
+} from "./types.js";
 
 const DEFAULT_HOST = "https://api.varsten.ai";
 const DEFAULT_VARSTEN_TOTAL_MS = 60_000;
@@ -92,6 +99,17 @@ export class VarstenAnthropic {
   }
 
   private create(body: any, options?: Record<string, any>): Promise<any> {
+    // Workflow metadata (`options.varsten`) goes to Varsten only: the header is
+    // added on the primary attempt and the field is stripped before any caller
+    // options are forwarded — the direct provider fallback never sees labels.
+    const { varsten, ...callerOptions } = options ?? {};
+    const metadataValue = metadataHeaderValue(varsten as VarstenRequestMetadata | undefined);
+    const primaryOptions = metadataValue
+      ? {
+          ...callerOptions,
+          headers: { ...(callerOptions.headers ?? {}), [VARSTEN_METADATA_HEADER]: metadataValue },
+        }
+      : callerOptions;
     return executeWithFallback({
       body,
       mode: this.options.fallback,
@@ -101,10 +119,10 @@ export class VarstenAnthropic {
       // Our generated idempotency key wins so the direct fallback can be deduped;
       // any caller request options are preserved underneath it.
       primaryCreate: (b, idem) =>
-        this.primary.messages.create(b, { ...options, idempotencyKey: idem }) as Promise<any>,
+        this.primary.messages.create(b, { ...primaryOptions, idempotencyKey: idem }) as Promise<any>,
       fallbackCreate: this.fallbackClient
         ? (b, idem) =>
-            this.fallbackClient!.messages.create(b, { ...options, idempotencyKey: idem }) as Promise<any>
+            this.fallbackClient!.messages.create(b, { ...callerOptions, idempotencyKey: idem }) as Promise<any>
         : null,
       breaker: this.breaker,
       fallbackOnReadTimeout: this.options.fallbackOnReadTimeout,

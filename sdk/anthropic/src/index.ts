@@ -11,3 +11,4 @@ export {
   type VarstenMeta,
   type VarstenTimeouts,
 } from "./types.js";
+export { VarstenTrace, metadataHeaderValue, VARSTEN_METADATA_HEADER, type VarstenRequestMetadata } from "./types.js";

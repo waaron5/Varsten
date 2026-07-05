@@ -49,6 +49,36 @@ console.log(res.choices[0].message.content);
 
 The surface mirrors the OpenAI SDK, so existing call sites need no other changes.
 
+## Workflow metadata and agent traces
+
+Tell Varsten what a request *is* — which feature, which of your customers,
+which agent workflow — and the engine can allocate cost, pick task-aware
+optimizations, and detect redundant calls inside agent loops. Pass `varsten`
+metadata as a per-request option; it rides the optimized attempt as the
+`X-Varsten-Metadata` header and is **never sent to the provider** on a direct
+fallback. Labels only, never prompt or completion content.
+
+```ts
+import { VarstenTrace } from "@varsten/openai";
+
+// One trace per logical workflow (an agent run, a session):
+const trace = new VarstenTrace();
+
+for (const step of steps) {
+  await client.chat.completions.create(body, {
+    varsten: trace.metadata({
+      feature: "research_agent",
+      taskType: "research.step",
+      customerId: "cust_123",
+    }),
+  });
+}
+```
+
+Calls sharing a trace id are analyzed as one workflow: if the agent asks the
+same question twice, the engine quantifies the waste and recommends
+memoization or an idempotency guard — it will not silently dedupe your calls.
+
 ## Environment variables
 
 | Variable           | Purpose                                  | Sent to        |

@@ -1,4 +1,4 @@
-export { VarstenOpenAI } from "./client.js";
+export { VarstenOpenAI, type VarstenRequestOptions } from "./client.js";
 export { classifyError, executeWithFallback, annotate } from "./fallback.js";
 export { LocalBreaker } from "./breaker.js";
 export {
@@ -11,3 +11,4 @@ export {
   type VarstenOptions,
   type VarstenTimeouts,
 } from "./types.js";
+export { VarstenTrace, metadataHeaderValue, VARSTEN_METADATA_HEADER, type VarstenRequestMetadata } from "./types.js";

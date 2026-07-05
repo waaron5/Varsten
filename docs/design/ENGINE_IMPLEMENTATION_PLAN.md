@@ -623,6 +623,15 @@ of arm assignment.
   enterprise default-on option; `governance_enforced_for` gates apply as
   global-OR-org; `GET/PATCH /v1/engine/governance` (owner/admin PATCH,
   audited as `governance.enforcement_changed`).
+- ~~**D3 SDK trace/metadata support.**~~ **DONE 2026-07-04**: the fail-open
+  SDKs (`sdk/`) accept per-request `varsten` metadata (camelCase, mapped to the
+  proxy's snake_case `X-Varsten-Metadata` keys) plus a `VarstenTrace` helper
+  that stamps a workflow's calls with one trace id — feeding agent-loop
+  detection out of the box. The header rides the optimized attempt only; the
+  direct provider fallback never receives workflow labels. All three wrappers
+  (openai/anthropic/gemini) + core; SDK job added to CI. Proxy auto-dedupe
+  stays off by design: the engine quantifies redundancy and recommends, never
+  silently dedupes workflow calls.
 - ~~**D1 deterministic restructure proposals.**~~ **DONE 2026-07-04**:
   `app/engine/prefix_analysis.py` aligns the route's captured system prompts
   (replay corpus, in memory only) into stable head + volatile middle + stable

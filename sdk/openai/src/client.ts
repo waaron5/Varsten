@@ -3,7 +3,20 @@ import OpenAI from "openai";
 import { LocalBreaker } from "./breaker.js";
 import { executeWithFallback } from "./fallback.js";
 import { makeTelemetryEmitter } from "./telemetry.js";
-import { SDK_VERSION, type FallbackEvent, type VarstenOptions } from "./types.js";
+import {
+  SDK_VERSION,
+  metadataHeaderValue,
+  VARSTEN_METADATA_HEADER,
+  type FallbackEvent,
+  type VarstenOptions,
+  type VarstenRequestMetadata,
+} from "./types.js";
+
+/** Per-request options: `varsten` carries workflow metadata (trace id, feature,
+ * task hints). Sent to Varsten only; the direct provider fallback never sees it. */
+export interface VarstenRequestOptions {
+  varsten?: VarstenRequestMetadata;
+}
 
 const DEFAULT_BASE_URL = "https://api.varsten.ai/v1";
 const DEFAULT_VARSTEN_TOTAL_MS = 60_000;
@@ -23,7 +36,9 @@ const DEFAULT_VARSTEN_TOTAL_MS = 60_000;
  * the direct-fallback safety net (streaming fail-open lands in the next version).
  */
 export class VarstenOpenAI {
-  readonly chat: { completions: { create: (body: any) => Promise<any> } };
+  readonly chat: {
+    completions: { create: (body: any, options?: VarstenRequestOptions) => Promise<any> };
+  };
 
   private readonly primary: OpenAI;
   private readonly fallbackClient: OpenAI | null;
@@ -72,10 +87,16 @@ export class VarstenOpenAI {
     this.breaker = new LocalBreaker(opts.breakerThreshold ?? 5, opts.breakerCooldownMs ?? 30_000);
     this.emitTelemetry = makeTelemetryEmitter({ baseURL, varstenApiKey });
 
-    this.chat = { completions: { create: (body: any) => this.create(body) } };
+    this.chat = {
+      completions: { create: (body: any, options?: VarstenRequestOptions) => this.create(body, options) },
+    };
   }
 
-  private create(body: any): Promise<any> {
+  private create(body: any, options?: VarstenRequestOptions): Promise<any> {
+    // Workflow metadata goes to Varsten only. The direct fallback talks straight
+    // to the provider, which has no business seeing workflow labels.
+    const metadataValue = metadataHeaderValue(options?.varsten);
+    const primaryHeaders = metadataValue ? { [VARSTEN_METADATA_HEADER]: metadataValue } : undefined;
     // Streaming flows through the same engine. The optimized create() rejects on a
     // pre-stream failure (Varsten unreachable, circuit-open, 5xx) before any token
     // reaches the caller, so the fallback there is safe; once a stream is returned,
@@ -85,7 +106,10 @@ export class VarstenOpenAI {
       mode: this.options.fallback,
       streaming: Boolean(body && body.stream),
       primaryCreate: (b, idem) =>
-        this.primary.chat.completions.create(b, { idempotencyKey: idem }) as Promise<any>,
+        this.primary.chat.completions.create(b, {
+          idempotencyKey: idem,
+          ...(primaryHeaders ? { headers: primaryHeaders } : {}),
+        }) as Promise<any>,
       fallbackCreate: this.fallbackClient
         ? (b, idem) => this.fallbackClient!.chat.completions.create(b, { idempotencyKey: idem }) as Promise<any>
         : null,
