@@ -289,6 +289,7 @@ class EngineOutcomePrior(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint(
             "project_id",
+            "route_key",
             "lever",
             "task_type",
             "risk_level",
@@ -299,6 +300,13 @@ class EngineOutcomePrior(Base, TimestampMixin):
             name="uq_engine_outcome_priors_segment",
         ),
         Index("ix_engine_outcome_priors_project_model_lever", "project_id", "model_requested", "lever"),
+        Index(
+            "ix_engine_outcome_priors_project_route_model_lever",
+            "project_id",
+            "route_key",
+            "model_requested",
+            "lever",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -312,6 +320,7 @@ class EngineOutcomePrior(Base, TimestampMixin):
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
+    route_key: Mapped[str] = mapped_column(String(128), nullable=False, server_default=text("'default'"))
     lever: Mapped[str] = mapped_column(String(32), nullable=False)
     task_type: Mapped[str] = mapped_column(String(128), nullable=False)
     risk_level: Mapped[str] = mapped_column(String(32), nullable=False)

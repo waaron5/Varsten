@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.engine import bandit
 from app.engine.priors import candidate_stats_for_request
+from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
 from app.levers import LEVER_MODEL_DOWNSHIFT, LEVER_SMART_ROUTING
 from app.models import (
     CR_ACTIVE,
@@ -73,23 +74,31 @@ def bandit_candidate_entries(policy: ProxyPolicy) -> list[dict]:
 
 
 async def _routing_policy_for_model(
-    db: AsyncSession, project_id: uuid.UUID, requested_model: str
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    requested_model: str,
+    *,
+    route_key: str | None = None,
 ) -> ProxyPolicy | None:
     """The enabled routing-lever policy that applies to this incumbent model, if
     any. At most one is expected; the most recently activated wins if not."""
-    return (
-        await db.scalars(
-            select(ProxyPolicy)
-            .where(
-                ProxyPolicy.project_id == project_id,
-                ProxyPolicy.lever.in_(ROUTING_LEVERS),
-                ProxyPolicy.target_key == requested_model,
-                ProxyPolicy.enabled.is_(True),
-            )
-            .order_by(ProxyPolicy.activated_at.desc().nullslast())
-            .limit(1)
+    base = (
+        select(ProxyPolicy)
+        .where(
+            ProxyPolicy.project_id == project_id,
+            ProxyPolicy.lever.in_(ROUTING_LEVERS),
+            ProxyPolicy.target_key == requested_model,
+            ProxyPolicy.enabled.is_(True),
         )
-    ).first()
+        .order_by(ProxyPolicy.activated_at.desc().nullslast())
+        .limit(1)
+    )
+    if route_key:
+        exact = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
+        if exact is not None:
+            return exact
+        return (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
+    return (await db.scalars(base)).first()
 
 
 async def resolve_route(
@@ -99,6 +108,7 @@ async def resolve_route(
     body: dict | None = None,
     *,
     requested_provider: str = "openai",
+    route_key: str | None = None,
 ) -> RouteDecision | None:
     """The candidate model and holdback fraction for an enabled routing policy on
     this model, or None when none applies. For smart_routing the per-request
@@ -108,7 +118,7 @@ async def resolve_route(
     if not requested_model:
         return None
     try:
-        policy = await _routing_policy_for_model(db, project_id, requested_model)
+        policy = await _routing_policy_for_model(db, project_id, requested_model, route_key=route_key)
         if policy is None or not policy.candidate_model:
             return None
         if policy.lever == SMART_ROUTING:
@@ -161,7 +171,9 @@ async def _maybe_bandit_select(
     if not extra_entries:
         return primary_model, primary_provider, None
     try:
-        stats_by_model = {s.model: s for s in await candidate_stats_for_request(db, project_id, requested_model)}
+        stats_by_model = {
+            s.model: s for s in await candidate_stats_for_request(db, project_id, requested_model, policy.route_key)
+        }
         allowed: list[bandit.CandidateStats] = []
         for entry in ({"model": primary_model, "provider": primary_provider}, *extra_entries):
             known = stats_by_model.get(entry["model"])
@@ -237,13 +249,15 @@ def activate_rule(
     if not incumbent or not candidate_model or incumbent == candidate_model:
         return None
     at = now or datetime.now(UTC)
-    policy = db.scalar(
-        select(ProxyPolicy).where(
-            ProxyPolicy.project_id == project.id,
-            ProxyPolicy.lever == lever,
-            ProxyPolicy.target_key == incumbent,
-        )
+    route_key = route_key_from_recommendation(recommendation)
+    policy_route_key = route_key or DEFAULT_ROUTE
+    stmt = select(ProxyPolicy).where(
+        ProxyPolicy.project_id == project.id,
+        ProxyPolicy.lever == lever,
+        ProxyPolicy.target_key == incumbent,
+        ProxyPolicy.route_key == policy_route_key,
     )
+    policy = db.scalar(stmt)
     # A brand-new policy, or one being re-enabled after a rollback/dismiss, starts
     # a fresh canary ramp; refreshing an already-live policy keeps its rollout.
     fresh = policy is None or not policy.enabled
@@ -256,6 +270,7 @@ def activate_rule(
             target_key=incumbent,
         )
         db.add(policy)
+    policy.route_key = policy_route_key
     params = {**(policy.params or {}), "candidate_model": candidate_model}
     # Smart routing gates each request on a deterministic predicate; seed a
     # conservative default the operator can tune. A plain model-downshift swap has

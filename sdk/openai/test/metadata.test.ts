@@ -31,6 +31,14 @@ function stubClients(client: VarstenOpenAI) {
   return { primaryCalls, fallbackCalls };
 }
 
+function onlyCall<T>(calls: T[]): T {
+  const call = calls[0];
+  if (!call) {
+    throw new Error("expected exactly one SDK call");
+  }
+  return call;
+}
+
 describe("workflow metadata", () => {
   it("rides the optimized attempt as X-Varsten-Metadata", async () => {
     const client = new VarstenOpenAI({ varstenApiKey: "vk_test", openaiApiKey: "sk-test" });
@@ -43,14 +51,15 @@ describe("workflow metadata", () => {
     );
 
     expect(primaryCalls).toHaveLength(1);
-    const header = primaryCalls[0].options.headers[VARSTEN_METADATA_HEADER];
+    const call = onlyCall(primaryCalls);
+    const header = call.options.headers[VARSTEN_METADATA_HEADER];
     expect(JSON.parse(header)).toEqual({
       trace_id: "run-7",
       feature: "support_agent",
       task_type: "classification.intent",
     });
     // The idempotency key still rides alongside the metadata.
-    expect(primaryCalls[0].options.idempotencyKey).toMatch(/^varsten-/);
+    expect(call.options.idempotencyKey).toMatch(/^varsten-/);
   });
 
   it("never reaches the direct provider fallback", async () => {
@@ -65,8 +74,9 @@ describe("workflow metadata", () => {
 
     expect(res.id).toBe("from-provider");
     expect(fallbackCalls).toHaveLength(1);
-    expect(fallbackCalls[0].options.headers).toBeUndefined();
-    expect(JSON.stringify(fallbackCalls[0].options)).not.toContain("support_agent");
+    const call = onlyCall(fallbackCalls);
+    expect(call.options.headers).toBeUndefined();
+    expect(JSON.stringify(call.options)).not.toContain("support_agent");
   });
 
   it("sends no header at all when no metadata is given", async () => {
@@ -75,6 +85,6 @@ describe("workflow metadata", () => {
 
     await client.chat.completions.create({ model: "gpt-4o-mini", messages: [] });
 
-    expect(primaryCalls[0].options.headers).toBeUndefined();
+    expect(onlyCall(primaryCalls).options.headers).toBeUndefined();
   });
 });

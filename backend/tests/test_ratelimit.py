@@ -68,6 +68,16 @@ def test_redis_limiter_allows_then_blocks_within_window():
     assert limiter.allow("other", 2) is True  # separate key has its own counter
 
 
+def test_redis_limiter_shares_window_across_instances():
+    client = _FakeRedis()
+    instance_a = ratelimit.RedisFixedWindow(client)
+    instance_b = ratelimit.RedisFixedWindow(client)
+
+    assert instance_a.allow("shared", 2) is True
+    assert instance_b.allow("shared", 2) is True
+    assert instance_a.allow("shared", 2) is False
+
+
 def test_redis_limiter_sets_ttl_only_on_first_hit():
     client = _FakeRedis()
     limiter = ratelimit.RedisFixedWindow(client)

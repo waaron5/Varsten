@@ -122,10 +122,20 @@ def test_mode_parsing(monkeypatch):
 # --- persisted candidate stats ----------------------------------------------------
 
 
-def _prior_row(project, *, model_chosen, task_type="classification.intent", n=50, quality="0.99", avg="0.02"):
+def _prior_row(
+    project,
+    *,
+    model_chosen,
+    route_key="default",
+    task_type="classification.intent",
+    n=50,
+    quality="0.99",
+    avg="0.02",
+):
     return EngineOutcomePrior(
         organization_id=project.organization_id,
         project_id=project.id,
+        route_key=route_key,
         lever="model_downshift",
         task_type=task_type,
         risk_level="low",
@@ -164,6 +174,21 @@ async def test_candidate_stats_merge_across_segments(async_provision, async_db_s
     assert merged.quality_pass_rate is not None
     assert abs(merged.quality_pass_rate - 0.975) < 1e-9  # (30*1.0 + 10*0.9) / 40
     assert merged.average_savings_usd == Decimal("0.015")  # (30*.01 + 10*.03) / 40
+
+
+@pytest.mark.anyio
+async def test_candidate_stats_prefers_exact_route_over_default(async_provision, async_db_session):
+    ws = await async_provision()
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
+    async_db_session.add(_prior_row(project, model_chosen=PRIMARY, route_key="default", n=100, avg="0.01"))
+    async_db_session.add(_prior_row(project, model_chosen=CHALLENGER, route_key="support_agent", n=100, avg="0.05"))
+    await async_db_session.flush()
+    clear_outcome_prior_cache()
+
+    stats = await candidate_stats_for_request(async_db_session, project.id, INCUMBENT, route_key="support_agent")
+
+    assert len(stats) == 1
+    assert stats[0].model == CHALLENGER
 
 
 # --- resolve_route integration -----------------------------------------------------
@@ -208,6 +233,30 @@ async def test_resolve_route_off_mode_is_untouched(async_provision, async_db_ses
     assert decision is not None
     assert decision.candidate_model == PRIMARY
     assert decision.bandit_trace is None
+
+
+@pytest.mark.anyio
+async def test_resolve_route_prefers_matching_route_policy(async_provision, async_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "bandit_routing_mode", "off")
+    ws = await async_provision()
+    project = await async_db_session.get(Project, uuid.UUID(ws["project_id"]))
+    async_db_session.add(_policy(project, route_key="support_agent"))
+    async_db_session.add(_policy(project, route_key="billing_agent", params_extra={"candidate_model": CHALLENGER}))
+    await async_db_session.flush()
+
+    support = await routing.resolve_route(
+        async_db_session, project.id, INCUMBENT, {"messages": []}, route_key="support_agent"
+    )
+    billing = await routing.resolve_route(
+        async_db_session, project.id, INCUMBENT, {"messages": []}, route_key="billing_agent"
+    )
+    unknown = await routing.resolve_route(async_db_session, project.id, INCUMBENT, {"messages": []}, route_key="other")
+
+    assert support is not None
+    assert support.candidate_model == PRIMARY
+    assert billing is not None
+    assert billing.candidate_model == CHALLENGER
+    assert unknown is None
 
 
 @pytest.mark.anyio

@@ -34,6 +34,7 @@ from app.engine import (
     normalize_request_facts,
 )
 from app.engine.priors import outcome_priors_for_request
+from app.engine.route_identity import route_key_from_context
 from app.eval import capture as eval_capture
 from app.models import Project
 from app.proxy import (
@@ -183,16 +184,18 @@ async def _openai_dialect_setup(
     model = parsed.model or ""
     request_id = _request_id(request)
     request_facts = parsed.request_facts
+    ctx = parse_request_context(dict(request.headers))
     draft = DecisionDraft(
         request_id=request_id,
         client_dialect=parsed.dialect.value,
         provider_requested=adapter.provider,
         model_requested=model,
         api_key_id=api_key_id,
-        ctx=parse_request_context(dict(request.headers)),
+        ctx=ctx,
         bypassed=bypass,
         bypass_reason=_bypass_reason(project) if bypass else None,
     )
+    route_key = route_key_from_context(draft.ctx, request_type=draft.request_type)
     _attach_observe_plan(
         draft,
         body=body,
@@ -202,7 +205,7 @@ async def _openai_dialect_setup(
         optimize_enabled=optimize_enabled,
         exact_cache_enabled=settings.proxy_cache_enabled,
         semantic_cache_enabled=settings.proxy_cache_enabled and settings.semantic_cache_enabled,
-        outcome_priors=await _safe_outcome_priors(db, project.id, model),
+        outcome_priors=await _safe_outcome_priors(db, project.id, model, route_key=route_key),
     )
     return OpenAISetup(
         OpenAIDialectContext(
@@ -355,12 +358,18 @@ def _bypass_reason(project: Project) -> str:
     return "unknown"
 
 
-async def _safe_outcome_priors(db: AsyncSession, project_id, model: str) -> tuple:
+async def _safe_outcome_priors(
+    db: AsyncSession,
+    project_id,
+    model: str,
+    *,
+    route_key: str | None = None,
+) -> tuple:
     """Learned priors for the planner, guarded at the seam: the lookup has its own
     internal fail-open, but a bug in the lookup itself must also cost only the
     priors, never the request (found by the V4 chaos battery)."""
     try:
-        return await outcome_priors_for_request(db, project_id, model)
+        return await outcome_priors_for_request(db, project_id, model, route_key=route_key)
     except Exception:
         logger.exception("outcome prior lookup raised; planning without priors")
         return ()
@@ -891,8 +900,16 @@ async def _resolve_openai_optimizations(
     if bypass:
         return _openai_passthrough_state(body, model, requested_provider)
 
-    outcome_priors = await _safe_outcome_priors(db, project.id, model)
-    decision = await routing.resolve_route(db, project.id, model, body, requested_provider=requested_provider)
+    route_key = route_key_from_context(draft.ctx, request_type=draft.request_type)
+    outcome_priors = await _safe_outcome_priors(db, project.id, model, route_key=route_key)
+    decision = await routing.resolve_route(
+        db,
+        project.id,
+        model,
+        body,
+        requested_provider=requested_provider,
+        route_key=route_key,
+    )
     if _has_cross_provider_route(decision, model, requested_provider):
         return await _resolve_openai_route_state(
             db=db,
@@ -1158,7 +1175,8 @@ async def _resolve_openai_trim_state(
     request_facts: RequestFacts,
     outcome_priors: tuple,
 ) -> OpenAIOptimizationState:
-    tdecision = await trim.resolve_trim(db, project.id, model)
+    route_key = route_key_from_context(draft.ctx, request_type=draft.request_type)
+    tdecision = await trim.resolve_trim(db, project.id, model, route_key=route_key)
     if not tdecision:
         draft.add_runtime_trace(
             stage="trim",
@@ -1261,7 +1279,8 @@ async def _resolve_openai_compression_state(
     system prompt hashes exactly to the evaluated original; a non-matching
     request forwards untouched and is traced as a noop, so the lever never
     compresses anything it did not prove."""
-    cdecision = await compression.resolve_compression(db, project.id, model)
+    route_key = route_key_from_context(draft.ctx, request_type=draft.request_type)
+    cdecision = await compression.resolve_compression(db, project.id, model, route_key=route_key)
     if not cdecision or cdecision.artifact_id is None:
         draft.add_runtime_trace(
             stage="compression",
@@ -1503,6 +1522,7 @@ async def _native_provider_passthrough(
         origin.ORIGIN_HEADER: origin.ORIGIN_PROVIDER,
         **_entitlement_headers(entitlement),
     }
+    ctx = parse_request_context(dict(request.headers))
     draft = DecisionDraft(
         request_id=request_id,
         client_dialect=parsed.dialect.value,
@@ -1510,10 +1530,11 @@ async def _native_provider_passthrough(
         model_requested=parsed.model or "",
         api_key_id=api_context.api_key.id,
         request_type=parsed.operation,
-        ctx=parse_request_context(dict(request.headers)),
+        ctx=ctx,
         bypassed=bypass,
         bypass_reason=_bypass_reason(project) if bypass else None,
     )
+    route_key = route_key_from_context(draft.ctx, request_type=draft.request_type)
     _attach_observe_plan(
         draft,
         body=parsed.body,
@@ -1523,7 +1544,7 @@ async def _native_provider_passthrough(
         optimize_enabled=not bypass and not observe_only,
         exact_cache_enabled=False,
         semantic_cache_enabled=False,
-        outcome_priors=await _safe_outcome_priors(db, project.id, parsed.model or ""),
+        outcome_priors=await _safe_outcome_priors(db, project.id, parsed.model or "", route_key=route_key),
     )
     # Hard-cap budget enforcement (native passthrough has no cache, so every
     # forward costs money). Only optimization-enabled traffic; fail-open.
@@ -1624,13 +1645,19 @@ async def _maybe_route_native_cross_provider(
         model,
         parsed.body,
         requested_provider=requested_provider,
+        route_key=route_key_from_context(draft.ctx, request_type=draft.request_type),
     )
     if _native_route_policy_missing(decision, requested_provider):
         _trace_native_route_no_policy(draft, decision)
         return None
     assert decision is not None
 
-    outcome_priors = await _safe_outcome_priors(db, project.id, model)
+    outcome_priors = await _safe_outcome_priors(
+        db,
+        project.id,
+        model,
+        route_key=route_key_from_context(draft.ctx, request_type=draft.request_type),
+    )
     if not await _native_route_allowed(
         db,
         project,
@@ -2120,12 +2147,14 @@ async def _audit_native_route_ineligibility(
         return
     if not parsed.model:
         return
+    route_key = route_key_from_context(parse_request_context(parsed.headers), request_type=parsed.operation)
     decision = await routing.resolve_route(
         db,
         project.id,
         parsed.model,
         parsed.body,
         requested_provider=requested_provider,
+        route_key=route_key,
     )
     if decision is None or decision.candidate_provider == requested_provider:
         return

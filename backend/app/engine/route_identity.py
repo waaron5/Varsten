@@ -60,6 +60,23 @@ def route_key_from_context(ctx, *, request_type: str | None = None) -> str:
     )
 
 
+def route_key_from_recommendation(recommendation) -> str:
+    """Canonical route served by a recommendation.
+
+    Older recommendations may target only a model. In that case, return the
+    default route so policy activation remains backward-compatible rather than
+    inventing a fake route from the model name.
+    """
+    target_type = getattr(recommendation, "target_type", None)
+    target_key = getattr(recommendation, "target_key", None)
+    related_feature = getattr(recommendation, "related_feature", None)
+    if target_type == "feature":
+        return canonical_route_key(feature=target_key or related_feature)
+    if target_type == "route":
+        return canonical_route_key(feature=related_feature, request_type=target_key)
+    return canonical_route_key(feature=related_feature)
+
+
 def model_scoped_route_key(route_key: str, model: str | None) -> str:
     """A route key scoped to a specific model, for consumers that key on the
     (route, incumbent model) pair (routing policies, per-model guardrails)."""

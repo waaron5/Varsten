@@ -216,7 +216,8 @@ def test_promotes_recommendable_segment(provision, db_session):
     rec = recs[0]
     assert rec.lever == "model_downshift"
     assert rec.status == "open"
-    assert rec.target_key == "gpt-4o"
+    assert rec.target_type == "route"
+    assert rec.target_key == "classification.intent"
     assert rec.related_model == "gpt-4o"
     assert rec.confidence == "medium"
     # Forward projection of measured history stays an estimate until the live
@@ -370,6 +371,7 @@ def test_sweep_persists_outcome_priors(provision, db_session):
     assert len(priors) == 1
     prior = priors[0]
     assert prior.lever == "model_downshift"
+    assert prior.route_key == "classification.intent"
     assert prior.model_requested == "gpt-4o"
     assert prior.model_chosen == "gpt-4o-mini"
     assert prior.readiness_status == "recommendable"

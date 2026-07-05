@@ -21,12 +21,13 @@ from decimal import Decimal
 from typing import NamedTuple
 
 from cachetools import TTLCache
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.engine.compression import artifact_for_recommendation, substitute_system_prompt
+from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
 from app.levers import LEVER_PROMPT_COMPRESSION, LEVER_TOKEN_TRIM
 from app.models import Project, PromptCompression, ProxyPolicy, Recommendation
 from app.proxy import canary
@@ -59,26 +60,34 @@ def clear_artifact_cache() -> None:
 
 
 async def resolve_compression(
-    db: AsyncSession, project_id: uuid.UUID, requested_model: str
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    requested_model: str,
+    *,
+    route_key: str | None = None,
 ) -> CompressionDecision | None:
     """The enabled compression policy for this model, or None. Canary-gated and
     fail-open: any error forwards the body untouched."""
     if not requested_model:
         return None
     try:
-        policy = (
-            await db.scalars(
-                select(ProxyPolicy)
-                .where(
-                    ProxyPolicy.project_id == project_id,
-                    ProxyPolicy.lever == LEVER,
-                    ProxyPolicy.target_key == requested_model,
-                    ProxyPolicy.enabled.is_(True),
-                )
-                .order_by(ProxyPolicy.activated_at.desc().nullslast())
-                .limit(1)
+        base = (
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project_id,
+                ProxyPolicy.lever == LEVER,
+                ProxyPolicy.target_key == requested_model,
+                ProxyPolicy.enabled.is_(True),
             )
-        ).first()
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
+            .limit(1)
+        )
+        if route_key:
+            policy = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
+            if policy is None:
+                policy = (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
+        else:
+            policy = (await db.scalars(base)).first()
         if policy is None:
             return None
         raw_artifact_id = (policy.params or {}).get("artifact_id")
@@ -151,27 +160,32 @@ def activate_compression_policy(
     artifact = artifact_for_recommendation(db, recommendation.id)
     if artifact is None:
         return None
-    trim_live = db.scalar(
-        select(ProxyPolicy.id).where(
-            ProxyPolicy.project_id == project.id,
-            ProxyPolicy.lever == LEVER_TOKEN_TRIM,
-            ProxyPolicy.target_key == model,
-            ProxyPolicy.enabled.is_(True),
-        )
+    route_key = route_key_from_recommendation(recommendation)
+    policy_route_key = route_key or DEFAULT_ROUTE
+    trim_stmt = select(ProxyPolicy.id).where(
+        ProxyPolicy.project_id == project.id,
+        ProxyPolicy.lever == LEVER_TOKEN_TRIM,
+        ProxyPolicy.target_key == model,
+        ProxyPolicy.enabled.is_(True),
     )
+    if policy_route_key != DEFAULT_ROUTE:
+        trim_stmt = trim_stmt.where(
+            or_(ProxyPolicy.route_key == policy_route_key, ProxyPolicy.route_key == DEFAULT_ROUTE)
+        )
+    trim_live = db.scalar(trim_stmt)
     if trim_live is not None:
         raise TransformConflictError(
             f"a token-trim policy is live on {model}; disable it before activating prompt compression "
             "(two body transforms on one model would merge their holdback experiments)"
         )
     at = now or datetime.now(UTC)
-    policy = db.scalar(
-        select(ProxyPolicy).where(
-            ProxyPolicy.project_id == project.id,
-            ProxyPolicy.lever == LEVER,
-            ProxyPolicy.target_key == model,
-        )
+    stmt = select(ProxyPolicy).where(
+        ProxyPolicy.project_id == project.id,
+        ProxyPolicy.lever == LEVER,
+        ProxyPolicy.target_key == model,
+        ProxyPolicy.route_key == policy_route_key,
     )
+    policy = db.scalar(stmt)
     fresh = policy is None or not policy.enabled
     if policy is None:
         policy = ProxyPolicy(
@@ -182,6 +196,7 @@ def activate_compression_policy(
             target_key=model,
         )
         db.add(policy)
+    policy.route_key = policy_route_key
     policy.params = {**(policy.params or {}), "artifact_id": str(artifact.id)}
     if fresh:
         policy.rollout_percent = canary.initial_rollout_percent()

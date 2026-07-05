@@ -128,10 +128,12 @@ Closed so far:
   falls back to deriving it for pre-column rows), surfaced in the
   `LearningCandidateSegment` API schema, and the two decision queries
   (promotion + planner-summary) now select it. `EvalRun.route_key` already existed
-  and aligns semantically. **Left for later** (documented in §"Open follow-ups"):
-  `QualityGuardrail`/latency-SLO matching still keys on model, not route_key —
-  the model-centric drift sweep has no request route context, so converging it
-  needs a policy↔route_key linkage.
+  and aligns semantically. **Route-key convergence closed 2026-07-05**:
+  `ProxyPolicy.route_key` now links applied policies to the route they serve,
+  hot-path routing/trim/compression lookup prefers exact route policy then
+  default fallback, `EngineOutcomePrior.route_key` persists route-specific
+  priors, and latency/drift guardrails evaluate the policy route rather than only
+  the incumbent model.
 
 - **C1–C4 (all done).** Phase C reliability parity, in one pass:
   - *C3 latency guardrail* — `evaluate_latency_drift` in `proxy/drift.py` rolls a
@@ -154,8 +156,10 @@ Closed so far:
     `REDIS_URL` is set**, so default/single-instance behaviour is byte-identical.
     The circuit breaker publishes its open flag (TTL = reset window) and the
     budget-cap cache stores its computed set, so a trip/cap propagates fleet-wide.
-    Every store op fails open to local behaviour. **`redis` is a lazy import, NOT
-    added to pyproject** — must be flagged/added before a Redis deploy (see §7.5).
+    Every store op fails open to local behaviour. `redis` is present in
+    `pyproject.toml`; multi-instance deploys still require Redis configuration,
+    the Redis rate-limit backend, scheduler singleton handling, and the live Redis
+    smoke test from `docs/OPERATIONS_DEPLOY.md`.
   - *C1 retries + fallback* — `proxy/resilience.py` (retryability, jittered
     capped backoff, Retry-After, fallback resolution) + integration in
     `_forward_once` and `_stream_through`. Connect errors / 429 / 5xx are retried
@@ -403,7 +407,7 @@ trace-shape tests for `enforced`.
 one planner output with reason codes, and killing the planner in a test changes
 nothing but the trace.
 
-### Slice A5 — canonical route identity — DONE (see §2; guardrail convergence deferred)
+### Slice A5 — canonical route identity — DONE (see §2; guardrail convergence closed)
 
 **Goal.** Segments, policies, evals, and guardrails key on different things
 (model, task_type, feature, route strings). Define one route key so learning
@@ -532,15 +536,14 @@ Implemented in `app/engine/promotion.py` and `app/engine/outcomes.py`.
 - Tests: httpx-mock upstream failures for each class; assert retry counts,
   fallback order, no-retry-after-first-byte, and decision-event evidence.
 
-### Slice C2 — shared state for multi-instance deploys — DONE (Redis optional, lazy; not in pyproject)
+### Slice C2 — shared state for multi-instance deploys — DONE (Redis optional at runtime)
 
 Move circuit-breaker state (`proxy/circuit.py`) and budget-cap cache
 (`proxy/budget_enforcement.py`) behind a small interface with two
 implementations: current in-process (default, dev) and Redis
-(`REDIS_URL` setting; add dependency only when this lands). Fail open to the
-in-process implementation if Redis is unreachable. This is the first paid
-infra addition — flag it to the user before adding the dependency, per
-CLAUDE.md.
+(`REDIS_URL` setting). Fail open to the in-process/local behaviour if Redis is
+unreachable. The dependency is now in `pyproject.toml`; operating more than one
+API instance requires the deployment checklist in `docs/OPERATIONS_DEPLOY.md`.
 
 ### Slice C3 — latency as a real guardrail [Sonnet-safe] — DONE
 
@@ -592,10 +595,14 @@ of arm assignment.
 
 ## Open follow-ups left by Phase C (not blocking, but track them)
 
-- **Redis dependency (C2).** `redis` is used via lazy import and is deliberately
-  NOT in `pyproject.toml`. Before any multi-instance/Redis deploy, add it (an
-  optional dependency group is cleanest) and set `REDIS_URL`. Flag the cost/
-  lock-in to the user first, per CLAUDE.md.
+- **Reliability boundary doc.** **DONE 2026-07-05**:
+  `docs/ENGINE_RELIABILITY_BOUNDARIES.md` is now the source of truth for what is
+  proven, what is deployment-gated, and what cannot be claimed yet.
+- **Redis operational gate (C2).** `redis` is in `pyproject.toml`, and deterministic
+  tests prove shared breaker, budget-cap, rate-limit, and Redis-degraded
+  fail-open behaviour. Before any multi-instance deploy, configure `REDIS_URL`,
+  `RATE_LIMIT_BACKEND=redis`, `RATE_LIMIT_REDIS_URL`, scheduler singleton
+  handling, and pass the opt-in live Redis smoke against staging.
 - **Streaming fallback (C1).** Retries cover streaming; falling back to a
   different model mid-SSE does not. Add it when the streaming path is next
   touched (re-open the stream on the fallback model in the pre-first-byte failure
@@ -603,21 +610,20 @@ of arm assignment.
 - **Cross-provider fallback (C1).** Only same-provider degradation-model fallback
   ships. Cross-provider needs the fallback provider's key resolved on the hot
   path — do it alongside the provider-key vault work.
-- **Guardrail/SLO convergence onto route_key (A5 leftover).** A5 landed the
-  canonical route key and persists it on every decision, but `QualityGuardrail`
-  and the C3 latency-SLO lookup (`drift._latency_slo_ms`) still key on model. The
-  drift sweep is model-centric and has no per-request route context, so real
-  convergence needs a `ProxyPolicy → route_key` linkage (store the route key a
-  policy serves at activation). Do that when guardrails are next reworked; until
-  then guardrails match by model, which is correct but coarser than route-level.
-- **Persisted priors + route_key (A5/A3).** `EngineOutcomePrior` (the hot-path
-  prior table) is model-keyed and does NOT store route_key; the in-memory learning
-  segment does. If per-route priors are ever needed at request time, add route_key
-  to that table and the `outcome_priors_for_request` lookup.
-- **Compression holdback endpoint (V1 finding).** Routing policies have
-  `PATCH /v1/engine/routes/{id}` for holdback tuning; prompt-compression
-  policies have no equivalent (the V1 validation scenario uses an ORM
-  surrogate). Add it when the compression operator surface is next touched.
+- ~~**Guardrail/SLO convergence onto route_key (A5 leftover).**~~ **DONE
+  2026-07-05**: `ProxyPolicy.route_key` stores the served route at activation,
+  hot-path lever lookups prefer exact route policy then default fallback, and
+  latency/drift guardrails evaluate the policy route so two routes on one model
+  no longer share SLO evidence by accident.
+- ~~**Persisted priors + route_key (A5/A3).**~~ **DONE 2026-07-05**:
+  `EngineOutcomePrior.route_key` is persisted and indexed; hot-path prior and
+  candidate-stat lookups prefer exact route evidence and fall back to the default
+  route when a route is cold.
+- ~~**Compression holdback endpoint (V1 finding).**~~ **DONE 2026-07-05**:
+  `PATCH /v1/engine/compressions/{policy_id}` pauses/resumes live
+  prompt-compression policies and tunes holdback; `GET /v1/engine/compressions`
+  now exposes each artifact's live policy id, enabled state, holdback, and
+  rollout percent without returning compressed text.
 - ~~**Per-org governance enforcement (F).**~~ **DONE 2026-07-04**:
   `Organization.governance_enforced` (migration `b2c3d4e5f6a8`) is the
   enterprise default-on option; `governance_enforced_for` gates apply as

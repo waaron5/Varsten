@@ -57,7 +57,7 @@ def _rule(db_session, project) -> tuple[ProxyPolicy, Recommendation]:
 _JITTER = (-30, -10, 10, 30)
 
 
-def _record(db_session, project, arm, *, latency_ms, quality_ok=None, count=40):
+def _record(db_session, project, arm, *, latency_ms, quality_ok=None, count=40, route_key="proxy"):
     model = INCUMBENT if arm == "control" else CANDIDATE
     meta = {
         "proxy": True,
@@ -65,6 +65,7 @@ def _record(db_session, project, arm, *, latency_ms, quality_ok=None, count=40):
         "arm": arm,
         "experiment_from": INCUMBENT,
         "experiment_to": CANDIDATE,
+        "route_key": route_key,
     }
     if quality_ok is not None:
         meta["quality_ok"] = quality_ok
@@ -171,6 +172,56 @@ def test_latency_slo_breach_rolls_back(db_session, provision, monkeypatch):
     assert rolled[0]["trigger"] == "latency_slo"
     db_session.refresh(policy)
     assert policy.enabled is False
+
+
+def test_route_latency_slo_wins_over_legacy_model_guardrail(db_session, provision, monkeypatch):
+    monkeypatch.setattr(drift_mod, "MIN_ARM_SAMPLES", 10)
+    project = _project(db_session, provision)
+    policy, _ = _rule(db_session, project)
+    policy.route_key = "proxy"
+    db_session.add_all(
+        [
+            QualityGuardrail(
+                organization_id=project.organization_id,
+                project_id=project.id,
+                route=INCUMBENT,
+                max_latency_ms=3000,
+                enabled=True,
+            ),
+            QualityGuardrail(
+                organization_id=project.organization_id,
+                project_id=project.id,
+                route="proxy",
+                max_latency_ms=1000,
+                enabled=True,
+            ),
+        ]
+    )
+    _record(db_session, project, "control", latency_ms=1500, quality_ok=True, count=15, route_key="proxy")
+    _record(db_session, project, "treatment", latency_ms=1500, quality_ok=True, count=15, route_key="proxy")
+    db_session.commit()
+
+    rolled = drift_mod.check_and_rollback_drift(db_session, project, month_start(datetime.now(UTC)))
+
+    assert len(rolled) == 1
+    assert rolled[0]["trigger"] == "latency_slo"
+    assert rolled[0]["slo_ms"] == 1000
+
+
+def test_route_drift_ignores_other_routes_on_same_model_pair(db_session, provision, monkeypatch):
+    monkeypatch.setattr(drift_mod, "MIN_ARM_SAMPLES", 10)
+    project = _project(db_session, provision)
+    policy, _ = _rule(db_session, project)
+    policy.route_key = "support_agent"
+    _record(db_session, project, "control", latency_ms=200, quality_ok=True, count=15, route_key="billing_agent")
+    _record(db_session, project, "treatment", latency_ms=1600, quality_ok=True, count=15, route_key="billing_agent")
+    db_session.commit()
+
+    rolled = drift_mod.check_and_rollback_drift(db_session, project, month_start(datetime.now(UTC)))
+
+    assert rolled == []
+    db_session.refresh(policy)
+    assert policy.enabled is True
 
 
 def test_latency_guard_disabled_does_not_roll_back(db_session, provision, monkeypatch):

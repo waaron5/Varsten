@@ -3,6 +3,8 @@
 This is the operational counterpart to `infra/aws/terraform/`. It covers how the
 Varsten API is deployed, how the database is backed up and restored, how to roll
 back, and the migration-safety rules. Read it before the first production deploy.
+For what the engine can and cannot claim before packaging/onboarding, see
+`ENGINE_RELIABILITY_BOUNDARIES.md`.
 
 > Status: the Terraform under `infra/aws/terraform/` has not yet been applied
 > against a live AWS account. The first run must be a reviewed `terraform plan`.
@@ -16,19 +18,30 @@ back, and the migration-safety rules. Read it before the first production deploy
 Vercel (Next.js dashboard + marketing)
    │ HTTPS, CORS-locked to the app origin
    ▼
-AWS App Runner  ── varsten-api image from ECR ──┐  (single instance in Phase 1)
+AWS App Runner  ── varsten-api image from ECR ──┐
    │  instance role: read varsten/<env>/* secrets, kms:Decrypt
    │  health check: GET /health/ready
    ├── VPC connector ──► RDS Postgres 16 (private, encrypted, PITR on)
+   ├──────────────────► Redis / ElastiCache (required before horizontal scale)
    ├──────────────────► AWS Secrets Manager (DATABASE_URL, provider keys, Sentry DSN)
    └──────────────────► OpenAI / Anthropic / Gemini upstreams
 Sentry  ◄── errors        JSON logs ◄── App Runner / CloudWatch
 ```
 
-Single instance is deliberate: the in-process scheduler (`app/scheduler.py`) and
-the in-memory rate limiter (`app/core/ratelimit.py`) assume one runner. Keep
-`app_max_instances = 1` until those move to an external job runner and a shared
-store (Redis). Scale up (CPU/memory), not out.
+Default to one instance. Horizontal scale is allowed only after shared
+coordination is configured and tested: set `REDIS_URL`, `RATE_LIMIT_BACKEND=redis`,
+and `RATE_LIMIT_REDIS_URL`, size the database pool for `app_max_instances`, and
+run the live Redis smoke against staging:
+
+```bash
+VARSTEN_TEST_REDIS_URL=redis://<staging-redis>:6379/0 \
+  pytest tests/test_redis_operational.py -m redis_live
+```
+
+Without Redis, the circuit breaker, budget-cap cache, and rate limiter are
+process-local. Scale up (CPU/memory), not out. The in-process scheduler
+(`app/scheduler.py`) is still a deployment boundary: run exactly one scheduler or
+move it to an external job runner before scaling the API horizontally.
 
 ## Environments
 
@@ -63,6 +76,22 @@ Never point staging at the production database.
 3. Run migrations **before** shifting traffic (expand/contract; see below).
 4. `terraform apply -var "image_tag=$GIT_SHA"`. App Runner does a zero-downtime
    rolling deploy and only cuts over once `/health/ready` passes.
+
+## Multi-instance Redis checklist
+
+Do not raise `app_max_instances` above `1` until all checks pass:
+
+1. `REDIS_URL` points to the staging/production Redis cluster used for shared
+   circuit-breaker and budget-cap state.
+2. `RATE_LIMIT_BACKEND=redis` and `RATE_LIMIT_REDIS_URL` point to the same
+   low-latency Redis cluster or an explicitly separate one.
+3. `RATE_LIMIT_REDIS_TIMEOUT_SECONDS` is tight enough that Redis degradation
+   fails open quickly instead of stalling proxy traffic.
+4. `pytest tests/test_redis_operational.py -m redis_live` passes with
+   `VARSTEN_TEST_REDIS_URL` set to the target Redis URL.
+5. Exactly one scheduler is active, or scheduled jobs have been moved to an
+   external singleton runner.
+6. Database pool sizing has been recalculated for the new instance count.
 
 ## Migrations
 

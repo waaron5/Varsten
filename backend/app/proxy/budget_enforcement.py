@@ -12,8 +12,9 @@ so the cap actually stops spend. Three safety rules, in order of importance:
    choice, Performance-only) block, the global setting can disable it, and a
    bypassed request is never blocked.
 
-Budget state is read through a short-TTL process-local cache so the hot path does
-not sum the ledger on every request (single-process, like the plan-tier cache).
+Budget state is read through a short-TTL cache so the hot path does not sum the
+ledger on every request. With `REDIS_URL`, that cache is shared across instances;
+otherwise it remains process-local.
 """
 
 import json

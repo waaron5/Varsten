@@ -13,14 +13,15 @@ abstraction instead of a table each:
   to route to, with optional `params["candidate_provider"]` for cross-provider
   swaps. `smart_routing` later adds a deterministic per-request predicate in
   `params`; until then it behaves like a single-candidate swap.
-- `token_trim`: transform the request body before forwarding. `target_key` is the
-  route. `params` holds the trim strategy config.
+- `token_trim` / `prompt_compression`: transform the request body before
+  forwarding. `target_key` is the route/model key. `params` holds the trim
+  strategy config or the evaluated compression artifact id.
 - `batching` runs on its own async data plane (the /v1/batches mirror), not this
   hot-path table.
 
-One enabled policy per (project, lever, target_key). Disabling it (or the kill
-switch / per-project bypass) returns traffic to the original behaviour on the
-next request.
+One enabled policy per (project, lever, target_key, route_key). Disabling it (or
+the kill switch / per-project bypass) returns traffic to the original behaviour
+on the next request.
 """
 
 import uuid
@@ -51,9 +52,12 @@ from app.models.base import Base, TimestampMixin
 class ProxyPolicy(Base, TimestampMixin):
     __tablename__ = "proxy_policies"
     __table_args__ = (
-        UniqueConstraint("project_id", "lever", "target_key", name="uq_policies_project_lever_target"),
+        UniqueConstraint(
+            "project_id", "lever", "target_key", "route_key", name="uq_policies_project_lever_target_route"
+        ),
         Index("ix_policies_project_lever_enabled", "project_id", "lever", "enabled"),
         Index("ix_policies_project_enabled", "project_id", "enabled"),
+        Index("ix_policies_project_route_key", "project_id", "route_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -72,6 +76,11 @@ class ProxyPolicy(Base, TimestampMixin):
     # model), 'route' for body transforms (target_key = route key).
     target_type: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'model'"))
     target_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Canonical business route served by this policy. "default" preserves
+    # model-wide behavior for policies that predate route-aware activation.
+    route_key: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="default", server_default=text("'default'")
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     # Fraction of this policy's traffic held back on the original behaviour as the
     # control arm of the live A/B. The rest is treatment. Small by default: the

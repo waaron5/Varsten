@@ -16,6 +16,10 @@ a first customer's production path today.
 suite, but has less production mileage than OpenAI. Label it beta in any customer
 conversation and watch the first real traffic closely.
 
+Provider maturity is one part of the broader reliability posture. See
+`ENGINE_RELIABILITY_BOUNDARIES.md` for fail-open, fallback, multi-instance, and
+automation boundaries.
+
 ## Endpoint surface
 
 Authenticate every call with a Varsten `vk_` key in the provider's usual auth

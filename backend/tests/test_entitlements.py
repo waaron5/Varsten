@@ -103,6 +103,22 @@ def _make_route_policy(db_session, p, *, enabled=False) -> ProxyPolicy:
     return policy
 
 
+def _make_compression_policy(db_session, p, *, enabled=False) -> ProxyPolicy:
+    policy = ProxyPolicy(
+        organization_id=uuid.UUID(p["org_id"]),
+        project_id=uuid.UUID(p["project_id"]),
+        lever="prompt_compression",
+        target_type="model",
+        target_key="gpt-4o-mini",
+        enabled=enabled,
+        holdback_percent=Decimal("0.05"),
+        params={"artifact_id": str(uuid.uuid4())},
+    )
+    db_session.add(policy)
+    db_session.flush()
+    return policy
+
+
 def test_free_cannot_enable_route(client, provision, db_session):
     p = provision()
     policy = _make_route_policy(db_session, p, enabled=False)
@@ -141,6 +157,32 @@ def test_performance_can_enable_route(client, provision, db_session):
     assert resp.status_code == 200
     db_session.refresh(policy)
     assert policy.enabled is True
+
+
+def test_free_cannot_enable_compression_policy(client, provision, db_session):
+    p = provision()
+    policy = _make_compression_policy(db_session, p, enabled=False)
+    resp = client.patch(
+        f"/v1/engine/compressions/{policy.id}{_q(p['project_id'])}",
+        headers=auth_headers(p["token"]),
+        json={"enabled": True},
+    )
+    assert resp.status_code == 403
+    db_session.refresh(policy)
+    assert policy.enabled is False
+
+
+def test_free_can_pause_compression_policy(client, provision, db_session):
+    p = provision()
+    policy = _make_compression_policy(db_session, p, enabled=True)
+    resp = client.patch(
+        f"/v1/engine/compressions/{policy.id}{_q(p['project_id'])}",
+        headers=auth_headers(p["token"]),
+        json={"enabled": False},
+    )
+    assert resp.status_code == 200
+    db_session.refresh(policy)
+    assert policy.enabled is False
 
 
 def test_free_cannot_enable_lever(client, provision, db_session):

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
 from app.models import Project, ProxyPolicy, Recommendation
 from app.proxy import canary
 
@@ -45,25 +46,35 @@ class TrimDecision(NamedTuple):
     source_recommendation_id: uuid.UUID | None = None
 
 
-async def resolve_trim(db: AsyncSession, project_id: uuid.UUID, requested_model: str) -> TrimDecision | None:
+async def resolve_trim(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    requested_model: str,
+    *,
+    route_key: str | None = None,
+) -> TrimDecision | None:
     """The enabled token-trim policy for this model, or None. Fail-open: any error
     returns None (forward the body untouched)."""
     if not requested_model:
         return None
     try:
-        policy = (
-            await db.scalars(
-                select(ProxyPolicy)
-                .where(
-                    ProxyPolicy.project_id == project_id,
-                    ProxyPolicy.lever == LEVER,
-                    ProxyPolicy.target_key == requested_model,
-                    ProxyPolicy.enabled.is_(True),
-                )
-                .order_by(ProxyPolicy.activated_at.desc().nullslast())
-                .limit(1)
+        base = (
+            select(ProxyPolicy)
+            .where(
+                ProxyPolicy.project_id == project_id,
+                ProxyPolicy.lever == LEVER,
+                ProxyPolicy.target_key == requested_model,
+                ProxyPolicy.enabled.is_(True),
             )
-        ).first()
+            .order_by(ProxyPolicy.activated_at.desc().nullslast())
+            .limit(1)
+        )
+        if route_key:
+            policy = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
+            if policy is None:
+                policy = (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
+        else:
+            policy = (await db.scalars(base)).first()
         if policy is None:
             return None
         # Canary gate: outside the rollout the body is forwarded untrimmed as plain
@@ -152,13 +163,15 @@ def activate_trim_policy(
     if not model:
         return None
     at = now or datetime.now(UTC)
-    policy = db.scalar(
-        select(ProxyPolicy).where(
-            ProxyPolicy.project_id == project.id,
-            ProxyPolicy.lever == LEVER,
-            ProxyPolicy.target_key == model,
-        )
+    route_key = route_key_from_recommendation(recommendation)
+    policy_route_key = route_key or DEFAULT_ROUTE
+    stmt = select(ProxyPolicy).where(
+        ProxyPolicy.project_id == project.id,
+        ProxyPolicy.lever == LEVER,
+        ProxyPolicy.target_key == model,
+        ProxyPolicy.route_key == policy_route_key,
     )
+    policy = db.scalar(stmt)
     fresh = policy is None or not policy.enabled
     if policy is None:
         policy = ProxyPolicy(
@@ -169,6 +182,7 @@ def activate_trim_policy(
             target_key=model,
         )
         db.add(policy)
+    policy.route_key = policy_route_key
     policy.params = {**(policy.params or {})}
     if fresh:
         policy.rollout_percent = canary.initial_rollout_percent()

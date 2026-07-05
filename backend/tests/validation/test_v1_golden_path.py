@@ -8,9 +8,7 @@ verified absent from every metadata store at the end.
 Control-plane steps run through the real HTTP endpoints wherever session
 visibility allows; the two background-worker steps (eval execution, compression
 generation) call the same service functions the workers call, with the provider
-boundary injected — no state is hand-edited between stages except one documented
-operator surrogate (compression holdback tuning, which has no endpoint yet; see
-report metric `gaps`).
+boundary injected — no state is hand-edited between stages.
 """
 
 import random
@@ -234,17 +232,29 @@ async def test_v1_golden_path(sim_env, data_plane, monkeypatch):
         )
         assert routing_policy is not None and compression_policy is not None
 
-        # Operator turns the measurement dial up so arms fill quickly. Routing has
-        # an endpoint; compression does not yet (documented gap -> ORM surrogate).
-        env.control.patch(
+        # Operator turns the measurement dial up so arms fill quickly.
+        route_update = env.control.patch(
             f"/v1/engine/routes/{routing_policy.id}",
             headers=env.auth(),
             params=env.params(),
             json={"holdback_percent": "0.35"},
         )
-        compression_policy.holdback_percent = Decimal("0.35")
-        db.commit()
-        report.metric("gaps", ["no operator endpoint to tune prompt_compression holdback (ORM surrogate used)"])
+        compression_update = env.control.patch(
+            f"/v1/engine/compressions/{compression_policy.id}",
+            headers=env.auth(),
+            params=env.params(),
+            json={"holdback_percent": "0.35"},
+        )
+        db.refresh(routing_policy)
+        db.refresh(compression_policy)
+        report.check(
+            "operator_holdback_updated",
+            route_update.status_code == 200
+            and compression_update.status_code == 200
+            and routing_policy.holdback_percent == Decimal("0.35")
+            and compression_policy.holdback_percent == Decimal("0.35"),
+            {"routing": route_update.status_code, "compression": compression_update.status_code},
+        )
 
         # ---- Stage 7: execute safely (canary -> full), measure -------------------
         exposed = await run_traffic(data_plane, big, 60)

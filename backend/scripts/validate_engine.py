@@ -20,6 +20,7 @@ import json
 import os
 import subprocess  # nosec B404 - fixed-argument pytest invocation, no untrusted input
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,9 +28,12 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 FAST_SELECTOR = "test_v0 or test_v1 or v2_independent_reconciliation or v4_fail_open"
 
+type GatePredicate = Callable[[list[dict]], bool]
+type GateSet = dict[str, tuple[str, GatePredicate]]
+
 # Acceptance gates: gate name -> (description, predicate over all check dicts).
 # A predicate receives the list of {scenario, name, passed, detail} checks.
-GATES = {
+FULL_GATES: GateSet = {
     "savings_reconcile_to_ledger": (
         "Every published savings figure equals blind arithmetic on raw ledger rows",
         lambda checks: _all_named(checks, "matches_raw_arithmetic"),
@@ -60,12 +64,33 @@ GATES = {
     ),
 }
 
+FAST_GATES: GateSet = {
+    "savings_reconcile_to_ledger": FULL_GATES["savings_reconcile_to_ledger"],
+    "zero_content_leaks_in_fast_subset": (
+        "The fast subset's content canary checks pass in every emitted scenario",
+        lambda checks: _all_named(checks, "no_content_canary_leaks"),
+    ),
+    "requests_survive_chaos": FULL_GATES["requests_survive_chaos"],
+}
+
+GATES_BY_SUITE: dict[str, GateSet] = {
+    "fast": FAST_GATES,
+    "full": FULL_GATES,
+}
+
 
 def _all_named(checks: list[dict], fragment: str) -> bool:
     """True when every check whose name contains the fragment passed, and at
     least one such check exists (a gate with no evidence is unmet)."""
     matched = [c for c in checks if fragment in c["name"]]
     return bool(matched) and all(c["passed"] for c in matched)
+
+
+def _evaluate_gates(suite: str, checks: list[dict]) -> dict[str, dict]:
+    gates = {}
+    for name, (description, predicate) in GATES_BY_SUITE[suite].items():
+        gates[name] = {"description": description, "met": predicate(checks)}
+    return gates
 
 
 def run(suite: str, report_dir: Path) -> int:
@@ -84,14 +109,12 @@ def run(suite: str, report_dir: Path) -> int:
         scenarios.append(json.loads(path.read_text()))
     all_checks = [{"scenario": s["scenario"], **c} for s in scenarios for c in s["checks"]]
 
-    gates = {}
-    for name, (description, predicate) in GATES.items():
-        gates[name] = {"description": description, "met": predicate(all_checks)}
-
+    gates = _evaluate_gates(suite, all_checks)
     failed_checks = [c for c in all_checks if not c["passed"]]
     rollup = {
         "generated_at": datetime.now(UTC).isoformat(),
         "suite": suite,
+        "gate_scope": "full_acceptance" if suite == "full" else "fast_pr_subset",
         "pytest_exit_code": proc.returncode,
         "scenario_count": len(scenarios),
         "check_count": len(all_checks),
@@ -121,6 +144,8 @@ def _write_proof_pack(report_dir: Path, rollup: dict, scenarios: list[dict]) -> 
         "",
         "## Acceptance gates",
         "",
+        _gate_scope_note(rollup),
+        "",
         "| Gate | Status | Description |",
         "|---|---|---|",
     ]
@@ -144,6 +169,12 @@ def _write_proof_pack(report_dir: Path, rollup: dict, scenarios: list[dict]) -> 
                 lines.append(f"- `{key}` = `{value}`")
         lines.append("")
     (report_dir / "PROOF_PACK.md").write_text("\n".join(lines))
+
+
+def _gate_scope_note(rollup: dict) -> str:
+    if rollup["gate_scope"] == "full_acceptance":
+        return "This full run evaluates every enterprise acceptance gate."
+    return "This fast run evaluates the PR subset gates only; run `--suite full` before release."
 
 
 def main() -> int:

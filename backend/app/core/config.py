@@ -371,9 +371,9 @@ class Settings(BaseSettings):
     # which is correct for a single instance: each protects itself. With more than
     # one app instance, set REDIS_URL to a shared Redis so a tripped breaker and a
     # computed budget cap propagate across instances. Empty -> purely local
-    # behaviour (no new dependency, no coordination). The redis client is imported
-    # lazily and only when this is set; every shared-store operation fails open to
-    # local behaviour if Redis is unreachable, so it can never break a request.
+    # behaviour (no coordination). The redis client is initialized only when this
+    # is set; every shared-store operation fails open to local behaviour if Redis
+    # is unreachable, so it can never break a request.
     redis_url: str = ""
     # How often the quality-drift safety sweep runs across all projects.
     drift_sweep_interval_seconds: int = 300

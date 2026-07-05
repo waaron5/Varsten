@@ -13,7 +13,8 @@ The current repository contains four main surfaces:
 - `sdk/openai/` - fail-open OpenAI SDK wrapper.
 
 This README describes what is built in this repo today. Longer product and
-operations notes live under `docs/`.
+operations notes live under `docs/`, including the current engine reliability
+boundaries in `docs/ENGINE_RELIABILITY_BOUNDARIES.md`.
 
 ## What Is Built
 
@@ -105,6 +106,10 @@ development, but a few things are intentionally not represented as complete:
   passes request content through the proxy; ledger/proof storage is based on
   metadata and measured costs unless a feature such as eval capture or cache
   explicitly stores bounded content.
+- Engine optimization is advanced but still bounded: streaming fallback,
+  cross-provider fallback, savings-variance bandit rewards, and live staging
+  Redis proof before horizontal scale are not finished product claims yet. See
+  `docs/ENGINE_RELIABILITY_BOUNDARIES.md`.
 
 ## Repository Layout
 

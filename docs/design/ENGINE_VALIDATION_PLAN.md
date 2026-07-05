@@ -39,25 +39,36 @@ Carried from the implementation plan's follow-ups; the validation must
 1. Trim/compression same-model experiment-pair collision (guard exists only on
    the compression side; verify trim-after-compression is also impossible or
    measure the contamination).
-2. Guardrail/latency-SLO matching is model-scoped, not route_key-scoped.
+2. Route-key guardrail/prior matching: verify exact-route evidence wins and cold
+   routes fall back only to the default route, not unrelated routes on the same
+   model.
 3. Decision-evidence writes are best-effort: quantify the metered-request-
    without-decision-row rate under fault injection (learning blind spots).
 4. Streaming fallback absent; cross-provider fallback absent.
 5. Bandit exploit uses mean savings without variance (no Thompson over
    magnitude) — quantify regret vs an oracle in simulation.
-6. `redis` dependency not in pyproject (C2 is dormant until added).
+6. Redis-backed shared state has deterministic multi-instance proof plus an
+   opt-in live Redis smoke. The remaining deployment gate is running that smoke
+   against staging Redis before scaling the API horizontally.
 
 ---
 
-## Status (updated 2026-07-04)
+## Status (updated 2026-07-05)
 
-**ALL WORKSTREAMS (V0–V8) ARE DONE** — `backend/tests/validation/` holds 38
-scenarios (182 invariant checks), all green, with the 719-test unit suite
-unaffected. `scripts/validate_engine.py` runs the suites, aggregates the
-scenario reports, evaluates the seven acceptance gates, and writes
+**ALL WORKSTREAMS (V0–V8) ARE DONE** — `backend/tests/validation/` currently
+runs 38 validation tests and emits 36 scenario reports (182 invariant checks),
+all green. `scripts/validate_engine.py` runs the suites, aggregates the
+scenario reports, evaluates the configured acceptance gates, and writes
 `validation_reports/PROOF_PACK.md` + `validation_report.json` (gitignored
-artifacts). Current result: **all gates met, 0 failed checks**.
-`--suite fast` is the PR subset (V0 + V1 + reconciliation + chaos matrix).
+artifacts). Current full-suite result: **all gates met, 0 failed checks**.
+`--suite fast` is the PR subset (V0 + V1 + reconciliation + chaos matrix) and
+evaluates only the gates that subset has evidence for; run `--suite full`
+before release.
+
+Reliability and product-claim boundaries are tracked in
+`docs/ENGINE_RELIABILITY_BOUNDARIES.md`; the validation pack proves the listed
+engine invariants but does not replace live provider, Redis, rollback, or
+deployment drills.
 
 As-built notes and findings:
 
@@ -123,11 +134,11 @@ As-built notes and findings:
   approval with enforcement ON (apply 409s before approval — proven) → apply →
   canary 50→100 → holdback measurement → priors learned — with the evidence
   chain asserted end to end and planner parity at zero mismatches.
-  *Findings:* (1) the published savings fields are quantized independently, so
+  *Findings:* the published savings fields are quantized independently, so
   `net` vs `gross − costs` can differ by a rounding cent — reconciled within
   ±$0.02 and reported as a metric; the unrounded identity is proven in V2.
-  (2) Gap: no operator endpoint tunes a compression policy's holdback (routing
-  has one); an ORM surrogate is used and flagged in the report.
+  Compression-policy holdback tuning now runs through the real control-plane
+  endpoint, so V1 no longer uses an ORM surrogate.
 - **V2 honest-savings audit**: engine numbers re-derived blind from raw ledger
   rows match to the cent (direct, holdback, measurement cost); holdback
   treatments are never double-counted as direct; control arms never carry
@@ -286,8 +297,8 @@ it" metric, kept separate from "is it honest."
   `validation_report.json` + a markdown proof pack (per scenario: invariants,
   reconciliation tables, rollback timings, parity stats, canary-leak scan,
   capture rates, known-gap quantifications).
-- CI: a fast subset (V1 + V2 reconciliation + V4 core faults) on every PR; the
-  full battery on demand / nightly.
+- CI: a fast subset (V0 + V1 + V2 reconciliation + V4 core faults) on every PR
+  with proof-pack artifacts uploaded; the full battery on demand / nightly.
 - **Acceptance gates** (enterprise-ready = all green):
   1. Savings reconciliation exact to the cent in every scenario.
   2. Zero content-canary leaks anywhere, ever.

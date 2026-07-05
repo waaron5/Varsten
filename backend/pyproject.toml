@@ -42,6 +42,7 @@ pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
     "sdk_smoke: opt-in live SDK smoke tests against a running Varsten proxy",
+    "redis_live: opt-in live Redis operational smoke tests; requires VARSTEN_TEST_REDIS_URL",
 ]
 
 [tool.coverage.run]

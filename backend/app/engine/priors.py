@@ -13,17 +13,18 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.engine.bandit import CandidateStats
 from app.engine.outcomes import outcome_prior_from_learning_candidate
+from app.engine.route_identity import DEFAULT_ROUTE
 from app.engine.types import OutcomePrior
 from app.models import ROUTING_LEVERS, EngineOutcomePrior, Project
 
 logger = get_logger("varsten.engine.priors")
 
 _PRIOR_CACHE_TTL_SECONDS = 60
-_prior_cache: TTLCache[tuple[str, str], tuple[OutcomePrior, ...]] = TTLCache(
+_prior_cache: TTLCache[tuple[str, str, str | None], tuple[OutcomePrior, ...]] = TTLCache(
     maxsize=4096,
     ttl=_PRIOR_CACHE_TTL_SECONDS,
 )
-_candidate_stats_cache: TTLCache[tuple[str, str], tuple[CandidateStats, ...]] = TTLCache(
+_candidate_stats_cache: TTLCache[tuple[str, str, str | None], tuple[CandidateStats, ...]] = TTLCache(
     maxsize=4096,
     ttl=_PRIOR_CACHE_TTL_SECONDS,
 )
@@ -68,6 +69,7 @@ def refresh_project_outcome_priors(
             EngineOutcomePrior(
                 organization_id=project.organization_id,
                 project_id=project.id,
+                route_key=_segment_value(segment, "route_key"),
                 lever=_segment_value(segment, "lever"),
                 task_type=_segment_value(segment, "task_type"),
                 risk_level=_segment_value(segment, "risk_level"),
@@ -96,36 +98,25 @@ async def outcome_priors_for_request(
     db: AsyncSession,
     project_id: uuid.UUID,
     model_requested: str,
+    route_key: str | None = None,
 ) -> tuple[OutcomePrior, ...]:
     """Cheap hot-path lookup of precomputed priors.
 
     Fail-open: every error returns an empty tuple so the planner simply runs
-    without learned evidence.
+    without learned evidence. Route-specific priors are preferred when a route
+    key is known; default-route rows are the cold-route fallback for old data and
+    model-wide policies.
     """
     if not model_requested:
         return ()
-    key = (str(project_id), model_requested)
+    key = (str(project_id), model_requested, route_key)
     with _prior_lock:
         cached = _prior_cache.get(key)
     if cached is not None:
         return cached
 
     try:
-        with db.no_autoflush:
-            async with db.begin_nested():
-                rows = (
-                    await db.scalars(
-                        select(EngineOutcomePrior)
-                        .where(
-                            EngineOutcomePrior.project_id == project_id,
-                            EngineOutcomePrior.model_requested == model_requested,
-                        )
-                        .order_by(
-                            EngineOutcomePrior.lever,
-                            EngineOutcomePrior.computed_at.desc(),
-                        )
-                    )
-                ).all()
+        rows = await _prior_rows(db, project_id, model_requested, route_key=route_key)
         priors = tuple(_row_to_prior(row) for row in rows)
     except Exception:
         logger.exception("engine outcome prior lookup failed; planning without priors")
@@ -140,33 +131,31 @@ async def candidate_stats_for_request(
     db: AsyncSession,
     project_id: uuid.UUID,
     model_requested: str,
+    route_key: str | None = None,
 ) -> tuple[CandidateStats, ...]:
     """Per-candidate measured routing evidence for this incumbent model, merged
     across segments (task type / risk), for the bandit's hot-path selection.
 
     Every number is an aggregated ledger fact from the persisted priors sweep.
+    Route-specific rows are preferred; default-route rows are the fallback.
     Fail-open: any error returns an empty tuple and the caller routes to the
     policy's primary candidate exactly as before."""
     if not model_requested:
         return ()
-    key = (str(project_id), model_requested)
+    key = (str(project_id), model_requested, route_key)
     with _prior_lock:
         cached = _candidate_stats_cache.get(key)
     if cached is not None:
         return cached
 
     try:
-        with db.no_autoflush:
-            async with db.begin_nested():
-                rows = (
-                    await db.scalars(
-                        select(EngineOutcomePrior).where(
-                            EngineOutcomePrior.project_id == project_id,
-                            EngineOutcomePrior.model_requested == model_requested,
-                            EngineOutcomePrior.lever.in_(ROUTING_LEVERS),
-                        )
-                    )
-                ).all()
+        rows = await _prior_rows(
+            db,
+            project_id,
+            model_requested,
+            route_key=route_key,
+            routing_only=True,
+        )
         stats = _merge_candidate_rows(rows)
     except Exception:
         logger.exception("bandit candidate stats lookup failed; falling back to primary candidate")
@@ -175,6 +164,45 @@ async def candidate_stats_for_request(
     with _prior_lock:
         _candidate_stats_cache[key] = stats
     return stats
+
+
+async def _prior_rows(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    model_requested: str,
+    *,
+    route_key: str | None,
+    routing_only: bool = False,
+) -> list[EngineOutcomePrior]:
+    """Rows for this model, preferring the exact route when available.
+
+    If no exact-route rows exist, fall back only to the historical default/model
+    rows. This keeps old deployments useful without borrowing confidence from a
+    different business route on the same requested model.
+    """
+
+    def _query(*, exact_route: str | None, all_routes: bool = False):
+        stmt = select(EngineOutcomePrior).where(
+            EngineOutcomePrior.project_id == project_id,
+            EngineOutcomePrior.model_requested == model_requested,
+        )
+        if routing_only:
+            stmt = stmt.where(EngineOutcomePrior.lever.in_(ROUTING_LEVERS))
+        if not all_routes:
+            stmt = stmt.where(EngineOutcomePrior.route_key == exact_route)
+        return stmt.order_by(EngineOutcomePrior.lever, EngineOutcomePrior.computed_at.desc())
+
+    with db.no_autoflush:
+        async with db.begin_nested():
+            if route_key:
+                exact = (await db.scalars(_query(exact_route=route_key))).all()
+                if exact:
+                    return list(exact)
+                default_rows = (await db.scalars(_query(exact_route=DEFAULT_ROUTE))).all()
+                if default_rows:
+                    return list(default_rows)
+                return []
+            return list((await db.scalars(_query(exact_route=None, all_routes=True))).all())
 
 
 def _merge_candidate_rows(rows: list[EngineOutcomePrior]) -> tuple[CandidateStats, ...]:
@@ -235,6 +263,7 @@ def _dict(value: Any) -> dict[str, Any]:
 def _segment_value(segment: dict[str, Any], key: str) -> str:
     limits = {
         "lever": 32,
+        "route_key": 128,
         "task_type": 128,
         "risk_level": 32,
         "provider_requested": 64,

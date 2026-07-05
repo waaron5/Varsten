@@ -85,8 +85,25 @@ Validate the failure matrix against a staging instance (never production):
 See `FAILURE_MODES.md` for the full expected behavior; the same matrix is asserted
 in `backend/tests/test_proxy.py` so the deployed behavior matches the tested one.
 
+## 4. Multi-instance Redis smoke
+
+Required before raising `app_max_instances` above `1`. This proves the staging
+Redis coordinates circuit-breaker state and rate limits across app instances.
+
+```bash
+export VARSTEN_TEST_REDIS_URL="redis://<staging-redis>:6379/0"
+cd backend
+.venv/bin/python -m pytest tests/test_redis_operational.py -m redis_live -q
+```
+
+The deterministic CI tests prove the engine behavior without external
+infrastructure; this live smoke proves the deployed Redis dependency is reachable
+and correctly configured. If it fails, keep the API single-instance and scale up
+CPU/memory instead of scaling out.
+
 ## First-customer rollout gate
 
 Do not route a customer's production traffic until: the SDK smoke passes for their
-provider, the production curl smoke passes against the deployed environment, and a
-tested database restore exists (see `OPERATIONS_DEPLOY.md`).
+provider, the production curl smoke passes against the deployed environment, the
+full engine proof pack passes for the release candidate, any required Redis smoke
+passes, and a tested database restore exists (see `OPERATIONS_DEPLOY.md`).

@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine import governance
+from app.engine.route_identity import DEFAULT_ROUTE, model_scoped_route_key
 from app.models import (
     ROUTING_LEVERS,
     Project,
@@ -61,25 +62,36 @@ class _LatencyArm:
     variance: float | None
 
 
+def _specific_route_key(route_key: str | None) -> str | None:
+    return route_key if route_key and route_key != DEFAULT_ROUTE else None
+
+
 def evaluate_drift(
     db: Session,
     project_id,
     incumbent: str,
     candidate: str,
     period_start: datetime,
+    route_key: str | None = None,
 ) -> dict:
     """Compare objective response-health between the arms for one route."""
+    route_key = _specific_route_key(route_key)
     meta = UsageEvent.event_metadata
     ok_rate = func.avg(case((meta["quality_ok"].astext == "true", 1.0), else_=0.0))
+    conditions = [
+        UsageEvent.project_id == project_id,
+        UsageEvent.received_at >= period_start,
+        meta["holdback"].astext == "true",
+        meta["experiment_from"].astext == incumbent,
+        meta["experiment_to"].astext == candidate,
+        meta["quality_ok"].astext.in_(["true", "false"]),
+    ]
+    if route_key:
+        conditions.append(meta["route_key"].astext == route_key)
     rows = db.execute(
         select(meta["arm"].astext.label("arm"), func.count().label("n"), ok_rate.label("ok"))
         .where(
-            UsageEvent.project_id == project_id,
-            UsageEvent.received_at >= period_start,
-            meta["holdback"].astext == "true",
-            meta["experiment_from"].astext == incumbent,
-            meta["experiment_to"].astext == candidate,
-            meta["quality_ok"].astext.in_(["true", "false"]),
+            *conditions,
         )
         .group_by("arm")
     ).all()
@@ -120,20 +132,43 @@ def evaluate_drift(
     }
 
 
-def _latency_slo_ms(db: Session, project_id, incumbent: str, candidate: str) -> int | None:
+def _latency_slo_ms(
+    db: Session,
+    project_id,
+    incumbent: str,
+    candidate: str,
+    *,
+    route_key: str | None = None,
+) -> int | None:
     """The route's absolute latency ceiling from an enabled QualityGuardrail, if
-    one is configured for the incumbent or candidate model. (Route identity is
-    still per-model until slice A5 gives evals/guardrails a shared route key.)"""
-    guard = db.scalar(
-        select(QualityGuardrail)
-        .where(
-            QualityGuardrail.project_id == project_id,
-            QualityGuardrail.enabled.is_(True),
-            QualityGuardrail.max_latency_ms.isnot(None),
-            QualityGuardrail.route.in_([incumbent, candidate]),
+    one is configured for the canonical route, a route+model scoped key, or the
+    legacy incumbent/candidate model key. Route-specific SLOs win over legacy
+    model-wide guardrails."""
+    route_key = _specific_route_key(route_key)
+    routes: list[str] = []
+    if route_key:
+        routes.extend(
+            [
+                route_key,
+                model_scoped_route_key(route_key, incumbent),
+                model_scoped_route_key(route_key, candidate),
+            ]
         )
-        .limit(1)
+    routes.extend([incumbent, candidate])
+    rank = {route: i for i, route in enumerate(dict.fromkeys(routes))}
+    guards = list(
+        db.scalars(
+            select(QualityGuardrail).where(
+                QualityGuardrail.project_id == project_id,
+                QualityGuardrail.enabled.is_(True),
+                QualityGuardrail.max_latency_ms.isnot(None),
+                QualityGuardrail.route.in_(list(rank)),
+            )
+        )
     )
+    if not guards:
+        return None
+    guard = min(guards, key=lambda g: rank.get(g.route, len(rank)))
     return guard.max_latency_ms if guard is not None else None
 
 
@@ -153,8 +188,20 @@ def _latency_arms(
     incumbent: str,
     candidate: str,
     period_start: datetime,
+    route_key: str | None = None,
 ) -> tuple[_LatencyArm, _LatencyArm]:
+    route_key = _specific_route_key(route_key)
     meta = UsageEvent.event_metadata
+    conditions = [
+        UsageEvent.project_id == project_id,
+        UsageEvent.received_at >= period_start,
+        meta["holdback"].astext == "true",
+        meta["experiment_from"].astext == incumbent,
+        meta["experiment_to"].astext == candidate,
+        UsageEvent.latency_ms.isnot(None),
+    ]
+    if route_key:
+        conditions.append(meta["route_key"].astext == route_key)
     rows = db.execute(
         select(
             meta["arm"].astext.label("arm"),
@@ -163,12 +210,7 @@ def _latency_arms(
             func.var_samp(UsageEvent.latency_ms).label("var"),
         )
         .where(
-            UsageEvent.project_id == project_id,
-            UsageEvent.received_at >= period_start,
-            meta["holdback"].astext == "true",
-            meta["experiment_from"].astext == incumbent,
-            meta["experiment_to"].astext == candidate,
-            UsageEvent.latency_ms.isnot(None),
+            *conditions,
         )
         .group_by("arm")
     ).all()
@@ -204,10 +246,11 @@ def _latency_slo_cs(
     treatment: _LatencyArm,
     *,
     enough_signal: bool,
+    route_key: str | None = None,
 ) -> tuple[int | None, ConfidenceSequence | None]:
     if not settings.latency_slo_enabled:
         return None, None
-    slo_ms = _latency_slo_ms(db, project_id, incumbent, candidate)
+    slo_ms = _latency_slo_ms(db, project_id, incumbent, candidate, route_key=route_key)
     if slo_ms is None or not enough_signal or treatment.mean_ms is None:
         return slo_ms, None
     return slo_ms, mean_confidence_sequence(
@@ -225,6 +268,7 @@ def evaluate_latency_drift(
     incumbent: str,
     candidate: str,
     period_start: datetime,
+    route_key: str | None = None,
 ) -> dict:
     """Compare request latency between the arms for one route.
 
@@ -233,7 +277,7 @@ def evaluate_latency_drift(
     quality: roll back only when the treatment arm is *confidently* slower than
     the concurrent control arm beyond the tolerance, or (when a route SLO is set)
     confidently above that absolute ceiling."""
-    control, treatment = _latency_arms(db, project_id, incumbent, candidate, period_start)
+    control, treatment = _latency_arms(db, project_id, incumbent, candidate, period_start, route_key=route_key)
     enough = control.requests >= MIN_ARM_SAMPLES and treatment.requests >= MIN_ARM_SAMPLES
     delta = (
         treatment.mean_ms - control.mean_ms if control.mean_ms is not None and treatment.mean_ms is not None else None
@@ -244,7 +288,15 @@ def evaluate_latency_drift(
     regressed = bool(
         settings.latency_guard_enabled and cs is not None and cs.exceeds(settings.latency_drift_tolerance_ms)
     )
-    slo_ms, slo_cs = _latency_slo_cs(db, project_id, incumbent, candidate, treatment, enough_signal=enough)
+    slo_ms, slo_cs = _latency_slo_cs(
+        db,
+        project_id,
+        incumbent,
+        candidate,
+        treatment,
+        enough_signal=enough,
+        route_key=route_key,
+    )
     slo_breached = bool(slo_ms is not None and slo_cs is not None and slo_cs.exceeds(float(slo_ms)))
 
     return {
@@ -320,8 +372,8 @@ def check_and_rollback_drift(
             continue
         route_label = f"{incumbent} -> {candidate}" if rule.lever in ROUTING_LEVERS else f"{incumbent} ({rule.lever})"
 
-        q = evaluate_drift(db, project.id, incumbent, candidate, period_start)
-        lat = evaluate_latency_drift(db, project.id, incumbent, candidate, period_start)
+        q = evaluate_drift(db, project.id, incumbent, candidate, period_start, route_key=rule.route_key)
+        lat = evaluate_latency_drift(db, project.id, incumbent, candidate, period_start, route_key=rule.route_key)
 
         if q["drifted"]:
             title = (
@@ -392,8 +444,8 @@ def _check_bandit_candidates(
     incumbent = rule.incumbent_model
     for entry in routing_mod.bandit_candidate_entries(rule):
         candidate = entry["model"]
-        q = evaluate_drift(db, project.id, incumbent, candidate, period_start)
-        lat = evaluate_latency_drift(db, project.id, incumbent, candidate, period_start)
+        q = evaluate_drift(db, project.id, incumbent, candidate, period_start, route_key=rule.route_key)
+        lat = evaluate_latency_drift(db, project.id, incumbent, candidate, period_start, route_key=rule.route_key)
         trigger = (
             "quality"
             if q["drifted"]

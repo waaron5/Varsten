@@ -29,7 +29,13 @@ from app.eval.gate import (
     is_gated,
     latest_run,
 )
-from app.levers import LEVER_DEFAULT_AUTOMATION, LEVER_DISPLAY_ORDER, LEVER_LABELS, ROUTING_LEVERS
+from app.levers import (
+    LEVER_DEFAULT_AUTOMATION,
+    LEVER_DISPLAY_ORDER,
+    LEVER_LABELS,
+    LEVER_PROMPT_COMPRESSION,
+    ROUTING_LEVERS,
+)
 from app.models import (
     ACTION_PROVIDER_KEY_CONNECTED,
     ACTION_PROVIDER_KEY_DISCONNECTED,
@@ -1356,6 +1362,17 @@ def engine_update_route(
     }
 
 
+def _policy_control_payload(policy: ProxyPolicy) -> dict:
+    return {
+        "id": policy.id,
+        "enabled": policy.enabled,
+        "holdback_percent": _route_str(policy.holdback_percent),
+        "rollout_percent": policy.rollout_percent,
+        "model": policy.target_key,
+        "source_recommendation_id": str(policy.source_recommendation_id) if policy.source_recommendation_id else None,
+    }
+
+
 class BanditCandidateAdd(BaseModel):
     candidate_model: str = Field(min_length=1, max_length=128)
     candidate_provider: str | None = Field(default=None, max_length=64)
@@ -1434,21 +1451,76 @@ def engine_list_compressions(
         .order_by(PromptCompression.created_at.desc())
         .limit(100)
     ).all()
-    return [
-        {
-            "id": str(row.id),
-            "model": row.model,
-            "route_key": row.route_key,
-            "recommendation_id": str(row.recommendation_id) if row.recommendation_id else None,
-            "original_chars": row.original_chars,
-            "compressed_chars": row.compressed_chars,
-            "compression_ratio": round(row.compressed_chars / row.original_chars, 4) if row.original_chars else None,
-            "generator": row.generator,
-            "original_system_hash": row.original_system_hash,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-        }
-        for row in rows
-    ]
+    policies = db.scalars(
+        select(ProxyPolicy).where(ProxyPolicy.project_id == project.id, ProxyPolicy.lever == LEVER_PROMPT_COMPRESSION)
+    ).all()
+
+    policy_by_artifact: dict[str, ProxyPolicy] = {}
+    policy_by_recommendation: dict[uuid.UUID, ProxyPolicy] = {}
+    for policy in policies:
+        raw_artifact_id = (policy.params or {}).get("artifact_id")
+        if raw_artifact_id:
+            policy_by_artifact[str(raw_artifact_id)] = policy
+        if policy.source_recommendation_id is not None:
+            policy_by_recommendation[policy.source_recommendation_id] = policy
+
+    return [_compression_artifact_payload(row, policy_by_artifact, policy_by_recommendation) for row in rows]
+
+
+def _compression_artifact_payload(
+    artifact: PromptCompression,
+    policy_by_artifact: dict[str, ProxyPolicy],
+    policy_by_recommendation: dict[uuid.UUID, ProxyPolicy],
+) -> dict:
+    policy = policy_by_artifact.get(str(artifact.id))
+    if policy is None and artifact.recommendation_id is not None:
+        policy = policy_by_recommendation.get(artifact.recommendation_id)
+    return {
+        "id": str(artifact.id),
+        "model": artifact.model,
+        "route_key": artifact.route_key,
+        "recommendation_id": str(artifact.recommendation_id) if artifact.recommendation_id else None,
+        "policy_id": str(policy.id) if policy else None,
+        "policy_enabled": policy.enabled if policy else None,
+        "holdback_percent": _route_str(policy.holdback_percent) if policy else None,
+        "rollout_percent": policy.rollout_percent if policy else None,
+        "original_chars": artifact.original_chars,
+        "compressed_chars": artifact.compressed_chars,
+        "compression_ratio": round(artifact.compressed_chars / artifact.original_chars, 4)
+        if artifact.original_chars
+        else None,
+        "generator": artifact.generator,
+        "original_system_hash": artifact.original_system_hash,
+        "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+    }
+
+
+@router.patch("/engine/compressions/{policy_id}", response_model=None)
+def engine_update_compression_policy(
+    policy_id: uuid.UUID,
+    payload: RouteConfigUpdate,
+    project: Project = Depends(resolve_project),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Adjust a live prompt-compression policy. The evaluated artifact stays fixed;
+    operators can pause/resume the lever and tune holdback for measurement."""
+    policy = db.get(ProxyPolicy, policy_id)
+    if policy is None or policy.project_id != project.id or policy.lever != LEVER_PROMPT_COMPRESSION:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="compression policy not found")
+    if payload.enabled:
+        require_performance(db, project, action="Enabling a prompt-compression policy")
+        if not (policy.params or {}).get("artifact_id"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="compression policy has no evaluated artifact",
+            )
+    if payload.enabled is not None:
+        policy.enabled = payload.enabled
+    if payload.holdback_percent is not None:
+        policy.holdback_percent = payload.holdback_percent
+    db.commit()
+    db.refresh(policy)
+    return _policy_control_payload(policy)
 
 
 @router.get("/engine/routes/{rule_id}/bandit-candidates", response_model=None)

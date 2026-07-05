@@ -54,6 +54,15 @@ jobs:
         run: uv run alembic upgrade head
       - name: Run tests with coverage
         run: uv run pytest --cov=app --cov=scripts
+      - name: Engine validation proof pack (fast)
+        run: uv run python scripts/validate_engine.py --suite fast --report-dir validation_reports/fast
+      - name: Upload engine validation proof pack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-validation-proof-pack-fast
+          path: backend/validation_reports/fast
+          if-no-files-found: warn
 
   frontend:
     name: Frontend

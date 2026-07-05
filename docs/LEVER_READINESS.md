@@ -4,6 +4,9 @@ The production state of each savings lever: its default, how it's gated, who has
 approve it, and how far it's cleared for use. This is the canonical posture; the
 engine and the entitlements layer enforce it, this doc explains it.
 
+For system-level boundaries that are not specific to one lever, see
+`ENGINE_RELIABILITY_BOUNDARIES.md`.
+
 Two rules hold across every lever:
 
 1. **Free is observe-only.** No behaviour-changing lever can activate on the Free

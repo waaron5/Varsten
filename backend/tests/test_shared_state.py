@@ -9,6 +9,7 @@ path, and a raising Redis client to prove every shared-store touch fails open.
 import time
 import uuid
 
+import anyio
 import pytest
 
 from app.core.config import settings
@@ -83,6 +84,19 @@ def test_circuit_trip_propagates_across_instances(memory_store, monkeypatch):
     assert instance_b.allow() is True
 
 
+def test_circuit_reset_clears_shared_open_flag(memory_store, monkeypatch):
+    monkeypatch.setattr(settings, "circuit_breaker_fail_threshold", 1)
+    monkeypatch.setattr(settings, "circuit_breaker_reset_seconds", 60.0)
+    instance_a = circuit.CircuitBreaker("proj-reset")
+    instance_b = circuit.CircuitBreaker("proj-reset")
+
+    instance_a.record_failure()
+    assert instance_b.allow() is False
+
+    circuit.reset_all()
+    assert instance_b.allow() is True
+
+
 def test_circuit_is_local_without_shared_store(monkeypatch):
     ss.set_store(None)
     circuit.reset_all()
@@ -111,10 +125,55 @@ def test_budget_cache_uses_shared_store(memory_store):
     async def _run():
         return await budget_enforcement.exhausted_hard_caps(db=None, project_id=project_id)
 
-    import anyio
-
     result = anyio.run(_run)
     assert result == frozenset({("team", "growth")})
+
+
+def test_budget_computation_publishes_for_next_instance(memory_store, monkeypatch):
+    project_id = uuid.uuid4()
+    computed = frozenset({("feature", "chat")})
+    calls = 0
+
+    async def compute_once(db, pid):
+        nonlocal calls
+        assert pid == project_id
+        calls += 1
+        return computed
+
+    monkeypatch.setattr(budget_enforcement, "_compute_and_report", compute_once)
+
+    async def _run():
+        first = await budget_enforcement.exhausted_hard_caps(db=object(), project_id=project_id)
+        second = await budget_enforcement.exhausted_hard_caps(db=object(), project_id=project_id)
+        return first, second
+
+    first, second = anyio.run(_run)
+    assert first == computed
+    assert second == computed
+    assert calls == 1
+    assert memory_store.get(budget_enforcement._BUDGET_PREFIX + str(project_id)) == budget_enforcement._serialize_caps(
+        computed
+    )
+
+
+def test_budget_shared_store_failure_still_returns_local_computation(monkeypatch):
+    project_id = uuid.uuid4()
+    computed = frozenset({("customer", "acme")})
+
+    async def compute(db, pid):
+        assert pid == project_id
+        return computed
+
+    monkeypatch.setattr(budget_enforcement, "_compute_and_report", compute)
+
+    async def _run():
+        return await budget_enforcement.exhausted_hard_caps(db=object(), project_id=project_id)
+
+    ss.set_store(ss.RedisStore("redis://unused", client=_RaisingClient()))
+    try:
+        assert anyio.run(_run) == computed
+    finally:
+        ss.set_store(None)
 
 
 def test_clear_budget_cache_clears_shared_store(memory_store):

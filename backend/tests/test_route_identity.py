@@ -18,8 +18,9 @@ from app.engine.route_identity import (
     canonical_route_key,
     model_scoped_route_key,
     route_key_from_context,
+    route_key_from_recommendation,
 )
-from app.models import RequestDecisionEvent
+from app.models import Recommendation, RequestDecisionEvent
 from app.proxy import http_client
 from app.proxy.request_context import RequestContext
 
@@ -63,6 +64,40 @@ def test_from_context_and_model_scope():
     assert route_key_from_context(None, request_type="chat") == "chat"
     assert model_scoped_route_key("chat_agent", CHAT) == f"chat_agent::{CHAT}"
     assert model_scoped_route_key("chat_agent", None) == "chat_agent"
+
+
+def test_from_recommendation_uses_route_target_not_model():
+    route_rec = Recommendation(
+        organization_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        dedupe_key="route",
+        type="model_downshift",
+        lever="model_downshift",
+        target_type="route",
+        target_key="Support Reply",
+        title="x",
+        description="x",
+        risk_level="medium",
+        confidence="medium",
+        related_model="gpt-4o",
+    )
+    model_rec = Recommendation(
+        organization_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        dedupe_key="model",
+        type="model_downshift",
+        lever="model_downshift",
+        target_type="model",
+        target_key="gpt-4o",
+        title="x",
+        description="x",
+        risk_level="medium",
+        confidence="medium",
+        related_model="gpt-4o",
+    )
+
+    assert route_key_from_recommendation(route_rec) == "support_reply"
+    assert route_key_from_recommendation(model_rec) == DEFAULT_ROUTE
 
 
 # --- learning segments carry the route key -------------------------------------

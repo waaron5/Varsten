@@ -331,6 +331,71 @@ async def test_activation_creates_policy_with_artifact(db_session, provision, mo
     assert policy.enabled is False
 
 
+def test_engine_update_compression_policy_pauses_and_caps_holdback(client, provision, db_session):
+    p = provision()
+    project = db_session.get(Project, uuid.UUID(p["project_id"]))
+    artifact = PromptCompression(
+        organization_id=project.organization_id,
+        project_id=project.id,
+        route_key=MODEL,
+        model=MODEL,
+        original_system_hash=system_text_hash(ORIGINAL),
+        original_chars=len(ORIGINAL),
+        compressed_system_prompt=COMPRESSED,
+        compressed_chars=len(COMPRESSED),
+        generator="injected:test",
+    )
+    db_session.add(artifact)
+    db_session.flush()
+    policy = ProxyPolicy(
+        organization_id=project.organization_id,
+        project_id=project.id,
+        lever=LEVER_PROMPT_COMPRESSION,
+        target_type="model",
+        target_key=MODEL,
+        enabled=True,
+        holdback_percent=Decimal("0.05"),
+        rollout_percent=50,
+        params={"artifact_id": str(artifact.id)},
+    )
+    db_session.add(policy)
+    db_session.commit()
+
+    listed = client.get(
+        "/v1/engine/compressions",
+        headers={"Authorization": f"Bearer {p['token']}"},
+        params={"project_id": str(project.id)},
+    )
+    assert listed.status_code == 200
+    item = listed.json()[0]
+    assert item["policy_id"] == str(policy.id)
+    assert item["policy_enabled"] is True
+    assert item["rollout_percent"] == 50
+
+    resp = client.patch(
+        f"/v1/engine/compressions/{policy.id}",
+        headers={"Authorization": f"Bearer {p['token']}"},
+        params={"project_id": str(project.id)},
+        json={"enabled": False, "holdback_percent": "0.2"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == str(policy.id)
+    assert body["enabled"] is False
+    assert Decimal(body["holdback_percent"]) == Decimal("0.2")
+    assert body["rollout_percent"] == 50
+    db_session.refresh(policy)
+    assert policy.enabled is False and policy.holdback_percent == Decimal("0.2")
+
+    bad = client.patch(
+        f"/v1/engine/compressions/{policy.id}",
+        headers={"Authorization": f"Bearer {p['token']}"},
+        params={"project_id": str(project.id)},
+        json={"holdback_percent": "0.9"},
+    )
+    assert bad.status_code == 422
+
+
 # --- hot path ----------------------------------------------------------------------
 
 

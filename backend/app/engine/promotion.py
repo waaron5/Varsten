@@ -37,6 +37,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine.outcomes import score_optimization_outcomes
 from app.engine.priors import refresh_project_outcome_priors
+from app.engine.route_identity import DEFAULT_ROUTE
 from app.levers import LEVER_LABELS, LEVER_TOKEN_TRIM, ROUTING_LEVERS
 from app.models import LeverConfig, Project, ProxyPolicy, RecommendationAction, RequestDecisionEvent, RequestFeedback
 from app.proxy.experiment import compute_experiment
@@ -88,20 +89,21 @@ def _monthly_run_rate(total: Decimal | None, window_days: int) -> Decimal | None
     return (total / Decimal(window_days) * _DAYS_PER_MONTH).quantize(_CENTS)
 
 
-def _has_enabled_policy(db: Session, project_id, lever: str, incumbent_model: str) -> bool:
-    return (
-        db.scalar(
-            select(ProxyPolicy.id)
-            .where(
-                ProxyPolicy.project_id == project_id,
-                ProxyPolicy.lever == lever,
-                ProxyPolicy.target_key == incumbent_model,
-                ProxyPolicy.enabled.is_(True),
-            )
-            .limit(1)
-        )
-        is not None
+def _has_enabled_policy(
+    db: Session, project_id, lever: str, incumbent_model: str, route_key: str | None = None
+) -> bool:
+    stmt = select(ProxyPolicy.id).where(
+        ProxyPolicy.project_id == project_id,
+        ProxyPolicy.lever == lever,
+        ProxyPolicy.target_key == incumbent_model,
+        ProxyPolicy.enabled.is_(True),
     )
+    if route_key:
+        exact = db.scalar(stmt.where(ProxyPolicy.route_key == route_key).limit(1))
+        if exact is not None:
+            return True
+        stmt = stmt.where(ProxyPolicy.route_key == DEFAULT_ROUTE)
+    return db.scalar(stmt.limit(1)) is not None
 
 
 def _automation_config(db: Session, project_id, lever: str) -> LeverConfig | None:
@@ -275,7 +277,8 @@ def promote_learning_candidates(
         if lever not in PROMOTABLE_LEVERS:
             continue
         incumbent = segment["model_requested"]
-        if incumbent == "unknown" or _has_enabled_policy(db, project.id, lever, incumbent):
+        route_key = str(segment.get("route_key") or "default")
+        if incumbent == "unknown" or _has_enabled_policy(db, project.id, lever, incumbent, route_key):
             continue
 
         monthly_savings = _monthly_run_rate(_to_decimal(candidate["total_gross_savings_usd"]), days)
@@ -296,8 +299,8 @@ def promote_learning_candidates(
             risk_level=_risk_level(segment["risk_level"]),
             confidence="high" if candidate["readiness"]["status"] == "auto_apply_candidate" else "medium",
             lever=lever,
-            target_type="model",
-            target_key=incumbent[:255],
+            target_type="route",
+            target_key=route_key[:255],
             rationale=_rationale(candidate, days),
             monthly_request_volume=monthly_volume or None,
             measurement_method="estimated",
@@ -346,9 +349,10 @@ def propose_automation_upgrade_candidates(
         if lever not in PROMOTABLE_LEVERS:
             continue
         incumbent = segment["model_requested"]
+        route_key = str(segment.get("route_key") or "default")
         if incumbent == "unknown":
             continue
-        if not _has_enabled_policy(db, project.id, lever, incumbent):
+        if not _has_enabled_policy(db, project.id, lever, incumbent, route_key):
             continue
         if _automation_config(db, project.id, lever) is None:
             continue

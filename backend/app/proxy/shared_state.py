@@ -11,8 +11,8 @@ This module is the optional shared layer that fixes that when a deploy scales
 out. It is a **complete no-op unless a backend is configured**: with no backend,
 ``get_store()`` returns ``None`` and the circuit/budget code runs its existing
 local logic byte-for-byte, so single-instance and dev behaviour is unchanged and
-no new dependency is pulled in. Set ``REDIS_URL`` and a Redis-backed store is
-used so a trip or a cap propagates fleet-wide.
+no Redis connection is opened. Set ``REDIS_URL`` and a Redis-backed store is used
+so a trip or a cap propagates fleet-wide.
 
 Everything here fails open. Every store operation swallows backend errors and
 behaves as a miss / no-op, so callers fall back to their local path: if Redis is

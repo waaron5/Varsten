@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.engine.route_identity import route_key_from_context
 from app.models import Project, UsageEvent
 from app.pricing import price_usage_event
 from app.proxy.request_context import RequestContext
@@ -107,6 +108,7 @@ def _augment_metadata(
         metadata["arm"] = arm
         metadata["experiment_from"] = experiment_from
         metadata["experiment_to"] = experiment_to
+        metadata["route_key"] = route_key_from_context(ctx, request_type="chat_completion")
         # Objective response-health for the live drift guard (a metadata fact, not
         # content). Compared across arms to catch a candidate that degrades.
         if quality_ok is not None:

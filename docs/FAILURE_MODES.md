@@ -12,8 +12,8 @@ principle is **fail open**: when in doubt, the customer's request still complete
 | Healthy | `200` + completion | success recorded | Metered; cached when optimization is on. |
 | No provider key configured | `502`, `detail: no provider key configured` | unaffected | Fails before any upstream call. |
 | Upstream **4xx** (client mistake) | the provider's status + body, verbatim | **not** tripped | A 400/401/404 is the caller's error, not a provider outage. |
-| Upstream **5xx / 429** | the provider's status + body, verbatim | failure recorded | Transparent passthrough; the breaker counts it. |
-| Upstream unreachable (connect/transport error) | `502`, `type: varsten_upstream_error` | failure recorded | Clean typed error, never a stack trace. |
+| Upstream **5xx / 429** | Usually hidden by retry; otherwise the provider's status + body, verbatim, or a configured fallback completion | one outcome recorded | Retries are capped/budgeted and happen only before bytes stream. Fallback is same-provider, reliability-only, and claims zero savings. |
+| Upstream unreachable (connect/transport error) | Usually hidden by retry; otherwise `502`, `type: varsten_upstream_error`, or a configured fallback completion | failure recorded | Clean typed error, never a stack trace. |
 | Circuit open | `503`, `type: varsten_circuit_open`, header `X-Varsten-Circuit: open` | n/a (short-circuits) | Fails fast instead of waiting the full timeout. Cache hits still served. |
 | Over Varsten rate limit | `429`, `type: varsten_rate_limited`, `Retry-After: 60` | n/a | Per-API-key fixed window on the public proxy. |
 | Over hard budget cap | `402`, `type: varsten_budget_exceeded` | n/a | Only the over-cap workload owner; cache hits ($0) exempt; fail-open. |
@@ -27,10 +27,14 @@ surfaced **inside the stream body**, not as a status code.
 | Condition | Client sees in the stream |
 |---|---|
 | Healthy | the provider's SSE chunks, passed through; bookkeeping happens after `[DONE]`. |
-| Upstream non-200 (4xx/5xx/429) | the provider's error body, delivered in the stream; breaker updated as above. |
-| Upstream unreachable / transport error | a clean SSE error event (`type: varsten_upstream_error`) then `data: [DONE]`. |
+| Upstream non-200 (4xx/5xx/429) | Retry can happen only before the first byte; after streaming starts, the provider's error body is delivered in the stream and breaker state updates as above. |
+| Upstream unreachable / transport error | If it occurs before the first byte, retry can hide it; otherwise a clean SSE error event (`type: varsten_upstream_error`) then `data: [DONE]`. |
 | Upstream hang (no chunks) | cut by the read/total stream timeout, then the same SSE error + `[DONE]`. Never pins the event loop. |
 | Post-stream bookkeeping error | nothing — the client already has every byte; the capture failure is logged only. |
+
+Streaming fallback to another model is intentionally absent today. Once bytes
+have reached the client, Varsten never replays the request or swaps the model
+mid-stream.
 
 ## Degradations that never reach the client (fail-open)
 
@@ -49,6 +53,9 @@ If anything Varsten does on the path fails, the customer's request still reaches
 their provider. The worst case is "we stop saving and add about a millisecond,"
 never "we took down prod." The two ways to force that worst case deliberately are
 the global kill switch (`PROXY_KILL_SWITCH`) and a project's bypass toggle.
+
+For the broader set of reliability/product boundaries, including base-URL vs SDK
+fail-open behavior and multi-instance gates, see `ENGINE_RELIABILITY_BOUNDARIES.md`.
 
 ## Headers a client can key on
 
