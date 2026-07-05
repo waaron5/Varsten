@@ -623,3 +623,14 @@ of arm assignment.
   enterprise default-on option; `governance_enforced_for` gates apply as
   global-OR-org; `GET/PATCH /v1/engine/governance` (owner/admin PATCH,
   audited as `governance.enforcement_changed`).
+- ~~**D1 deterministic restructure proposals.**~~ **DONE 2026-07-04**:
+  `app/engine/prefix_analysis.py` aligns the route's captured system prompts
+  (replay corpus, in memory only) into stable head + volatile middle + stable
+  tail and quantifies what moving the middle unlocks. The
+  `prompt_prefix_restructure` recommendation now carries the proposal as
+  structure metrics on the new `Recommendation.details` JSONB column
+  (migration `d5e6f7a8b9c2`) — offsets/lengths/shares only, never text — and a
+  concrete sentence in the description. Degrades to the generic advice when
+  capture is off. A restructuring *transform* (Varsten rewriting the prompt
+  order itself) remains future work and would need the full D2-style
+  eval/governance/canary path.

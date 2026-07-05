@@ -35,6 +35,7 @@ class RecommendationOut(BaseModel):
     related_feature: str | None
     related_customer_id: str | None
     related_environment: str | None
+    details: dict | None = None
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.engine.agent_loops import detect_agent_loops
+from app.engine.prefix_analysis import propose_prefix_restructure
 from app.engine.route_identity import canonical_route_key
 from app.levers import LEVER_MODEL_DOWNSHIFT
 from app.models import ModelCatalog, ModelPrice, Project, Recommendation, RequestDecisionEvent, UsageEvent
@@ -54,6 +55,7 @@ class RecommendationSeed:
     related_feature: str | None = None
     related_customer_id: str | None = None
     related_environment: str | None = None
+    details: dict | None = None
 
 
 def _month_start(now: datetime) -> datetime:
@@ -87,6 +89,7 @@ def _upsert(db: Session, project: Project, seed: RecommendationSeed) -> None:
         existing.related_feature = seed.related_feature
         existing.related_customer_id = seed.related_customer_id
         existing.related_environment = seed.related_environment
+        existing.details = seed.details
         existing.updated_at = datetime.now(UTC)
         return
 
@@ -113,6 +116,7 @@ def _upsert(db: Session, project: Project, seed: RecommendationSeed) -> None:
             related_feature=seed.related_feature,
             related_customer_id=seed.related_customer_id,
             related_environment=seed.related_environment,
+            details=seed.details,
         )
     )
 
@@ -385,6 +389,29 @@ def _add_prompt_cache_recommendation(db: Session, project: Project, start: datet
             monthly_savings = _run_rate(cacheable_tokens * rate_delta, now)
             if monthly_savings <= 0:
                 continue
+            # When the replay corpus holds this route's prompts, replace generic
+            # advice with a deterministic proposal: where the volatile span sits
+            # and what moving it unlocks. Metrics only; no text persists.
+            proposal = propose_prefix_restructure(db, project, row.model)
+            description = (
+                f"{target} sends ~{avg_input:,.0f} input tokens per call across {requests} calls, but only "
+                f"{dominant_share * 100:.0f}% of {samples} fingerprinted requests share a stable prefix, so "
+                f"provider prompt caching cannot engage. "
+            )
+            if proposal is not None:
+                description += (
+                    f"Analysis of {proposal.sample_count} captured prompts: the first "
+                    f"{proposal.stable_prefix_chars:,} characters are identical on every request, then a volatile "
+                    f"span of ~{proposal.volatile_span_min_chars:,}-{proposal.volatile_span_max_chars:,} characters "
+                    f"begins at offset {proposal.volatile_span_offset:,}. Moving that span to the end of the "
+                    f"system message makes {proposal.projected_stable_share * 100:.0f}% of the prompt byte-stable "
+                    f"and unlocks {row.model}'s cache-read rate."
+                )
+            else:
+                description += (
+                    "Move volatile content (timestamps, per-user data) out of the leading system/tool block "
+                    f"to unlock {row.model}'s cache-read rate."
+                )
             _upsert(
                 db,
                 project,
@@ -393,12 +420,8 @@ def _add_prompt_cache_recommendation(db: Session, project: Project, start: datet
                     type="prompt_prefix_restructure",
                     lever="semantic_cache",
                     title=f"Stabilize the prompt prefix for {target}",
-                    description=(
-                        f"{target} sends ~{avg_input:,.0f} input tokens per call across {requests} calls, but only "
-                        f"{dominant_share * 100:.0f}% of {samples} fingerprinted requests share a stable prefix, so "
-                        f"provider prompt caching cannot engage. Move volatile content (timestamps, per-user data) "
-                        f"out of the leading system/tool block to unlock {row.model}'s cache-read rate."
-                    ),
+                    description=description,
+                    details=proposal.as_details() if proposal is not None else None,
                     rationale=(
                         "Measured prefix stability is too low for a provider prompt cache to key on; the discount is "
                         "forfeited on every call until the prefix stops changing."

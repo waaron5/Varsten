@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -42,6 +42,10 @@ class Recommendation(Base):
     risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
     confidence: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'open'"))
+    # Structured, type-specific evidence for the UI (e.g. the prefix-restructure
+    # proposal's offsets/shares). Metrics and structure only — NEVER prompt or
+    # completion text; recommendations are a metadata-only store.
+    details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     related_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     related_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     related_feature: Mapped[str | None] = mapped_column(String(255), nullable=True)
