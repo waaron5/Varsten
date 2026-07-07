@@ -125,6 +125,19 @@ class Settings(BaseSettings):
     # payloads are ignored (fail-open), never an error, so a misbehaving client
     # cannot bloat a ledger row or break its own request.
     proxy_metadata_max_bytes: int = 8192
+    # When enabled, non-streaming cache-miss ledger/evidence/cache writes run in a
+    # detached task with a fresh DB session instead of the FastAPI background-task
+    # lifecycle. This is the production latency shape: the response does not wait
+    # for best-effort proof writes. Keep disabled in deterministic tests unless
+    # the test explicitly waits for captured evidence.
+    proxy_capture_detached: bool = False
+    # Detached proof writes must be bounded so a high-RPS route cannot starve the
+    # request path's DB reads. This is the number of per-process capture workers.
+    proxy_capture_detached_max_concurrency: int = 4
+    # Queue bound for detached capture jobs. The queue absorbs short write bursts
+    # without creating one asyncio task per request. Overflow falls back to a
+    # direct detached task so telemetry is preserved, with a warning.
+    proxy_capture_detached_queue_size: int = 10000
 
     # --- Self-serve hardening: provider key validation + rate limits ---
     # Probe a provider key with a cheap authenticated call before storing it, so a
@@ -194,11 +207,15 @@ class Settings(BaseSettings):
     proxy_fallback_models: dict[str, str] = {}
 
     # In-process cache of resolved vk_ -> (project, api_key) on the proxy hot path.
-    # Lets a known active key keep serving through a brief database blip instead of
-    # 500ing: on a DB error the proxy serves a context resolved within this TTL.
-    # Unknown/invalid keys are never cached and still fail closed. Revocation lag is
-    # bounded by this TTL. 0 disables the cache.
+    # By default this is a fail-open cache only: a known active key keeps serving
+    # through a brief database blip instead of 500ing, but healthy requests still
+    # re-check the DB so revocations take effect immediately. High-throughput
+    # gateway deployments can opt into positive caching below; that trades bounded
+    # revocation lag for fewer request-time DB reads. Unknown/invalid keys are
+    # never cached and still fail closed. 0 disables all API-key cache reads.
     api_key_cache_ttl_seconds: float = 30.0
+    api_key_positive_cache_enabled: bool = False
+    proxy_policy_cache_enabled: bool = False
 
     # --- Eval / replay harness (Track B) ---
     # The shadow-evaluation loop that proves a model-downshift swap is safe on a

@@ -14,15 +14,18 @@ in the request path.
 
 import copy
 import re
+import threading
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import NamedTuple
 
+from cachetools import TTLCache
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
 from app.models import Project, ProxyPolicy, Recommendation
@@ -46,6 +49,45 @@ class TrimDecision(NamedTuple):
     source_recommendation_id: uuid.UUID | None = None
 
 
+class _TrimPolicySnapshot(NamedTuple):
+    id: uuid.UUID
+    holdback_percent: Decimal
+    params: dict
+    source_recommendation_id: uuid.UUID | None
+    rollout_percent: int
+
+
+_POLICY_CACHE_TTL_SECONDS = 30
+_policy_cache: TTLCache[tuple[str, str, str | None], _TrimPolicySnapshot | None] = TTLCache(
+    maxsize=4096,
+    ttl=_POLICY_CACHE_TTL_SECONDS,
+)
+_policy_lock = threading.Lock()
+
+
+def clear_policy_cache(project_id: uuid.UUID | None = None) -> None:
+    with _policy_lock:
+        if project_id is None:
+            _policy_cache.clear()
+            return
+        prefix = str(project_id)
+        for key in list(_policy_cache.keys()):
+            if key[0] == prefix:
+                _policy_cache.pop(key, None)
+
+
+def _snapshot(policy: ProxyPolicy | None) -> _TrimPolicySnapshot | None:
+    if policy is None:
+        return None
+    return _TrimPolicySnapshot(
+        id=policy.id,
+        holdback_percent=policy.holdback_percent or Decimal("0"),
+        params=dict(policy.params or {}),
+        source_recommendation_id=policy.source_recommendation_id,
+        rollout_percent=policy.rollout_percent,
+    )
+
+
 async def resolve_trim(
     db: AsyncSession,
     project_id: uuid.UUID,
@@ -58,23 +100,37 @@ async def resolve_trim(
     if not requested_model:
         return None
     try:
-        base = (
-            select(ProxyPolicy)
-            .where(
-                ProxyPolicy.project_id == project_id,
-                ProxyPolicy.lever == LEVER,
-                ProxyPolicy.target_key == requested_model,
-                ProxyPolicy.enabled.is_(True),
+        key = (str(project_id), requested_model, route_key)
+        cache_hit = False
+        policy: _TrimPolicySnapshot | None = None
+        if settings.proxy_policy_cache_enabled:
+            with _policy_lock:
+                cached = _policy_cache.get(key)
+            if key in _policy_cache:
+                cache_hit = True
+                policy = cached
+        if not cache_hit:
+            base = (
+                select(ProxyPolicy)
+                .where(
+                    ProxyPolicy.project_id == project_id,
+                    ProxyPolicy.lever == LEVER,
+                    ProxyPolicy.target_key == requested_model,
+                    ProxyPolicy.enabled.is_(True),
+                )
+                .order_by(ProxyPolicy.activated_at.desc().nullslast())
+                .limit(1)
             )
-            .order_by(ProxyPolicy.activated_at.desc().nullslast())
-            .limit(1)
-        )
-        if route_key:
-            policy = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
-            if policy is None:
-                policy = (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
-        else:
-            policy = (await db.scalars(base)).first()
+            if route_key:
+                row = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
+                if row is None:
+                    row = (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
+            else:
+                row = (await db.scalars(base)).first()
+            policy = _snapshot(row)
+            if settings.proxy_policy_cache_enabled:
+                with _policy_lock:
+                    _policy_cache[key] = policy
         if policy is None:
             return None
         # Canary gate: outside the rollout the body is forwarded untrimmed as plain
@@ -189,6 +245,7 @@ def activate_trim_policy(
     policy.enabled = True
     policy.source_recommendation_id = recommendation.id
     policy.activated_at = at
+    clear_policy_cache(project.id)
     return policy
 
 
@@ -202,3 +259,4 @@ def deactivate_trim_for_recommendation(db: Session, recommendation: Recommendati
         )
         .values(enabled=False)
     )
+    clear_policy_cache(recommendation.project_id)

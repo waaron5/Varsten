@@ -20,25 +20,42 @@ test("signup, project creation, provider connection, and first proxy request act
   await expect.poll(() => state.calls.authSync ?? 0).toBe(1);
 
   await page.getByRole("button", { name: "Create project" }).click();
-  await expect(page.getByRole("heading", { name: "Connect Varsten" })).toBeVisible();
   await expect.poll(() => state.projects.length).toBe(1);
   expect(state.projects[0].id).toBe(PROJECT_ID);
 
-  await expect(page.getByRole("heading", { name: "OpenAI" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Anthropic" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Gemini" })).toBeVisible();
+  // A fresh workspace opens on the connection chooser — the first step is the
+  // user's choice, never pre-completed. The recommended Production SDK is
+  // pre-selected, so Continue advances to the API key step.
+  await expect(page.getByRole("heading", { name: "How do you want to connect?" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "Create your Varsten key" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Connect your provider" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Create API key" }).click();
   await expect(page.getByText("vk_test_e2e_first_request")).toBeVisible();
 
-  const openAiCard = page
-    .getByRole("heading", { name: "OpenAI" })
-    .locator("xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' card ')][1]");
+  // The plaintext key is shown exactly once; the wizard must not auto-advance
+  // past it. Only after the explicit Continue does the next step open.
+  await expect(page.getByRole("heading", { name: "Connect your provider" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Connect your provider" })).toBeVisible();
+
+  await expect(page.getByText("OpenAI", { exact: true })).toBeVisible();
+  await expect(page.getByText("Anthropic", { exact: true })).toBeVisible();
+  await expect(page.getByText("Gemini", { exact: true })).toBeVisible();
+
+  const openAiCard = page.locator(".onb-provider").filter({ has: page.getByText("OpenAI", { exact: true }) });
   await openAiCard.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
   await openAiCard.getByRole("button", { name: "Connect" }).click();
 
-  await expect(openAiCard.getByText("Connected")).toBeVisible();
+  await expect(openAiCard.getByText("Verified")).toBeVisible();
   expect(state.calls.connectProvider).toBe(1);
+
+  // A successful provider connect enables Continue; advancing is an explicit
+  // click, not a magic auto-jump.
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Send your first request" })).toBeVisible();
 
   await page.evaluate(async (apiBase) => {
     const response = await fetch(`${apiBase}/v1/chat/completions`, {
@@ -64,7 +81,31 @@ test("signup, project creation, provider connection, and first proxy request act
   await expect(page.getByText("First request received. Varsten is observing your AI traffic.")).toBeVisible({
     timeout: 7000,
   });
-  await expect(page.getByRole("button", { name: "Continue to dashboard" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Go to dashboard" })).toBeEnabled();
   expect(state.calls.proxy).toBe(1);
+  expect(clientErrors).toEqual([]);
+});
+
+test("metadata-only path skips provider connection and shows the ingest snippet", async ({ page }) => {
+  const state = createMockState();
+  const clientErrors = watchClientErrors(page);
+  await installMockApi(page, state);
+
+  await page.goto("/onboarding");
+
+  // The wizard opens on the connection chooser. Pick the metadata-only path.
+  await expect(page.getByRole("heading", { name: "How do you want to connect?" })).toBeVisible();
+  await page.getByRole("button", { name: /Metadata only/ }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  // The metadata path needs no provider key, so that step is skipped and the
+  // wizard lands back on the API key step.
+  await expect(page.getByRole("heading", { name: "Create your Varsten key" })).toBeVisible();
+  await page.getByRole("button", { name: "Create API key" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "Connect your provider" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Send a usage record" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy ingest snippet" })).toBeVisible();
   expect(clientErrors).toEqual([]);
 });

@@ -2,7 +2,7 @@ export type OnboardingIntent = "trial" | "observe";
 
 const INTENTS = new Set<OnboardingIntent>(["trial", "observe"]);
 
-export function normalizeOnboardingIntent(value: string | null | undefined): OnboardingIntent | undefined {
+function normalizeOnboardingIntent(value: string | null | undefined): OnboardingIntent | undefined {
   return value && INTENTS.has(value as OnboardingIntent) ? (value as OnboardingIntent) : undefined;
 }
 

@@ -167,6 +167,7 @@ export interface DashboardDrivers {
 
 export interface DashboardProofTrust {
   score: string | null;
+  confidence_level: "none" | "low" | "medium" | "high";
   confidence_label: string;
   confidence_note: string;
   pricing_coverage: string | null;
@@ -760,9 +761,25 @@ export interface OnboardingMetadataQuality {
   message: string;
 }
 
+export type IntegrationMethod = "sdk" | "base_url" | "metadata" | "none";
+
+export interface OnboardingIntegrationProvider {
+  provider: string;
+  method: IntegrationMethod;
+  sdk_client: string | null;
+  key_configured: boolean;
+}
+
+export interface OnboardingIntegration {
+  providers: OnboardingIntegrationProvider[];
+  any_sdk: boolean;
+  base_url_without_sdk: boolean;
+}
+
 export interface OnboardingFirstRequest {
   seen: boolean;
   request_count: number;
+  source?: string | null;
   request_id?: string | null;
   provider?: string;
   model?: string;
@@ -800,6 +817,7 @@ export interface OnboardingStatus {
   dashboard_entered: boolean;
   provider_connections: OnboardingProviderConnection[];
   first_request: OnboardingFirstRequest;
+  integration: OnboardingIntegration;
   checklist: OnboardingChecklistItem[];
 }
 

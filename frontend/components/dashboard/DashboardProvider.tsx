@@ -18,6 +18,7 @@ type Resource<T> = { data: T | null; loading: boolean; error: string | null };
 interface DashboardData {
   snapshot: Resource<DashboardSnapshot>;
   period: DashboardPeriod;
+  reload: () => Promise<void>;
 }
 
 const Ctx = createContext<DashboardData | null>(null);
@@ -41,6 +42,7 @@ export function DashboardProvider({
   const value: DashboardData = {
     snapshot: { data: snapshot.data, loading: snapshot.loading, error: snapshot.error },
     period,
+    reload: snapshot.reload,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

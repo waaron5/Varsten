@@ -50,7 +50,14 @@ function StartBody() {
 
   useEffect(() => {
     if (!data || (intent && !intentApplied)) return;
-    router.replace(data.onboarding_completed_at ? "/dashboard" : "/onboarding");
+    if (data.onboarding_completed_at) {
+      router.replace("/dashboard");
+      return;
+    }
+    // Preserve buyer intent into onboarding: /start drops its query on redirect,
+    // so the funnel can no longer read it otherwise. It seeds the default
+    // integration path (observe -> quick eval, trial -> production SDK).
+    router.replace(intent ? `/onboarding?intent=${intent}` : "/onboarding");
   }, [data, intent, intentApplied, router]);
 
   return (

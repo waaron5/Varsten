@@ -8,6 +8,7 @@ this directly; it does not stitch together separate endpoints.
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -68,6 +69,7 @@ class DashboardDrivers(BaseModel):
 
 class ProofTrust(BaseModel):
     score: Decimal | None  # 0..1 trust score (priced share)
+    confidence_level: Literal["none", "low", "medium", "high"]
     confidence_label: str
     confidence_note: str
     pricing_coverage: Decimal | None  # priced / (priced + unpriced)

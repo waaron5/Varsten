@@ -5,7 +5,13 @@ question above all others: what happens to your app when Varsten itself is havin
 bad day? This page answers that and explains why the **SDK is the safe production
 path**.
 
-There are two ways to send traffic through Varsten.
+There are two ways to send traffic *through* Varsten (inline). There is also a third,
+non-inline option: **metadata-only ingestion** (`POST /v1/usage-events`) sends token
+counts and labels asynchronously after each call — never prompt or completion content,
+no provider key, nothing in your request path. It carries zero availability risk and
+powers spend/savings analysis, but cannot optimize (optimization requires an inline
+path). It is the lowest-risk way to start; the two inline modes below are what unlock
+the engine.
 
 ## 1. Base-URL mode (good for evaluation)
 

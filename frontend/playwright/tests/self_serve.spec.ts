@@ -35,9 +35,7 @@ function freeObserveOnly() {
 }
 
 const openAiCardFor = (page: import("playwright/test").Page) =>
-  page
-    .getByRole("heading", { name: "OpenAI" })
-    .locator("xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' card ')][1]");
+  page.locator(".onb-provider").filter({ has: page.getByText("OpenAI", { exact: true }) });
 
 test("self-serve: /start lands on onboarding with an active project and reaches the trial dashboard", async ({
   page,
@@ -49,24 +47,30 @@ test("self-serve: /start lands on onboarding with an active project and reaches 
   await installMockApi(page, state);
 
   // 3-5. /start routes an unfinished onboarding straight into the funnel, which
-  // opens on Connect Varsten because the project already exists.
+  // opens on the connection chooser because the project already exists.
   await page.goto("/start");
   await expect(page).toHaveURL(/\/onboarding/);
-  await expect(page.getByRole("heading", { name: "Connect Varsten" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "How do you want to connect?" })).toBeVisible();
   await expect(page.getByText("Create your first project")).toHaveCount(0);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  // 6. Varsten API key.
+  // 6. Varsten API key. The plaintext is shown exactly once, so the wizard
+  // waits for an explicit Continue before opening the next step.
+  await expect(page.getByRole("heading", { name: "Create your Varsten key" })).toBeVisible();
   await page.getByRole("button", { name: "Create API key" }).click();
   await expect(page.getByText("vk_test_e2e_first_request")).toBeVisible();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  // 7. Provider key connect.
+  // 7. Provider key connect, then advance to the final step.
   const openAiCard = openAiCardFor(page);
   await openAiCard.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
   await openAiCard.getByRole("button", { name: "Connect" }).click();
   await expect(openAiCard.getByText("Connected")).toBeVisible();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  // 8. Copy the integration snippet -> onboarding event recorded.
-  await page.getByRole("button", { name: "Copy snippet" }).click();
+  // 8. Copy the integration snippet -> onboarding event recorded. The default
+  // path is the production fail-open SDK.
+  await page.getByRole("button", { name: "Copy SDK snippet" }).click();
   await expect.poll(() => state.calls["event:snippet_viewed"] ?? 0).toBe(1);
 
   // 9. First gateway request (mocked through the proxy mock).
@@ -87,7 +91,7 @@ test("self-serve: /start lands on onboarding with an active project and reaches 
   });
 
   // 10. Continue -> dashboard_entered event + Performance dashboard renders.
-  await page.getByRole("button", { name: "Continue to dashboard" }).click();
+  await page.getByRole("button", { name: "Go to dashboard" }).click();
   await expect.poll(() => state.calls["event:dashboard_entered"] ?? 0).toBe(1);
   await expect(page).toHaveURL(/\/dashboard/);
   await expect(page.getByText("Net Realized Savings")).toBeVisible();
@@ -101,8 +105,8 @@ test("self-serve: trial start intent is preserved and shows Performance onboardi
   await page.goto("/start?intent=trial");
   await expect.poll(() => state.calls["authSync:trial"] ?? 0).toBeGreaterThanOrEqual(1);
   await expect(page).toHaveURL(/\/onboarding/);
-  await expect(page.getByText("Connect Varsten with Performance access")).toBeVisible();
-  await expect(page.getByText(/Varsten is observing only/)).toHaveCount(0);
+  await expect(page.getByText(/move up the ladder later without re-integrating/)).toBeVisible();
+  await expect(page.getByText(/nothing changes in production/)).toHaveCount(0);
 });
 
 test("self-serve: observe-only start intent is preserved and shows Free onboarding copy", async ({ page }) => {
@@ -115,8 +119,7 @@ test("self-serve: observe-only start intent is preserved and shows Free onboardi
   await page.goto("/start?intent=observe");
   await expect.poll(() => state.calls["authSync:observe"] ?? 0).toBeGreaterThanOrEqual(1);
   await expect(page).toHaveURL(/\/onboarding/);
-  await expect(page.getByText("Connect Varsten in observe-only mode")).toBeVisible();
-  await expect(page.getByText(/Varsten is observing only/)).toBeVisible();
+  await expect(page.getByText(/nothing changes in production/)).toBeVisible();
 });
 
 test("self-serve: trial mode shows Performance unlocked with a trial end date", async ({ page }) => {

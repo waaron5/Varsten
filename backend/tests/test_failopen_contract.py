@@ -304,6 +304,39 @@ async def test_revoked_key_fails_closed_not_cached(async_db_session, async_provi
     assert ei.value.status_code == 401
 
 
+@pytest.mark.anyio
+async def test_positive_api_key_cache_is_opt_in_and_ttl_bounded(async_db_session, async_provision, monkeypatch):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from app.models import ApiKey
+
+    ws = await async_provision(sub="auth0|o", email="o@example.com")
+    token = ws["api_key"]
+    clock = {"now": 100.0}
+    monkeypatch.setattr(settings, "api_key_positive_cache_enabled", True)
+    monkeypatch.setattr(settings, "api_key_cache_ttl_seconds", 10.0)
+    monkeypatch.setattr(deps.time, "monotonic", lambda: clock["now"])
+
+    # Seed the cache with a valid resolve, then revoke the key.
+    ctx = await deps._api_key_context_async(token, async_db_session)
+    assert str(ctx.project.id) == ws["project_id"]
+    api_key = await async_db_session.scalar(select(ApiKey).where(ApiKey.id == ws["api_key_id"]))
+    api_key.revoked_at = datetime.now(UTC)
+    await async_db_session.flush()
+
+    # Positive caching is a deliberate gateway-capacity mode: a cached active key
+    # can serve until TTL expiry, bounding revocation lag to the configured TTL.
+    cached = await deps._api_key_context_async(token, async_db_session)
+    assert str(cached.project.id) == ws["project_id"]
+
+    clock["now"] = 111.0
+    with pytest.raises(HTTPException) as ei:
+        await deps._api_key_context_async(token, async_db_session)
+    assert ei.value.status_code == 401
+
+
 # --- idempotency key propagation (Phase 3) ----------------------------------
 
 

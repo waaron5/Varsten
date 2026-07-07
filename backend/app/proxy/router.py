@@ -11,7 +11,8 @@ POST /v1/chat/completions
 import asyncio
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Coroutine
+from contextlib import suppress
 from typing import Any, NamedTuple
 
 import httpx
@@ -24,7 +25,7 @@ from app.auth.entitlements import EntitlementState, entitlement_state_async
 from app.core import ratelimit
 from app.core.config import settings
 from app.core.logging import get_logger, request_id_ctx
-from app.db.session import get_async_db
+from app.db.session import get_async_db, get_async_session_factory
 from app.engine import (
     CandidateStatus,
     PlannerInput,
@@ -36,7 +37,7 @@ from app.engine import (
 from app.engine.priors import outcome_priors_for_request
 from app.engine.route_identity import route_key_from_context
 from app.eval import capture as eval_capture
-from app.models import Project
+from app.models import Project, ProxyCacheEntry
 from app.proxy import (
     budget_enforcement,
     cache,
@@ -73,6 +74,10 @@ from app.proxy.routing_eligibility import cross_provider_ineligibility
 router = APIRouter(tags=["proxy"])
 beta_router = APIRouter(prefix="/v1beta", tags=["proxy"])
 logger = get_logger("varsten.proxy")
+
+_detached_capture_loop: asyncio.AbstractEventLoop | None = None
+_detached_capture_queue: asyncio.Queue[Callable[[], Coroutine[Any, Any, None]]] | None = None
+_detached_capture_workers: list[asyncio.Task] = []
 
 SSE_MEDIA_TYPE = "text/event-stream"
 _EXACT_CACHE_ENFORCED_BLOCKERS = frozenset({"multimodal_content", "tools_present"})
@@ -356,6 +361,107 @@ def _bypass_reason(project: Project) -> str:
     if project.proxy_bypass_enabled:
         return "project_bypass"
     return "unknown"
+
+
+def _detached_capture_done(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        return
+    except Exception:
+        logger.exception("detached proxy capture task failed")
+
+
+async def _detached_capture_worker(queue: asyncio.Queue[Callable[[], Coroutine[Any, Any, None]]]) -> None:
+    while True:
+        job = await queue.get()
+        try:
+            await job()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("detached proxy capture job failed")
+        finally:
+            queue.task_done()
+
+
+def _detached_capture_worker_count() -> int:
+    return max(1, settings.proxy_capture_detached_max_concurrency)
+
+
+def _detached_capture_job_queue() -> asyncio.Queue[Callable[[], Coroutine[Any, Any, None]]]:
+    global _detached_capture_loop, _detached_capture_queue, _detached_capture_workers
+    loop = asyncio.get_running_loop()
+    worker_count = _detached_capture_worker_count()
+    if (
+        _detached_capture_queue is None
+        or _detached_capture_loop is not loop
+        or len(_detached_capture_workers) != worker_count
+        or any(worker.done() for worker in _detached_capture_workers)
+    ):
+        for worker in _detached_capture_workers:
+            worker.cancel()
+        _detached_capture_loop = loop
+        _detached_capture_queue = asyncio.Queue(maxsize=max(1, settings.proxy_capture_detached_queue_size))
+        _detached_capture_workers = [
+            asyncio.create_task(_detached_capture_worker(_detached_capture_queue)) for _ in range(worker_count)
+        ]
+        for worker in _detached_capture_workers:
+            worker.add_done_callback(_detached_capture_done)
+    return _detached_capture_queue
+
+
+def _enqueue_detached_capture(job: Callable[[], Coroutine[Any, Any, None]]) -> None:
+    queue = _detached_capture_job_queue()
+    try:
+        queue.put_nowait(job)
+    except asyncio.QueueFull:
+        logger.warning("detached proxy capture queue full; preserving telemetry with overflow task")
+        task = asyncio.create_task(job())
+        task.add_done_callback(_detached_capture_done)
+
+
+async def _release_request_db_before_upstream(db: AsyncSession, project_id: uuid.UUID) -> None:
+    """Return the request session's DB connection to the pool before provider I/O.
+
+    In detached-capture mode the request path has finished its DB reads before
+    forwarding. Holding that connection while waiting on the provider caps
+    throughput under concurrency. A commit after read-only work ends the
+    transaction and releases the connection; later fallback/error paths can
+    reacquire through the same session if needed. Fail-open: inability to release
+    only costs capacity, never the request."""
+    try:
+        await db.commit()
+    except Exception:
+        logger.exception("request DB release before upstream failed", extra={"project_id": str(project_id)})
+        with suppress(Exception):
+            await db.rollback()
+
+
+def _schedule_detached_capture(project: Project, api_key_id, capture_kwargs: dict[str, Any]) -> None:
+    async def job() -> None:
+        async with get_async_session_factory()() as capture_db:
+            await _capture(capture_db, project, api_key_id, **capture_kwargs)
+
+    _enqueue_detached_capture(job)
+
+
+def _schedule_detached_cache_hit(
+    project: Project,
+    api_key_id,
+    entry_id,
+    latency_ms: int,
+    cache_label: str,
+    draft: DecisionDraft | None,
+) -> None:
+    async def job() -> None:
+        async with get_async_session_factory()() as capture_db:
+            entry = await capture_db.get(ProxyCacheEntry, entry_id)
+            if entry is None:
+                return
+            await _meter_cache_hit(capture_db, project, api_key_id, entry, latency_ms, cache_label, draft)
+
+    _enqueue_detached_capture(job)
 
 
 async def _safe_outcome_priors(
@@ -678,10 +784,13 @@ async def _openai_dialect_completions(
             media_type=SSE_MEDIA_TYPE,
             headers=headers,
         )
+    if settings.proxy_capture_detached:
+        await _release_request_db_before_upstream(db, project.id)
     return await _forward_once(
         db,
         project,
         api_key_id,
+        background_tasks,
         client_key,
         adapter,
         body,
@@ -760,7 +869,10 @@ async def _maybe_serve_openai_cache(
             reason_code="exact_cache_lookup_allowed",
         )
         try:
-            entry = await cache.get_cached(db, project.id, cache_key)
+            if settings.proxy_capture_detached:
+                entry = await cache.get_cached_snapshot(db, project.id, cache_key)
+            else:
+                entry = await cache.get_cached(db, project.id, cache_key)
         except Exception:
             logger.exception("cache lookup failed; forwarding", extra={"project_id": str(project.id)})
             draft.add_runtime_trace(
@@ -778,6 +890,8 @@ async def _maybe_serve_openai_cache(
                 action="hit",
                 reason_code="exact_cache_hit",
             )
+            if settings.proxy_capture_detached:
+                await _release_request_db_before_upstream(db, project.id)
             return OpenAICacheProbe(
                 _serve_cache_hit(db, project, api_key_id, entry, stream, "hit", background_tasks, started, draft),
                 None,
@@ -1455,7 +1569,10 @@ def _serve_cache_hit(
     $0 ledger row are deferred to a BackgroundTask so no DB commit sits on the
     critical path; the cached bytes are already in memory."""
     latency_ms = int((time.perf_counter() - started) * 1000)
-    background_tasks.add_task(_meter_cache_hit, db, project, api_key_id, entry, latency_ms, cache_label, draft)
+    if settings.proxy_capture_detached:
+        _schedule_detached_cache_hit(project, api_key_id, entry.id, latency_ms, cache_label, draft)
+    else:
+        background_tasks.add_task(_meter_cache_hit, db, project, api_key_id, entry, latency_ms, cache_label, draft)
     # A cache hit is a successful (200) response Varsten served itself. Origin is
     # informational on a 2xx (the SDK only falls back on a failure status), tagged
     # honestly as varsten.
@@ -2672,6 +2789,7 @@ async def _forward_once(
     db,
     project,
     api_key_id,
+    background_tasks,
     client_key,
     adapter,
     body,
@@ -2713,29 +2831,30 @@ async def _forward_once(
         # the original payload reused verbatim, for any other provider it is the
         # canonical form rendered to OpenAI shape.
         payload = canonical.completion_payload(result)
-        await _capture(
-            db,
-            project,
-            api_key_id,
-            provider=adapter.provider,
-            model=result.model or model,
-            cache_model=model,
-            response_payload=payload,
-            cache_key=cache_key,
-            in_tok=result.usage.input_tokens,
-            out_tok=result.usage.output_tokens,
-            cached_tok=result.usage.provider_cached_input_tokens,
-            store_cache=store_cache,
-            embedding=embedding,
-            body=body,
-            routed_from=routed_from,
-            routed_from_provider=routed_from_provider,
-            arm=arm,
-            exp_from=exp_from,
-            exp_to=exp_to,
-            latency_ms=latency_ms,
-            draft=draft,
-        )
+        capture_kwargs = {
+            "provider": adapter.provider,
+            "model": result.model or model,
+            "cache_model": model,
+            "response_payload": payload,
+            "cache_key": cache_key,
+            "in_tok": result.usage.input_tokens,
+            "out_tok": result.usage.output_tokens,
+            "cached_tok": result.usage.provider_cached_input_tokens,
+            "store_cache": store_cache,
+            "embedding": embedding,
+            "body": body,
+            "routed_from": routed_from,
+            "routed_from_provider": routed_from_provider,
+            "arm": arm,
+            "exp_from": exp_from,
+            "exp_to": exp_to,
+            "latency_ms": latency_ms,
+            "draft": draft,
+        }
+        if settings.proxy_capture_detached:
+            _schedule_detached_capture(project, api_key_id, capture_kwargs)
+        else:
+            background_tasks.add_task(_capture, db, project, api_key_id, **capture_kwargs)
         return JSONResponse(payload, headers=headers)
 
     # A 4xx (other than 429) is the client's request, not the provider faltering:

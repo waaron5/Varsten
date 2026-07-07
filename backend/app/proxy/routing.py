@@ -13,15 +13,18 @@ smart_routing) view of it.
 """
 
 import random
+import threading
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
+from cachetools import TTLCache
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine import bandit
 from app.engine.priors import candidate_stats_for_request
@@ -64,7 +67,54 @@ class RouteDecision(NamedTuple):
     bandit_trace: dict | None = None
 
 
-def bandit_candidate_entries(policy: ProxyPolicy) -> list[dict]:
+class _RoutingPolicySnapshot(NamedTuple):
+    id: uuid.UUID
+    lever: str
+    candidate_model: str | None
+    candidate_provider: str | None
+    holdback_percent: Decimal
+    source_recommendation_id: uuid.UUID | None
+    params: dict[str, Any]
+    rollout_percent: int
+    route_key: str | None
+
+
+_POLICY_CACHE_TTL_SECONDS = 30
+_policy_cache: TTLCache[tuple[str, str, str | None], _RoutingPolicySnapshot | None] = TTLCache(
+    maxsize=4096,
+    ttl=_POLICY_CACHE_TTL_SECONDS,
+)
+_policy_lock = threading.Lock()
+
+
+def clear_policy_cache(project_id: uuid.UUID | None = None) -> None:
+    with _policy_lock:
+        if project_id is None:
+            _policy_cache.clear()
+            return
+        prefix = str(project_id)
+        for key in list(_policy_cache.keys()):
+            if key[0] == prefix:
+                _policy_cache.pop(key, None)
+
+
+def _snapshot(policy: ProxyPolicy | None) -> _RoutingPolicySnapshot | None:
+    if policy is None:
+        return None
+    return _RoutingPolicySnapshot(
+        id=policy.id,
+        lever=policy.lever,
+        candidate_model=policy.candidate_model,
+        candidate_provider=policy.candidate_provider,
+        holdback_percent=policy.holdback_percent or Decimal("0"),
+        source_recommendation_id=policy.source_recommendation_id,
+        params=dict(policy.params or {}),
+        rollout_percent=policy.rollout_percent,
+        route_key=policy.route_key,
+    )
+
+
+def bandit_candidate_entries(policy: ProxyPolicy | _RoutingPolicySnapshot) -> list[dict]:
     """The policy's eval-cleared additional candidates: [{"model", "provider"}].
     Only ``add_bandit_candidate`` may grow this list (it enforces clearance)."""
     entries = (policy.params or {}).get("bandit_candidates")
@@ -79,9 +129,16 @@ async def _routing_policy_for_model(
     requested_model: str,
     *,
     route_key: str | None = None,
-) -> ProxyPolicy | None:
+) -> _RoutingPolicySnapshot | None:
     """The enabled routing-lever policy that applies to this incumbent model, if
     any. At most one is expected; the most recently activated wins if not."""
+    key = (str(project_id), requested_model, route_key)
+    if settings.proxy_policy_cache_enabled:
+        with _policy_lock:
+            cached = _policy_cache.get(key)
+        if key in _policy_cache:
+            return cached
+
     base = (
         select(ProxyPolicy)
         .where(
@@ -96,9 +153,15 @@ async def _routing_policy_for_model(
     if route_key:
         exact = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
         if exact is not None:
-            return exact
-        return (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
-    return (await db.scalars(base)).first()
+            snapshot = _snapshot(exact)
+        else:
+            snapshot = _snapshot((await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first())
+    else:
+        snapshot = _snapshot((await db.scalars(base)).first())
+    if settings.proxy_policy_cache_enabled:
+        with _policy_lock:
+            _policy_cache[key] = snapshot
+    return snapshot
 
 
 async def resolve_route(
@@ -153,7 +216,7 @@ async def _maybe_bandit_select(
     db: AsyncSession,
     project_id: uuid.UUID,
     requested_model: str,
-    policy: ProxyPolicy,
+    policy: ProxyPolicy | _RoutingPolicySnapshot,
     primary_model: str,
     primary_provider: str,
 ) -> tuple[str, str, dict | None]:
@@ -283,6 +346,7 @@ def activate_rule(
     policy.enabled = True
     policy.source_recommendation_id = recommendation.id
     policy.activated_at = at
+    clear_policy_cache(project.id)
     return policy
 
 
@@ -292,6 +356,7 @@ def deactivate_rules_for_recommendation(db: Session, recommendation: Recommendat
     db.execute(
         update(ProxyPolicy).where(ProxyPolicy.source_recommendation_id == recommendation.id).values(enabled=False)
     )
+    clear_policy_cache(recommendation.project_id)
 
 
 # --- bandit candidate management (control plane) --------------------------------
@@ -381,6 +446,7 @@ def add_bandit_candidate(
         },
     ]
     policy.params = {**(policy.params or {}), "bandit_candidates": entries}
+    clear_policy_cache(policy.project_id)
     logger.info(
         "bandit candidate added",
         extra={"project_id": str(policy.project_id), "policy_id": str(policy.id), "candidate": candidate_model},
@@ -398,6 +464,7 @@ def remove_bandit_candidate(db: Session, policy: ProxyPolicy, candidate_model: s
     if len(remaining) == len(entries):
         return False
     policy.params = {**(policy.params or {}), "bandit_candidates": remaining}
+    clear_policy_cache(policy.project_id)
     logger.info(
         "bandit candidate removed",
         extra={"project_id": str(policy.project_id), "policy_id": str(policy.id), "candidate": candidate_model},

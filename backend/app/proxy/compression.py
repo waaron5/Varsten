@@ -25,6 +25,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine.compression import artifact_for_recommendation, substitute_system_prompt
 from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
@@ -54,6 +55,46 @@ class CompressionDecision(NamedTuple):
     source_recommendation_id: uuid.UUID | None = None
 
 
+class _CompressionPolicySnapshot(NamedTuple):
+    id: uuid.UUID
+    holdback_percent: Decimal
+    artifact_id: uuid.UUID | None
+    source_recommendation_id: uuid.UUID | None
+    rollout_percent: int
+
+
+_POLICY_CACHE_TTL_SECONDS = 30
+_policy_cache: TTLCache[tuple[str, str, str | None], _CompressionPolicySnapshot | None] = TTLCache(
+    maxsize=4096,
+    ttl=_POLICY_CACHE_TTL_SECONDS,
+)
+_policy_lock = threading.Lock()
+
+
+def clear_policy_cache(project_id: uuid.UUID | None = None) -> None:
+    with _policy_lock:
+        if project_id is None:
+            _policy_cache.clear()
+            return
+        prefix = str(project_id)
+        for key in list(_policy_cache.keys()):
+            if key[0] == prefix:
+                _policy_cache.pop(key, None)
+
+
+def _snapshot(policy: ProxyPolicy | None) -> _CompressionPolicySnapshot | None:
+    if policy is None:
+        return None
+    raw_artifact_id = (policy.params or {}).get("artifact_id")
+    return _CompressionPolicySnapshot(
+        id=policy.id,
+        holdback_percent=policy.holdback_percent or Decimal("0"),
+        artifact_id=uuid.UUID(str(raw_artifact_id)) if raw_artifact_id else None,
+        source_recommendation_id=policy.source_recommendation_id,
+        rollout_percent=policy.rollout_percent,
+    )
+
+
 def clear_artifact_cache() -> None:
     with _artifact_lock:
         _artifact_cache.clear()
@@ -71,33 +112,46 @@ async def resolve_compression(
     if not requested_model:
         return None
     try:
-        base = (
-            select(ProxyPolicy)
-            .where(
-                ProxyPolicy.project_id == project_id,
-                ProxyPolicy.lever == LEVER,
-                ProxyPolicy.target_key == requested_model,
-                ProxyPolicy.enabled.is_(True),
+        key = (str(project_id), requested_model, route_key)
+        cache_hit = False
+        policy: _CompressionPolicySnapshot | None = None
+        if settings.proxy_policy_cache_enabled:
+            with _policy_lock:
+                cached = _policy_cache.get(key)
+            if key in _policy_cache:
+                cache_hit = True
+                policy = cached
+        if not cache_hit:
+            base = (
+                select(ProxyPolicy)
+                .where(
+                    ProxyPolicy.project_id == project_id,
+                    ProxyPolicy.lever == LEVER,
+                    ProxyPolicy.target_key == requested_model,
+                    ProxyPolicy.enabled.is_(True),
+                )
+                .order_by(ProxyPolicy.activated_at.desc().nullslast())
+                .limit(1)
             )
-            .order_by(ProxyPolicy.activated_at.desc().nullslast())
-            .limit(1)
-        )
-        if route_key:
-            policy = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
-            if policy is None:
-                policy = (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
-        else:
-            policy = (await db.scalars(base)).first()
+            if route_key:
+                row = (await db.scalars(base.where(ProxyPolicy.route_key == route_key))).first()
+                if row is None:
+                    row = (await db.scalars(base.where(ProxyPolicy.route_key == DEFAULT_ROUTE))).first()
+            else:
+                row = (await db.scalars(base)).first()
+            policy = _snapshot(row)
+            if settings.proxy_policy_cache_enabled:
+                with _policy_lock:
+                    _policy_cache[key] = policy
         if policy is None:
             return None
-        raw_artifact_id = (policy.params or {}).get("artifact_id")
-        if not raw_artifact_id:
+        if policy.artifact_id is None:
             return None
         if not canary.in_rollout(policy.rollout_percent):
             return None
         return CompressionDecision(
-            policy.holdback_percent or Decimal("0"),
-            uuid.UUID(str(raw_artifact_id)),
+            policy.holdback_percent,
+            policy.artifact_id,
             policy_id=policy.id,
             source_recommendation_id=policy.source_recommendation_id,
         )
@@ -204,6 +258,7 @@ def activate_compression_policy(
     policy.source_recommendation_id = recommendation.id
     policy.activated_at = at
     clear_artifact_cache()
+    clear_policy_cache(project.id)
     return policy
 
 
@@ -217,3 +272,5 @@ def deactivate_compression_for_recommendation(db: Session, recommendation: Recom
         )
         .values(enabled=False)
     )
+    clear_artifact_cache()
+    clear_policy_cache(recommendation.project_id)

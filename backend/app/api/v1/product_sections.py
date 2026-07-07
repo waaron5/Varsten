@@ -588,6 +588,26 @@ _PERIOD_LABELS: dict[str, str] = {
     "year": "Year to date · vs last year",
 }
 _RATIO = Decimal("0.0001")
+_HIGH_CONFIDENCE_MIN = Decimal("0.8")
+_MEDIUM_CONFIDENCE_MIN = Decimal("0.6")
+_CONFIDENCE_COPY = {
+    "none": (
+        "No score",
+        "No requests have run through Varsten in this period, so there is no integrity score yet.",
+    ),
+    "low": (
+        "Low Confidence",
+        "Pricing coverage is below the reporting threshold. Fix unpriced traffic and missing metadata before using this score for decisions.",
+    ),
+    "medium": (
+        "Medium Confidence",
+        "Suitable for internal reporting. Improve pricing coverage and tagging for board-ready numbers.",
+    ),
+    "high": (
+        "High Confidence",
+        "Numbers are suitable for board-level reporting and finance decisions.",
+    ),
+}
 
 
 def _share(part: Decimal | None, whole: Decimal | None) -> Decimal | None:
@@ -596,20 +616,14 @@ def _share(part: Decimal | None, whole: Decimal | None) -> Decimal | None:
     return (Decimal(part) / Decimal(whole)).quantize(_RATIO)
 
 
-def _confidence_label(score: Decimal | None) -> str:
-    if score is None or score < Decimal("0.6"):
-        return "Building confidence"
-    if score >= Decimal("0.8"):
-        return "High confidence"
-    return "Medium confidence"
-
-
-def _confidence_note(score: Decimal | None) -> str:
-    if score is None or score < Decimal("0.6"):
-        return "Increase pricing coverage and metadata tagging to improve your trust score."
-    if score >= Decimal("0.8"):
-        return "Numbers are suitable for board-level reporting and finance decisions."
-    return "Suitable for internal reporting. Improve pricing coverage and tagging for board-ready numbers."
+def _confidence_level(score: Decimal | None) -> str:
+    if score is None:
+        return "none"
+    if score >= _HIGH_CONFIDENCE_MIN:
+        return "high"
+    if score >= _MEDIUM_CONFIDENCE_MIN:
+        return "medium"
+    return "low"
 
 
 def _measurement_method_label(has_direct: bool, has_holdback: bool) -> str:
@@ -816,10 +830,13 @@ def _build_dashboard_snapshot(db: Session, project: Project, period: Period) -> 
     else:
         verified = None
         measured_share = None
+    confidence_level = _confidence_level(score)
+    confidence_label, confidence_note = _CONFIDENCE_COPY[confidence_level]
     proof_trust = ProofTrust(
         score=score,
-        confidence_label=_confidence_label(score),
-        confidence_note=_confidence_note(score),
+        confidence_level=confidence_level,
+        confidence_label=confidence_label,
+        confidence_note=confidence_note,
         pricing_coverage=coverage,
         attribution_share=attribution,
         verified_savings_usd=verified,

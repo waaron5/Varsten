@@ -1646,6 +1646,7 @@ dependencies = [
     { name = "boto3" },
     { name = "botocore" },
     { name = "cachetools" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pgvector" },
@@ -1663,7 +1664,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "bandit" },
-    { name = "cryptography" },
     { name = "deptry" },
     { name = "mypy" },
     { name = "pip-audit" },
@@ -1680,6 +1680,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "botocore", specifier = ">=1.43.24" },
     { name = "cachetools", specifier = ">=7.1.4" },
+    { name = "cryptography", specifier = ">=48.0.0" },
     { name = "fastapi", specifier = ">=0.136.3" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pgvector", specifier = ">=0.3.0" },
@@ -1697,7 +1698,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", specifier = ">=1.9.4" },
-    { name = "cryptography", specifier = ">=48.0.0" },
     { name = "deptry", specifier = ">=0.25.1" },
     { name = "mypy", specifier = ">=2.1.0" },
     { name = "pip-audit", specifier = ">=2.10.0" },

@@ -133,6 +133,19 @@ def clear_api_key_cache() -> None:
     _api_key_cache.clear()
 
 
+def _cached_api_key_context(key_hash: str, ttl: float) -> ApiKeyContext | None:
+    if ttl <= 0:
+        return None
+    cached = _api_key_cache.get(key_hash)
+    if cached is None:
+        return None
+    stored_at, ctx = cached
+    if time.monotonic() - stored_at <= ttl:
+        return ctx
+    _api_key_cache.pop(key_hash, None)
+    return None
+
+
 async def _resolve_api_key_context_async(key_hash: str, db: AsyncSession) -> ApiKeyContext:
     """Resolve the project + API key from the database. Raises HTTPException for an
     auth rejection (unknown/revoked key, missing project); lets a database error
@@ -171,6 +184,10 @@ async def _api_key_context_async(token: str, db: AsyncSession) -> ApiKeyContext:
     """
     key_hash = hash_api_key(token)
     ttl = settings.api_key_cache_ttl_seconds
+    if settings.api_key_positive_cache_enabled:
+        cached = _cached_api_key_context(key_hash, ttl)
+        if cached is not None:
+            return cached
     try:
         ctx = await _resolve_api_key_context_async(key_hash, db)
     except HTTPException:
@@ -181,11 +198,10 @@ async def _api_key_context_async(token: str, db: AsyncSession) -> ApiKeyContext:
         # The database failed, not the credential. Serve a known key's cached context
         # if it is fresh enough. Unknown keys never have a cache entry, so they still
         # fail (the error propagates) and never get forwarded.
-        if ttl > 0:
-            cached = _api_key_cache.get(key_hash)
-            if cached is not None and (time.monotonic() - cached[0]) <= ttl:
-                logger.warning("api-key database lookup failed; serving cached context (degraded)")
-                return cached[1]
+        cached = _cached_api_key_context(key_hash, ttl)
+        if cached is not None:
+            logger.warning("api-key database lookup failed; serving cached context (degraded)")
+            return cached
         raise
 
     if ttl > 0:

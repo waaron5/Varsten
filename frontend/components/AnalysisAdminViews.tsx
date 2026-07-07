@@ -263,7 +263,7 @@ function ProviderConnectionRow({
   onSave: (event: FormEvent, provider: string) => void;
   provider: { id: string; label: string; placeholder: string };
 }) {
-  const state = providerConnectionRowState({ activeProjectId, busy, connection, keyDraft, providerId: provider.id });
+  const state = providerConnectionRowState({ activeProjectId, busy, connection, providerId: provider.id });
   return (
     <tr>
       <ProviderNameCell connection={connection} label={provider.label} />
@@ -298,13 +298,11 @@ function providerConnectionRowState({
   activeProjectId,
   busy,
   connection,
-  keyDraft,
   providerId,
 }: {
   activeProjectId: string | null;
   busy: ProviderBusy;
   connection: ProviderConnection | null;
-  keyDraft: string;
   providerId: string;
 }) {
   const action = busyActionForProvider(busy, providerId);

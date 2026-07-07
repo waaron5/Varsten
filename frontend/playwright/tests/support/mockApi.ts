@@ -293,6 +293,15 @@ export function createOnboardingStatus(overrides: JsonObject = {}): JsonObject {
         message: "Add metadata headers to make savings attribution board-ready.",
       },
     },
+    integration: {
+      providers: [
+        { provider: "openai", method: "none", sdk_client: null, key_configured: false },
+        { provider: "anthropic", method: "none", sdk_client: null, key_configured: false },
+        { provider: "gemini", method: "none", sdk_client: null, key_configured: false },
+      ],
+      any_sdk: false,
+      base_url_without_sdk: false,
+    },
     checklist: [
       { key: "has_api_key", complete: false },
       { key: "has_provider_connection", complete: false },
@@ -434,6 +443,7 @@ export function createDashboardSnapshot(overrides: JsonObject = {}): JsonObject 
     },
     proof_trust: {
       score: "0.98",
+      confidence_level: "high",
       confidence_label: "High Confidence",
       confidence_note: "Every figure is audit-ready.",
       pricing_coverage: "1.00",

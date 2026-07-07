@@ -188,7 +188,16 @@ function ProofSavingsBody() {
       />
       <Tabs tabs={PROOF_TABS} active="/proof/savings" />
       {loading || error || !data ? (
-        <div className="card"><PageState loading={loading} error={error} empty={!data && !loading ? "No savings proof yet" : undefined} /></div>
+        <div className="card"><PageState
+          loading={loading}
+          error={error}
+          empty={!data && !loading ? "No verified savings yet" : undefined}
+          emptyDetail={
+            !data && !loading
+              ? "Every dollar here is measured, not modeled. Once optimization is on, a small random slice of traffic stays on the original model as a live control arm — the savings shown are the measured difference between the two, with confidence intervals a CFO can audit. Turn on Performance and let traffic accrue to populate this page."
+              : undefined
+          }
+        /></div>
       ) : (
         <ProofSavingsContent data={data} />
       )}

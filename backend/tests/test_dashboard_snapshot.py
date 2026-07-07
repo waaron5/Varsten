@@ -23,7 +23,14 @@ def _project(db_session, ws: dict) -> Project:
     return db_session.get(Project, uuid.UUID(ws["project_id"]))
 
 
-def _event(project: Project, *, cost: str, saved: str | None, kind: str | None) -> UsageEvent:
+def _event(
+    project: Project,
+    *,
+    cost: str,
+    saved: str | None,
+    kind: str | None,
+    pricing_status: str = "priced",
+) -> UsageEvent:
     meta: dict = {"proxy": True}
     if kind == "cache":
         meta["cache"] = "hit"
@@ -50,8 +57,8 @@ def _event(project: Project, *, cost: str, saved: str | None, kind: str | None) 
         cached_input_tokens=0,
         total_tokens=150,
         cost_usd=Decimal(cost),
-        cost_source="catalog",
-        pricing_status="priced",
+        cost_source="catalog" if pricing_status == "priced" else "unknown",
+        pricing_status=pricing_status,
         currency="USD",
         status="success",
         success=True,
@@ -88,6 +95,9 @@ def test_snapshot_is_all_null_on_empty_project(client, provision):
     assert all(kpi["delta"]["delta_pct"] is None for kpi in snap["kpis"])
     assert snap["savings_trend"] == []
     assert snap["proof_trust"]["score"] is None
+    assert snap["proof_trust"]["confidence_level"] == "none"
+    assert snap["proof_trust"]["confidence_label"] == "No score"
+    assert "no integrity score" in snap["proof_trust"]["confidence_note"]
     # Every lever is always present; an unconfigured project shows them Off.
     assert {lever["lever"] for lever in snap["levers"]} == {
         "semantic_cache",
@@ -104,6 +114,43 @@ def test_snapshot_is_all_null_on_empty_project(client, provision):
     assert set(coverage) == {"openai", "anthropic", "gemini"}
     assert all(not row["sdk_enabled"] for row in coverage.values())
     assert all(row["status"] == "Not enabled" for row in coverage.values())
+
+
+def test_snapshot_confidence_levels_reflect_real_pricing_score(client, db_session, provision):
+    medium_ws = provision(sub="auth0|snap-medium-confidence", email="snap-medium-confidence@example.com")
+    medium_project = _project(db_session, medium_ws)
+    db_session.add_all(
+        [
+            _event(medium_project, cost="1.00", saved=None, kind=None),
+            _event(medium_project, cost="1.00", saved=None, kind=None),
+            _event(medium_project, cost="1.00", saved=None, kind=None),
+            _event(medium_project, cost="1.00", saved=None, kind=None, pricing_status="unpriced"),
+            _event(medium_project, cost="1.00", saved=None, kind=None, pricing_status="unpriced"),
+        ]
+    )
+
+    low_ws = provision(sub="auth0|snap-low-confidence", email="snap-low-confidence@example.com")
+    low_project = _project(db_session, low_ws)
+    db_session.add_all(
+        [
+            _event(low_project, cost="1.00", saved=None, kind=None),
+            _event(low_project, cost="1.00", saved=None, kind=None),
+            _event(low_project, cost="1.00", saved=None, kind=None, pricing_status="unpriced"),
+            _event(low_project, cost="1.00", saved=None, kind=None, pricing_status="unpriced"),
+            _event(low_project, cost="1.00", saved=None, kind=None, pricing_status="unpriced"),
+        ]
+    )
+    db_session.commit()
+
+    medium = client.get("/v1/dashboard/snapshot", headers=_b(medium_ws["api_key"])).json()
+    assert Decimal(medium["proof_trust"]["score"]) == Decimal("0.6000")
+    assert medium["proof_trust"]["confidence_level"] == "medium"
+    assert medium["proof_trust"]["confidence_label"] == "Medium Confidence"
+
+    low = client.get("/v1/dashboard/snapshot", headers=_b(low_ws["api_key"])).json()
+    assert Decimal(low["proof_trust"]["score"]) == Decimal("0.4000")
+    assert low["proof_trust"]["confidence_level"] == "low"
+    assert low["proof_trust"]["confidence_label"] == "Low Confidence"
 
 
 def test_snapshot_fallback_coverage_reflects_sdk_traffic(client, db_session, provision):
@@ -188,6 +235,8 @@ def test_snapshot_panels_reconcile(client, db_session, provision):
     assert Decimal(snap["drivers"]["actual_total_usd"]) == Decimal("5.00")
     assert any(row["key"] == "engineering" for row in snap["drivers"]["team"])
     assert snap["proof_trust"]["score"] is not None
+    assert snap["proof_trust"]["confidence_level"] == "high"
+    assert snap["proof_trust"]["confidence_label"] == "High Confidence"
 
 
 def test_snapshot_exposes_verified_savings_at_top_level(client, db_session, provision):

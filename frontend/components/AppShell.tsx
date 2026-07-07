@@ -63,6 +63,7 @@ const ROUTE_LABELS: Record<string, { title: string; crumb: string }> = {
   "/admin/billing-security": { title: "Settings", crumb: "Settings / Billing & Security" },
   "/breakdowns": { title: "Breakdowns", crumb: "Explore / Breakdowns" },
   "/explorer": { title: "Explorer", crumb: "Explore / Usage Events" },
+  "/onboarding": { title: "Setup", crumb: "Setup" },
   "/setup": { title: "Setup", crumb: "Project / Setup" },
   "/settings": { title: "Settings", crumb: "Project / Settings" },
 };

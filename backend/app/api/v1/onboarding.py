@@ -57,13 +57,29 @@ def _metadata_quality(task_type: str | None, feature: str | None, workflow: str 
     }
 
 
+# The three integration methods, in order of production-safety. A provider that
+# ever sent SDK-marked traffic is treated as SDK even if a stray base-URL request
+# also landed, because the SDK is the fail-open path the customer should keep.
+INTEGRATION_SDK = "sdk"  # fail-open SDK wrapper (X-Varsten-Client marker present)
+INTEGRATION_BASE_URL = "base_url"  # inline base-URL proxy, no automatic fallback
+INTEGRATION_METADATA = "metadata"  # async POST /usage-events, nothing inline
+INTEGRATION_NONE = "none"
+
+_INTEGRATION_PROVIDERS = ("openai", "anthropic", "gemini")
+
+
 def _first_request(db: Session, project: Project) -> dict:
     count = db.scalar(select(func.count()).select_from(UsageEvent).where(UsageEvent.project_id == project.id)) or 0
     event = db.scalar(
         select(UsageEvent).where(UsageEvent.project_id == project.id).order_by(UsageEvent.received_at.desc()).limit(1)
     )
     if event is None:
-        return {"seen": False, "request_count": 0, "metadata_quality": _metadata_quality(None, None, None)}
+        return {
+            "seen": False,
+            "request_count": 0,
+            "source": None,
+            "metadata_quality": _metadata_quality(None, None, None),
+        }
 
     decision = db.scalar(select(RequestDecisionEvent).where(RequestDecisionEvent.usage_event_id == event.id).limit(1))
     meta = event.event_metadata or {}
@@ -71,6 +87,7 @@ def _first_request(db: Session, project: Project) -> dict:
     return {
         "seen": True,
         "request_count": int(count),
+        "source": event.source,
         "request_id": decision.request_id if decision else None,
         "provider": event.provider,
         "model": event.model,
@@ -86,6 +103,62 @@ def _first_request(db: Session, project: Project) -> dict:
         "task_type": task_type,
         "occurred_at": event.received_at,
         "metadata_quality": _metadata_quality(task_type, event.feature, event.workflow),
+    }
+
+
+def _integration(db: Session, project: Project, connected_providers: set[str]) -> dict:
+    """Detected integration method per provider, from real traffic — never stored.
+
+    Mirrors the dashboard's fallback-coverage detection: SDK traffic carries the
+    ``X-Varsten-Client`` marker (recorded in event metadata), proxy traffic has
+    ``source='proxy'``, async ingestion has ``source='ingest'``. This drives the
+    onboarding nudge that moves base-URL traffic onto the fail-open SDK before it
+    goes to production, and lets the funnel confirm the chosen path is live."""
+    try:
+        seen = {
+            row.provider: row
+            for row in db.execute(
+                select(
+                    UsageEvent.provider,
+                    func.max(UsageEvent.event_metadata["sdk_client"].astext).label("sdk_client"),
+                    func.bool_or(UsageEvent.source == "proxy").label("any_proxy"),
+                    func.bool_or(UsageEvent.source == "ingest").label("any_ingest"),
+                )
+                .where(UsageEvent.project_id == project.id)
+                .group_by(UsageEvent.provider)
+            ).all()
+        }
+    except Exception:
+        seen = {}
+
+    providers: list[dict] = []
+    for provider in _INTEGRATION_PROVIDERS:
+        row = seen.get(provider)
+        sdk_client = row.sdk_client if row else None
+        if sdk_client is not None:
+            method = INTEGRATION_SDK
+        elif row and row.any_proxy:
+            method = INTEGRATION_BASE_URL
+        elif row and row.any_ingest:
+            method = INTEGRATION_METADATA
+        else:
+            method = INTEGRATION_NONE
+        providers.append(
+            {
+                "provider": provider,
+                "method": method,
+                "sdk_client": sdk_client,
+                "key_configured": provider in connected_providers,
+            }
+        )
+
+    any_sdk = any(p["method"] == INTEGRATION_SDK for p in providers)
+    # The nudge: a provider running inline base-URL with no fail-open SDK anywhere.
+    base_url_without_sdk = any(p["method"] == INTEGRATION_BASE_URL for p in providers) and not any_sdk
+    return {
+        "providers": providers,
+        "any_sdk": any_sdk,
+        "base_url_without_sdk": base_url_without_sdk,
     }
 
 
@@ -121,8 +194,10 @@ def onboarding_status(
         for c in connections
     ]
     has_provider = any(c.status == "connected" for c in connections)
+    connected_providers = {c.provider for c in connections if c.status == "connected"}
 
     first_request = _first_request(db, project)
+    integration = _integration(db, project, connected_providers)
 
     has_api_key = active_keys > 0
     snippet_viewed = bool(org and org.integration_snippet_viewed_at)
@@ -151,6 +226,7 @@ def onboarding_status(
         "dashboard_entered": dashboard_entered,
         "provider_connections": provider_connections,
         "first_request": first_request,
+        "integration": integration,
         "checklist": checklist,
     }
 

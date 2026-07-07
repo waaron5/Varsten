@@ -6,10 +6,12 @@
 // This layout is the canonical design reference for future pages. The period
 // toggle + Export live in the top navbar (see DashboardTopbarControls).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usd } from "@/lib/format";
+import { useEntitlements } from "@/components/entitlements";
+import { DOCS_HREF } from "@/lib/integrationSnippets";
 import { NetSavingsTrendChart } from "./lazyCharts";
 import { PanelEmpty, PanelSkeleton } from "./primitives";
 import { useDashboard } from "./DashboardProvider";
@@ -315,6 +317,21 @@ function attributionBadge(value: number | null): { text: string; cls: string } {
   return { text: "Low", cls: "amber" };
 }
 
+function proofConfidenceClass(level: DashboardProofTrust["confidence_level"]): string {
+  return `confidence-${level}`;
+}
+
+function ratioValueCls(value: number | null, highThreshold: number): string {
+  if (value === null) return "gray";
+  return value >= highThreshold ? "confidence" : "amber";
+}
+
+function verifiedSavingsBadge(proof: DashboardProofTrust, measured: number | null): { text: string; cls: string } {
+  if (proof.claimed_savings_usd === null) return { text: "No data", cls: "gray" };
+  if (measured !== null && measured > 0) return { text: "Ledger-Backed", cls: "confidence" };
+  return { text: "Modeled", cls: "amber" };
+}
+
 function ProofMetric({
   name,
   badge,
@@ -350,9 +367,10 @@ function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
   const attribution = num(proof.attribution_share);
   const measured = num(proof.measured_share);
   const hero = proofHeroValues(proof);
+  const isHighConfidence = proof.confidence_level === "high";
 
   return (
-    <section className="dash-card dash-proof-card">
+    <section className={`dash-card dash-proof-card ${proofConfidenceClass(proof.confidence_level)}`}>
       <div className="dash-card-head">
         <h2>Data Integrity</h2>
         <Link href="/proof/attribution" className="dash-head-link">View Audit Trail →</Link>
@@ -360,16 +378,16 @@ function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
 
       <div className="dash-proof-hero">
         <div className="dash-proof-hero-main">
-          <span className="dash-proof-check" aria-hidden="true">✓</span>
+          {isHighConfidence && <span className="dash-proof-check" aria-hidden="true">✓</span>}
           <div>
             <p className="dash-proof-section-title">Confidence Score</p>
-            <p className="dash-proof-hero-label">High Confidence</p>
-            <p className="dash-proof-hero-note">Every figure is audit-ready and approved for board-level reporting and finance decisions.</p>
+            <p className="dash-proof-hero-label">{proof.confidence_label}</p>
+            <p className="dash-proof-hero-note">{proof.confidence_note}</p>
           </div>
         </div>
         <div className="dash-proof-hero-score">
           <b>{hero.scoreDisplay}</b>
-          <span>/ 100</span>
+          <span>{hero.scoreSuffix}</span>
         </div>
       </div>
 
@@ -378,21 +396,21 @@ function ProofTrustPanel({ proof }: { proof: DashboardProofTrust }) {
           name="Pricing coverage"
           badge={coverageBadge(coverage)}
           value={pct(proof.pricing_coverage, 0)}
-          valueCls={coverage !== null && coverage >= 0.9 ? "confidence" : "amber"}
+          valueCls={ratioValueCls(coverage, 0.9)}
           desc="All spend is priced against official provider catalogs or your organization's negotiated rates — never estimated or self-reported."
         />
         <ProofMetric
           name="Verified savings"
-          badge={measured !== null && measured > 0 ? { text: "Ledger-Backed", cls: "confidence" } : { text: "Modeled", cls: "amber" }}
+          badge={verifiedSavingsBadge(proof, measured)}
           value={proof.claimed_savings_usd === null ? "—" : `${money(proof.verified_savings_usd)} of ${money(proof.claimed_savings_usd)}`}
-          valueCls="confidence"
+          valueCls={proof.claimed_savings_usd === null ? "gray" : "confidence"}
           desc={hero.verifiedDesc}
         />
         <ProofMetric
           name="Spend attribution"
           badge={attributionBadge(attribution)}
           value={pct(proof.attribution_share, 1)}
-          valueCls={attribution !== null && attribution >= 0.9 ? "confidence" : "amber"}
+          valueCls={ratioValueCls(attribution, 0.9)}
           desc="Every request is tagged to a team or feature, so all spend is fully accountable and owned."
         />
       </div>
@@ -406,6 +424,7 @@ function proofHeroValues(proof: DashboardProofTrust) {
   const measuredPct = measured === null ? 0 : Math.round(measured * 100);
   return {
     scoreDisplay: score === null ? "—" : String(Math.round(score * 100)),
+    scoreSuffix: score === null ? "No data" : "/ 100",
     verifiedDesc: proof.claimed_savings_usd === null
       ? "Verified savings appear once measured optimizations run."
       : `Savings are traced to real cache hits, routing events, and batch records — ${measuredPct}% recorded, ${100 - measuredPct}% modeled.`,
@@ -448,6 +467,83 @@ function FallbackCoveragePanel({ coverage }: { coverage: FallbackCoverageRow[] }
   );
 }
 
+// Shown the moment onboarding is finished but no traffic has arrived. Replaces
+// the whole dashboard grid — a wall of "—" placeholders is a worse first
+// impression than a focused "you're set up, waiting for traffic" state. Polls so
+// it flips to the live dashboard the instant the first request lands, matching
+// the onboarding verify step's live confirmation.
+function DashboardEmptyState() {
+  const { observeOnly } = useEntitlements();
+  const { reload } = useDashboard();
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const maxDurationMs = 20 * 60 * 1000;
+    const id = window.setInterval(() => {
+      if (Date.now() - startedAt > maxDurationMs) {
+        window.clearInterval(id);
+        return;
+      }
+      void reload();
+    }, 6000);
+    return () => window.clearInterval(id);
+  }, [reload]);
+
+  return (
+    <section className="dash-card dash-empty">
+      <div className="dash-empty-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 12h4l2 6 4-14 2 8h6" />
+        </svg>
+      </div>
+      <h2 className="dash-empty-title">Waiting for your first request</h2>
+      <p className="dash-empty-body">
+        You&apos;re connected.{" "}
+        {observeOnly
+          ? "The moment traffic flows through Varsten, this dashboard fills in with your live spend and where it can be cut."
+          : "The moment traffic flows through Varsten, this dashboard fills in with your live spend, the cuts worth real money, and a verified savings number for finance."}{" "}
+        Nothing in production changes until you turn on optimization.
+      </p>
+      <div className="dash-empty-live">
+        <span className="spinner" />
+        <span>Listening for your first request — this page updates the instant it lands.</span>
+      </div>
+      <div className="dash-empty-actions">
+        <Link href="/onboarding" className="btn primary">View setup steps</Link>
+        <a href={DOCS_HREF} target="_blank" rel="noreferrer" className="btn">Read the docs</a>
+      </div>
+    </section>
+  );
+}
+
+function FirstRunBanner({ mode, grossSavings }: { mode: string; grossSavings: string | null }) {
+  const { observeOnly } = useEntitlements();
+
+  if (mode === "empty") return null;
+
+  if (observeOnly) {
+    const opportunity = num(grossSavings);
+    return (
+      <section className="dash-card">
+        <div className="dash-card-head">
+          <h2>You&apos;re observing — savings are not turned on yet</h2>
+          <Link href="/upgrade" className="dash-head-link">Turn on savings →</Link>
+        </div>
+        <p className="dash-coverage-note">
+          Varsten is measuring your traffic in observe-only mode.{" "}
+          {opportunity
+            ? `We estimate about ${money(grossSavings)} in savings you could capture. `
+            : "As traffic accrues we surface the savings you could capture. "}
+          Enabling Performance lets Varsten act on them — safely, behind eval gates and rollback —
+          and bills only on verified savings.
+        </p>
+      </section>
+    );
+  }
+
+  return null;
+}
+
 export function SavingsDashboard() {
   const { snapshot, period } = useDashboard();
   const data = snapshot.data;
@@ -456,8 +552,13 @@ export function SavingsDashboard() {
   if (snapshot.error) return <div className="dashboard-view dash-overview"><section className="dash-card"><PanelEmpty label={snapshot.error} /></section></div>;
   if (!data) return <div className="dashboard-view dash-overview"><section className="dash-card"><PanelEmpty label="Dashboard data is not available yet." /></section></div>;
 
+  // No traffic yet: a focused "waiting for your first request" state, not a grid
+  // of empty placeholders.
+  if (data.mode === "empty") return <div className="dashboard-view dash-overview"><DashboardEmptyState /></div>;
+
   return (
     <div className="dashboard-view dash-overview">
+      <FirstRunBanner mode={data.mode} grossSavings={data.gross_savings_usd} />
       <div className="dash-metric-strip">
         {data.kpis.map((kpi) => (
           <MetricCard key={kpi.key} kpi={kpi} period={period} feePercent={data.fee_percent} />

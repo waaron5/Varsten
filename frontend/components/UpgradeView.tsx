@@ -87,6 +87,12 @@ function PlanSummary({ isPerformance }: { isPerformance: boolean }) {
           <li key={item} className="es" style={{ listStyle: "disc" }}>{item}</li>
         ))}
       </ul>
+      <div className="es" style={{ marginTop: 12, color: "var(--text-2)" }}>
+        Activation flips the switch on the integration you already have — the same SDK or base URL,
+        no code change. Levers turn on behind eval gates, holdback measurement, and one-click
+        rollback, and the fail-open path is unchanged: a Varsten outage still passes straight
+        through to your provider.
+      </div>
       <UpgradeActions />
       <div className="es" style={{ marginTop: 10 }}>
         Varsten Performance is billed as a percentage of verified savings — if Varsten saves

@@ -155,3 +155,49 @@ def test_event_rejects_unknown_event(client, provision, db_session):
         json={"event": "bogus"},
     )
     assert resp.status_code == 422
+
+
+def _integration_by_provider(status: dict) -> dict:
+    return {row["provider"]: row for row in status["integration"]["providers"]}
+
+
+def test_integration_fresh_workspace_has_no_method(client, provision, db_session):
+    p = provision()
+    integ = _status(client, p)["integration"]
+    assert integ["any_sdk"] is False
+    assert integ["base_url_without_sdk"] is False
+    assert _integration_by_provider({"integration": integ})["openai"]["method"] == "none"
+
+
+def test_integration_detects_sdk_traffic(client, provision, db_session):
+    p = provision()
+    _add_event(db_session, p, source="proxy", event_metadata={"sdk_client": "@varsten/openai@0.1.0"})
+    s = _status(client, p)
+    integ = s["integration"]
+    assert integ["any_sdk"] is True
+    assert integ["base_url_without_sdk"] is False
+    row = _integration_by_provider(s)["openai"]
+    assert row["method"] == "sdk"
+    assert row["sdk_client"] == "@varsten/openai@0.1.0"
+    assert s["first_request"]["source"] == "proxy"
+
+
+def test_integration_flags_base_url_without_sdk(client, provision, db_session):
+    p = provision()
+    _add_event(db_session, p, source="proxy")  # inline proxy, no SDK marker
+    s = _status(client, p)
+    integ = s["integration"]
+    assert integ["any_sdk"] is False
+    assert integ["base_url_without_sdk"] is True
+    assert _integration_by_provider(s)["openai"]["method"] == "base_url"
+
+
+def test_integration_detects_metadata_ingest(client, provision, db_session):
+    p = provision()
+    _add_event(db_session, p, source="ingest")
+    s = _status(client, p)
+    integ = s["integration"]
+    assert integ["any_sdk"] is False
+    assert integ["base_url_without_sdk"] is False
+    assert _integration_by_provider(s)["openai"]["method"] == "metadata"
+    assert s["first_request"]["source"] == "ingest"

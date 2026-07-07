@@ -94,6 +94,27 @@ const client = new OpenAI({
   baseURL: "https://api.varsten.ai/v1",
 });`;
 
+const metadataCode = `// Metadata only — token counts and labels, never prompt or completion text.
+// No provider key, nothing in your request path, zero availability risk.
+await fetch("https://api.varsten.ai/v1/usage-events", {
+  method: "POST",
+  headers: {
+    "Authorization": \`Bearer \${process.env.VARSTEN_API_KEY}\`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    provider: "openai",
+    model: "gpt-4o-mini",
+    request_type: "chat_completion",
+    input_tokens: usage.prompt_tokens,
+    output_tokens: usage.completion_tokens,
+    feature: "support_agent",       // optional labels for workload-level savings
+    environment: "production",
+    idempotency_key: requestId,     // retries never double-count
+    occurred_at: new Date().toISOString(),
+  }),
+});`;
+
 export default function DocsPage() {
   return (
     <ContentPage
@@ -188,6 +209,17 @@ export default function DocsPage() {
             </p>
           </ContentCard>
         </ContentGrid>
+      </ContentSection>
+
+      <ContentSection eyebrow="Lowest-risk start" title="Metadata-only: nothing in your request path">
+        <p>
+          The safest way to start. Send usage records asynchronously after each call — token counts
+          and labels, never prompt or completion content, and no provider key. Nothing sits inline,
+          so there is zero availability risk and no content leaves your boundary. You get full spend
+          and savings analysis; turning on optimization later means adding an inline path (the SDK or
+          a base URL change).
+        </p>
+        <ContentCode>{metadataCode}</ContentCode>
       </ContentSection>
 
       <ContentSection eyebrow="Evaluation only" title="Use base URL changes only for low-risk trials">

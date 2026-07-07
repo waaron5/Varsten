@@ -7,9 +7,12 @@ rest of this module (lookup, store, hit accounting) stays the same.
 
 import hashlib
 import json
+import threading
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from cachetools import TTLCache
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -40,6 +43,49 @@ _KEYED_FIELDS = (
     "n",
 )
 
+_EXACT_SNAPSHOT_TTL_SECONDS = 30
+_exact_snapshot_cache: TTLCache[tuple[str, str], "CacheEntrySnapshot"] = TTLCache(
+    maxsize=4096,
+    ttl=_EXACT_SNAPSHOT_TTL_SECONDS,
+)
+_exact_snapshot_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class CacheEntrySnapshot:
+    id: uuid.UUID
+    model: str
+    response_payload: dict
+    input_tokens: int
+    output_tokens: int
+    expires_at: datetime | None
+
+
+def _snapshot(entry: ProxyCacheEntry) -> CacheEntrySnapshot:
+    return CacheEntrySnapshot(
+        id=entry.id,
+        model=entry.model,
+        response_payload=entry.response_payload,
+        input_tokens=entry.input_tokens,
+        output_tokens=entry.output_tokens,
+        expires_at=entry.expires_at,
+    )
+
+
+def _snapshot_live(snapshot: CacheEntrySnapshot, now: datetime) -> bool:
+    return snapshot.expires_at is None or snapshot.expires_at > now
+
+
+def clear_exact_snapshot_cache(project_id: uuid.UUID | None = None) -> None:
+    with _exact_snapshot_lock:
+        if project_id is None:
+            _exact_snapshot_cache.clear()
+            return
+        prefix = str(project_id)
+        for key in list(_exact_snapshot_cache.keys()):
+            if key[0] == prefix:
+                _exact_snapshot_cache.pop(key, None)
+
 
 def compute_cache_key(body: dict) -> str:
     keyed = {k: body[k] for k in _KEYED_FIELDS if k in body}
@@ -55,6 +101,26 @@ async def get_cached(db: AsyncSession, project_id: uuid.UUID, cache_key: str) ->
             _live(datetime.now(UTC)),
         )
     )
+
+
+async def get_cached_snapshot(db: AsyncSession, project_id: uuid.UUID, cache_key: str) -> CacheEntrySnapshot | None:
+    key = (str(project_id), cache_key)
+    now = datetime.now(UTC)
+    with _exact_snapshot_lock:
+        snapshot = _exact_snapshot_cache.get(key)
+    if snapshot is not None:
+        if _snapshot_live(snapshot, now):
+            return snapshot
+        with _exact_snapshot_lock:
+            _exact_snapshot_cache.pop(key, None)
+
+    entry = await get_cached(db, project_id, cache_key)
+    if entry is None:
+        return None
+    snapshot = _snapshot(entry)
+    with _exact_snapshot_lock:
+        _exact_snapshot_cache[key] = snapshot
+    return snapshot
 
 
 async def semantic_search(
@@ -124,6 +190,8 @@ async def store(
     )
     db.add(entry)
     await db.commit()
+    with _exact_snapshot_lock:
+        _exact_snapshot_cache[(str(project_id), cache_key)] = _snapshot(entry)
     return entry
 
 
@@ -138,4 +206,5 @@ def purge_expired(db: Session, now: datetime | None = None) -> int:
         )
     )
     db.commit()
+    clear_exact_snapshot_cache()
     return result.rowcount or 0

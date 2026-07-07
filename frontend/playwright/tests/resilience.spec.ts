@@ -59,6 +59,7 @@ test("upstream 502 chaos routes to a safe downshift path and leaves the UI stabl
       ],
       proof_trust: {
         score: "0.97",
+        confidence_level: "high",
         confidence_label: "High Confidence",
         confidence_note: "Every figure is audit-ready.",
         pricing_coverage: "1.00",

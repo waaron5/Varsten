@@ -57,6 +57,7 @@ test("verified and net savings reconcile after a high-volume proxy burst", async
       ],
       proof_trust: {
         score: "0.99",
+        confidence_level: "high",
         confidence_label: "High Confidence",
         confidence_note: "Every figure is audit-ready.",
         pricing_coverage: "1.00",
