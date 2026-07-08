@@ -45,3 +45,6 @@ Varsten-Buyer-Avatar.md
 # FRONTEND COPY and style guide
 FRONTEND_COPY.md
 BRAND_STYLE_GUIDE.md
+
+# Local self-serve walkthrough harness runtime (PIDs, logs)
+.walkthrough/

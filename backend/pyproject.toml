@@ -50,6 +50,11 @@ branch = true
 omit = [
     "scripts/benchmark_runner.py",
     "scripts/check_complexity.py",
+    "scripts/fake_provider.py",
+    "scripts/load_benchmark.py",
+    "scripts/rollback_drill.py",
+    "scripts/smoke_failopen.py",
+    "scripts/walkthrough_traffic.py",
 ]
 source = ["app", "scripts"]
 

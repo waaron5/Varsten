@@ -1,9 +1,34 @@
-.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate release-migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code backend-sdk-smoke
+.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate release-migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code backend-sdk-smoke walkthrough walkthrough-traffic walkthrough-status walkthrough-down walkthrough-proof
 
 # Bring up the full local stack (Postgres + API + frontend). The API container
 # applies migrations on boot. First run builds the API image.
 up:
 	docker compose up --build -d
+
+# --- Self-serve onboarding walkthrough (see docs/SELF_SERVE_WALKTHROUGH.md) ----
+# Turnkey local harness: db+redis in Docker, fake provider + backend + frontend on
+# the host, so the whole self-serve funnel is one command. Add ARGS=--no-frontend
+# to skip the Next.js dev server (data-plane only).
+walkthrough:
+	scripts/walkthrough.sh up $(ARGS)
+
+# Drive live traffic so the Dashboard/Proof fill. KEY from the onboarding UI, or
+# ARGS=--seed for a throwaway no-UI key. Extra flags via ARGS (e.g. --count 80).
+walkthrough-traffic:
+	scripts/walkthrough.sh traffic $(if $(KEY),--key $(KEY),) $(ARGS)
+
+walkthrough-status:
+	scripts/walkthrough.sh status
+
+walkthrough-down:
+	scripts/walkthrough.sh down
+
+# Prove the real measurement pipeline: configure one lever (token-trim) on a
+# throwaway org, send paired holdback traffic, and assert the A/B reports non-zero
+# MEASURED savings (>=30 samples/arm). Extra flags via ARGS (e.g. --requests 200
+# --holdback 0.25 --keep-org). Separate from the default onboarding walkthrough.
+walkthrough-proof:
+	scripts/walkthrough.sh traffic --policy $(ARGS)
 
 # Stop the stack. Add ARGS=-v to also drop the database volume.
 down:

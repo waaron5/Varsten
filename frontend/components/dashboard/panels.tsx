@@ -6,11 +6,12 @@
 // This layout is the canonical design reference for future pages. The period
 // toggle + Export live in the top navbar (see DashboardTopbarControls).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usd } from "@/lib/format";
 import { useEntitlements } from "@/components/entitlements";
+import { useTimedPolling } from "@/components/useTimedPolling";
 import { DOCS_HREF } from "@/lib/integrationSnippets";
 import { NetSavingsTrendChart } from "./lazyCharts";
 import { PanelEmpty, PanelSkeleton } from "./primitives";
@@ -30,6 +31,7 @@ import type {
 // Spend/allocation blue ramp (darkest = largest).
 // The last (lightest) is used for the untagged bucket.
 const DRIVER_PALETTE = ["#2B4A5A", "#3B6275", "#4F7A90", "#6E96AA", "#B8CED8", "#E9F1F5"];
+const DASHBOARD_PREVIEW_STORAGE_KEY = "varsten:dashboard-preview";
 
 function num(value: string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
@@ -476,18 +478,7 @@ function DashboardEmptyState() {
   const { observeOnly } = useEntitlements();
   const { reload } = useDashboard();
 
-  useEffect(() => {
-    const startedAt = Date.now();
-    const maxDurationMs = 20 * 60 * 1000;
-    const id = window.setInterval(() => {
-      if (Date.now() - startedAt > maxDurationMs) {
-        window.clearInterval(id);
-        return;
-      }
-      void reload();
-    }, 6000);
-    return () => window.clearInterval(id);
-  }, [reload]);
+  useTimedPolling(true, 6000, reload);
 
   return (
     <section className="dash-card dash-empty">
@@ -516,6 +507,46 @@ function DashboardEmptyState() {
   );
 }
 
+function readDashboardPreviewEnabled(): boolean {
+  if (process.env.NODE_ENV !== "development" || typeof window === "undefined") return false;
+
+  const params = new URLSearchParams(window.location.search);
+  const queryValue = params.get("dashboard_preview");
+  if (queryValue === "1") return true;
+  if (queryValue === "0") return false;
+  return window.localStorage.getItem(DASHBOARD_PREVIEW_STORAGE_KEY) === "1";
+}
+
+function subscribeDashboardPreview(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener("popstate", onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener("popstate", onStoreChange);
+  };
+}
+
+function useDashboardPreviewEnabled(): boolean {
+  const enabled = useSyncExternalStore(subscribeDashboardPreview, readDashboardPreviewEnabled, () => false);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    const params = new URLSearchParams(window.location.search);
+    const queryValue = params.get("dashboard_preview");
+    if (queryValue === "1") {
+      window.localStorage.setItem(DASHBOARD_PREVIEW_STORAGE_KEY, "1");
+      return;
+    }
+    if (queryValue === "0") {
+      window.localStorage.removeItem(DASHBOARD_PREVIEW_STORAGE_KEY);
+    }
+  }, []);
+
+  return enabled;
+}
+
 function FirstRunBanner({ mode, grossSavings }: { mode: string; grossSavings: string | null }) {
   const { observeOnly } = useEntitlements();
 
@@ -534,7 +565,7 @@ function FirstRunBanner({ mode, grossSavings }: { mode: string; grossSavings: st
           {opportunity
             ? `We estimate about ${money(grossSavings)} in savings you could capture. `
             : "As traffic accrues we surface the savings you could capture. "}
-          Enabling Performance lets Varsten act on them — safely, behind eval gates and rollback —
+          Enabling Optimize lets Varsten act on them — safely, behind eval gates and rollback —
           and bills only on verified savings.
         </p>
       </section>
@@ -546,6 +577,7 @@ function FirstRunBanner({ mode, grossSavings }: { mode: string; grossSavings: st
 
 export function SavingsDashboard() {
   const { snapshot, period } = useDashboard();
+  const previewEmptyDashboard = useDashboardPreviewEnabled();
   const data = snapshot.data;
 
   if (snapshot.loading && !data) return <div className="dashboard-view dash-overview"><DashboardLoading /></div>;
@@ -554,7 +586,7 @@ export function SavingsDashboard() {
 
   // No traffic yet: a focused "waiting for your first request" state, not a grid
   // of empty placeholders.
-  if (data.mode === "empty") return <div className="dashboard-view dash-overview"><DashboardEmptyState /></div>;
+  if (data.mode === "empty" && !previewEmptyDashboard) return <div className="dashboard-view dash-overview"><DashboardEmptyState /></div>;
 
   return (
     <div className="dashboard-view dash-overview">
