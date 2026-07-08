@@ -5,12 +5,10 @@ scoring (``app.engine.outcomes``) turns decision evidence + feedback into
 readiness-tiered learning candidates; this module promotes the ones that
 cleared the evidence bar (``recommendable`` / ``auto_apply_candidate``) into
 ``Recommendation`` rows so they enter the existing decision loop: eval gate ->
-approve/apply -> policy activation -> holdback A/B -> drift guard.
-
-Promotion never applies anything. It creates open recommendations only; the
-apply path (with its eval gate) remains the sole authorization point, and the
-readiness thresholds do the safety filtering upstream — a route rolled back for
-quality drift scores ``quality_risk`` and never reaches this module.
+approve/apply -> policy activation -> holdback A/B -> drift guard. When a lever
+is explicitly configured for ``automation_mode="auto"``, the sweep also asks the
+shared transition layer to apply open, executable recommendations; that keeps
+entitlements, eval gates, governance, and execution activation in one place.
 
 Scope, deliberately narrow for the first slice:
 - Only the policy-backed levers (model_downshift, smart_routing, token_trim).
@@ -38,10 +36,19 @@ from app.core.logging import get_logger
 from app.engine.outcomes import score_optimization_outcomes
 from app.engine.priors import refresh_project_outcome_priors
 from app.engine.route_identity import DEFAULT_ROUTE
-from app.levers import LEVER_LABELS, LEVER_TOKEN_TRIM, ROUTING_LEVERS
-from app.models import LeverConfig, Project, ProxyPolicy, RecommendationAction, RequestDecisionEvent, RequestFeedback
+from app.levers import LEVER_LABELS, LEVER_PROMPT_COMPRESSION, LEVER_TOKEN_TRIM, ROUTING_LEVERS
+from app.models import (
+    LeverConfig,
+    Project,
+    ProxyPolicy,
+    Recommendation,
+    RecommendationAction,
+    RequestDecisionEvent,
+    RequestFeedback,
+)
 from app.proxy.experiment import compute_experiment
 from app.proxy.trim import LEVER as TRIM_LEVER
+from app.recommendation_transitions import apply_recommendation_automated
 from app.recommendations import RecommendationSeed, _upsert
 
 logger = get_logger("varsten.engine.promotion")
@@ -49,6 +56,7 @@ logger = get_logger("varsten.engine.promotion")
 PROMOTABLE_READINESS = frozenset({"recommendable", "auto_apply_candidate"})
 PROMOTABLE_LEVERS = frozenset({*ROUTING_LEVERS, LEVER_TOKEN_TRIM})
 HOLDBACK_LEVERS = frozenset({*ROUTING_LEVERS, TRIM_LEVER})
+AUTOMATABLE_LEVERS = frozenset({*ROUTING_LEVERS, LEVER_TOKEN_TRIM, LEVER_PROMPT_COMPRESSION})
 
 _DAYS_PER_MONTH = Decimal("30")
 _CENTS = Decimal("0.01")
@@ -113,6 +121,17 @@ def _automation_config(db: Session, project_id, lever: str) -> LeverConfig | Non
             LeverConfig.lever == lever,
             LeverConfig.enabled.is_(True),
             LeverConfig.automation_mode == "approve",
+        )
+    )
+
+
+def _auto_apply_config(db: Session, project_id, lever: str) -> LeverConfig | None:
+    return db.scalar(
+        select(LeverConfig).where(
+            LeverConfig.project_id == project_id,
+            LeverConfig.lever == lever,
+            LeverConfig.enabled.is_(True),
+            LeverConfig.automation_mode == "auto",
         )
     )
 
@@ -511,6 +530,69 @@ def adjust_adaptive_holdbacks(
     return adjusted
 
 
+def auto_apply_ready_recommendations(
+    db: Session,
+    project: Project,
+    *,
+    now: datetime | None = None,
+    limit: int = 25,
+) -> list[dict[str, str]]:
+    """Apply open executable recommendations for levers explicitly set to auto.
+
+    The transition layer still owns the entitlement, eval, governance, and execution
+    gates. This selector only decides which open recommendations are allowed to try.
+    """
+    at = now or datetime.now(UTC)
+    auto_levers = set(
+        db.scalars(
+            select(LeverConfig.lever).where(
+                LeverConfig.project_id == project.id,
+                LeverConfig.lever.in_(AUTOMATABLE_LEVERS),
+                LeverConfig.enabled.is_(True),
+                LeverConfig.automation_mode == "auto",
+            )
+        )
+    )
+    if not auto_levers:
+        return []
+
+    recs = list(
+        db.scalars(
+            select(Recommendation)
+            .where(
+                Recommendation.project_id == project.id,
+                Recommendation.status == "open",
+                Recommendation.lever.in_(auto_levers),
+                Recommendation.type != "automation_upgrade",
+            )
+            .order_by(Recommendation.created_at.asc())
+            .limit(limit)
+        )
+    )
+    applied: list[dict[str, str]] = []
+    for rec in recs:
+        if _auto_apply_config(db, project.id, rec.lever or "") is None:
+            continue
+        try:
+            apply_recommendation_automated(db, project=project, recommendation=rec, now=at)
+        except Exception as exc:
+            logger.info(
+                "auto-apply skipped recommendation",
+                extra={
+                    "project_id": str(project.id),
+                    "recommendation_id": str(rec.id),
+                    "lever": rec.lever,
+                    "reason": str(exc),
+                },
+            )
+            continue
+        applied.append({"recommendation_id": str(rec.id), "lever": str(rec.lever), "title": rec.title})
+
+    if applied:
+        logger.info("auto-applied recommendations", extra={"project_id": str(project.id), "count": len(applied)})
+    return applied
+
+
 def sweep_all_projects(db: Session, *, now: datetime | None = None) -> dict[str, dict[str, list]]:
     """Run learning promotion and adaptive holdback management for active projects.
 
@@ -534,6 +616,16 @@ def sweep_all_projects(db: Session, *, now: datetime | None = None) -> dict[str,
             .distinct()
         )
     )
+    project_ids.update(
+        db.scalars(
+            select(Recommendation.project_id)
+            .where(
+                Recommendation.status == "open",
+                Recommendation.lever.in_(AUTOMATABLE_LEVERS),
+            )
+            .distinct()
+        )
+    )
     results: dict[str, dict[str, list]] = {}
     for pid in project_ids:
         project = db.get(Project, pid)
@@ -543,7 +635,12 @@ def sweep_all_projects(db: Session, *, now: datetime | None = None) -> dict[str,
         refresh_project_outcome_priors(db, project, candidates, window_days=days, computed_at=at)
         promoted = promote_learning_candidates(db, project, now=at, window_days=days, candidates=candidates)
         adjusted = adjust_adaptive_holdbacks(db, project, now=at, window_days=days)
-        if promoted or adjusted:
-            results[str(pid)] = {"promoted": promoted, "holdback_adjusted": adjusted}
+        auto_applied = auto_apply_ready_recommendations(db, project, now=at)
+        if promoted or adjusted or auto_applied:
+            results[str(pid)] = {
+                "promoted": promoted,
+                "holdback_adjusted": adjusted,
+                "auto_applied": auto_applied,
+            }
     db.commit()
     return results

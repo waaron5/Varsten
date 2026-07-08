@@ -58,7 +58,7 @@ What remains bounded:
 | Streaming | Streaming retries are limited to pre-first-byte failures; after bytes start, Varsten does not replay or swap the stream. | Streaming fallback to another model is a future implementation slice. |
 | Savings proof | Direct, holdback, replay, and overhead-aware accounting are validated by the proof pack. | Unknown pricing or insufficient holdback signal must remain unverified/estimated, never promoted as proven savings. |
 | Quality protection | Evals, holdbacks, quality feedback, latency guardrails, canary ramp, drift rollback, and governance are implemented. | These protect measured regressions; they do not guarantee every individual answer is semantically identical. |
-| Risky automation | Routing, downshift, trim, and compression are gated by eval/governance/holdback/canary machinery. | Keep risky levers shadow/recommend/approved until a customer route has enough evidence. |
+| Risky automation | Routing, downshift, trim, and compression use the shared transition layer for entitlement, eval, governance, holdback/canary, and execution gates. Auto-mode can apply safe open recommendations without a human click. | Auto-mode is per lever/project and must remain evidence-gated; needs-human or unsafe evals stay manual/blocked. |
 | Learned compression | Compression is generated off-path, eval-gated, governed, and applied by exact-hash substitution only. | The generation approach is not a general prompt rewriter; it must not silently rewrite unmatched content. |
 | Bandit routing | Default off; shadow mode is zero behavior change; active mode only samples eval-cleared candidates and is quality-gated. | Savings-variance persistence is still needed for full Thompson sampling over reward magnitude. |
 | Multi-instance | Circuit, budget-cap, and rate-limit sharing are Redis-backed and deterministic-test proven. | `REDIS_URL`, Redis rate-limit backend, scheduler singleton handling, DB pool sizing, and live Redis smoke are required before horizontal scale. |
@@ -69,7 +69,7 @@ What remains bounded:
 
 Do not claim these until the corresponding boundary is closed:
 
-- "Fully autonomous across every lever and provider."
+- "Fully autonomous by default across every lever and provider."
 - "Guaranteed identical output."
 - "Verified savings for every recommendation."
 - "Horizontal scaling is production-proven without a live Redis run."

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import billing
 from app.api.deps import require_user, resolve_project
 from app.auth.entitlements import is_performance, require_performance
 from app.budgets import evaluate_budgets
@@ -23,9 +24,6 @@ from app.db.session import SessionLocal, get_db
 from app.engine import compression as engine_compression
 from app.engine import governance
 from app.eval.gate import (
-    EvalGateError,
-    apply_measured_savings,
-    assert_appliable,
     is_gated,
     latest_run,
 )
@@ -65,9 +63,7 @@ from app.models import (
 from app.periods import Period, resolve_period
 from app.proxy import routing
 from app.proxy.budget_enforcement import clear_budget_cache
-from app.proxy.compression import TransformConflictError
 from app.proxy.drift import check_and_rollback_drift, evaluate_drift
-from app.proxy.execution import activate_execution, deactivate_execution
 from app.proxy.experiment import compute_experiment
 from app.proxy.keys import (
     ProviderKeyStoreUnsupported,
@@ -77,13 +73,13 @@ from app.proxy.keys import (
 )
 from app.proxy.provider_validation import validate_provider_key
 from app.proxy.trim import LEVER as TRIM_LEVER
+from app.recommendation_transitions import transition_recommendation
 from app.recommendations import ensure_recommendations_fresh
 from app.savings import (
     compute_savings_summary,
     compute_savings_with_deltas,
     measured_savings_series,
     org_fee_percent,
-    record_applied_savings,
 )
 from app.schemas.dashboard import (
     DashboardDrivers,
@@ -999,64 +995,13 @@ def engine_update_recommendation(
     if recommendation is None or recommendation.project_id != project.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found")
     _assert_member(user, project, db)
-    now = datetime.now(UTC)
-    if payload.status == "applied":
-        # Observe-only gate: applying a recommendation activates a behaviour-changing
-        # lever, so it is Performance-only. Free stays observe-only. Dismiss / roll
-        # back / reopen remain available on every tier.
-        require_performance(db, project, action="Applying a recommendation")
-        # Medium-risk model-swap levers must clear a shadow eval before applying.
-        # The gate raises if the route is unproven; a passing run lets us attribute
-        # the MEASURED savings instead of the estimate.
-        try:
-            gating_run = assert_appliable(db, recommendation, automated=False)
-        except EvalGateError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        # Governance (opt-in): with change-request enforcement on, a gated lever
-        # additionally needs a named human's approved ChangeRequest behind it.
-        try:
-            governance.assert_change_request_approved(db, recommendation)
-        except governance.GovernanceError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        apply_measured_savings(recommendation, gating_run)
-        # Execution: activate the lever's policy (routing swap, trim transform, ...).
-        try:
-            activate_execution(db, project, recommendation, gating_run, now=now)
-        except TransformConflictError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        # Keep the governance object's lifecycle in sync (best-effort, even when
-        # enforcement is off, so the audit trail stays continuous).
-        governance.mark_change_request_active(db, recommendation, now=now)
-    elif payload.status in {"dismissed", "rolled_back"}:
-        # Stop executing this lever; traffic returns to the original behaviour.
-        deactivate_execution(db, recommendation)
-        governance.mark_change_request_rolled_back(db, recommendation, now=now)
-    recommendation.status = payload.status
-    recommendation.updated_at = now
-    recommendation.resolved_at = now if payload.status != "open" else None
-    if payload.status == "applied":
-        # Applying writes the action, the derived savings attribution, and the
-        # refreshed lever total in one place, so Proof reflects real applied cuts.
-        record_applied_savings(db, project, recommendation, actor_user_id=user.id, source="user", now=now)
-    elif payload.status != "open":
-        db.add(
-            RecommendationAction(
-                organization_id=project.organization_id,
-                project_id=project.id,
-                recommendation_id=recommendation.id,
-                actor_user_id=user.id,
-                lever=recommendation.lever,
-                action_type=payload.status,
-                status="completed",
-                source="user",
-                title=recommendation.title,
-                estimated_savings_usd=recommendation.estimated_monthly_savings_usd,
-                occurred_at=now,
-            )
-        )
-    db.commit()
-    db.refresh(recommendation)
-    return recommendation
+    return transition_recommendation(
+        db,
+        project=project,
+        recommendation=recommendation,
+        actor=user,
+        next_status=payload.status,
+    )
 
 
 def _change_request_payload(change_request) -> dict:
@@ -1363,7 +1308,7 @@ def engine_update_route(
     rule = db.get(ProxyPolicy, rule_id)
     if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
-    # Enabling (resuming) a route changes production behaviour -> Performance only.
+    # Enabling (resuming) a route changes production behaviour -> Optimize only.
     # Pausing is always allowed so a customer can stop optimization on any tier.
     if payload.enabled:
         require_performance(db, project, action="Enabling a routing policy")
@@ -1693,7 +1638,7 @@ def engine_update_lever(
     if config is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lever not found")
     # Turning a lever on, or moving it to auto-apply, changes production behaviour.
-    # Both are Performance-only; turning a lever off / back to approve stays open.
+    # Both are Optimize-only; turning a lever off / back to approve stays open.
     if payload.enabled:
         require_performance(db, project, action="Enabling a lever")
     if payload.automation_mode == "auto":
@@ -1744,7 +1689,7 @@ def create_report(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    # Generating/publishing a shareable executive report is an advanced (Performance)
+    # Generating/publishing a shareable executive report is an advanced (Optimize)
     # capability. Free keeps the read-only Proof dashboards.
     require_performance(db, project, action="Generating an executive report")
     snapshot = _report_snapshot(db, project)
@@ -1827,7 +1772,7 @@ def proof_savings(
     - observed: real month-to-date spend.
     - estimated: the modeled impact of applied optimizations, plus open
       opportunity. Never presented as "saved".
-    - verified (Performance only): savings measured from the ledger -- direct
+    - verified (Optimize only): savings measured from the ledger -- direct
       (cache/batch/route avoided cost) plus holdback A/B with a confidence
       interval. This is the number the fee is billed on.
     """
@@ -1885,7 +1830,7 @@ def proof_savings(
     else:
         payload["measurement_note"] = (
             "Free is observe-only: these are estimated opportunity figures, not measured savings. "
-            "Verified, measured savings unlock on Performance, where Varsten applies levers and "
+            "Verified, measured savings unlock on Optimize, where Varsten applies levers and "
             "proves the result against a live holdback."
         )
     return payload
@@ -1955,7 +1900,7 @@ def create_quality_guardrail(
     db: Session = Depends(get_db),
 ) -> dict:
     # Auto-rollback is a behaviour-changing control (it disables a live route on
-    # drift); gate it to Performance. A plain quality floor stays observe-friendly.
+    # drift); gate it to Optimize. A plain quality floor stays observe-friendly.
     if payload.auto_rollback_enabled:
         require_performance(db, project, action="Enabling auto-rollback guardrails")
     rule = QualityGuardrail(
@@ -1991,7 +1936,7 @@ def create_budget_rule(
     db: Session = Depends(get_db),
 ) -> dict:
     # A hard cap blocks production traffic when exceeded -> behaviour-changing,
-    # Performance only. A soft budget (alert/track) is fine on Free.
+    # Optimize only. A soft budget (alert/track) is fine on Free.
     if payload.hard_cap_enabled:
         require_performance(db, project, action="Enabling a hard budget cap")
     rule = BudgetRule(
@@ -2440,12 +2385,18 @@ def admin_team(
 @router.get("/admin/billing-security")
 def admin_billing_security(project: Project = Depends(resolve_project)) -> dict:
     org = project.organization
-    # Expose the org's real gain-share config (the same column billing.py invoices
-    # on), as a human percentage for display. Never a hard-coded rate.
-    fee_percent = (Decimal(org.gain_share_percent) * 100).quantize(Decimal("0.01"))
+    # Expose the effective gain-share rate billing.py invoices on, as a human
+    # percentage for display. It is capped at 25% even if a stale org row is higher.
+    fee_percent = (billing.effective_gain_share_percent(Decimal(org.gain_share_percent)) * 100).quantize(
+        Decimal("0.01")
+    )
     return {
         "plan": "verified_savings_v1",
-        "pricing_model": "percentage_of_verified_savings_with_floor",
+        "plan_tier": org.plan_tier,
+        "subscription_status": org.subscription_status,
+        "trial_ends_at": org.trial_ends_at,
+        "payment_method_ready_at": org.payment_method_ready_at,
+        "pricing_model": "percentage_of_verified_savings_capped_at_25_percent",
         "verified_savings_fee_percent": fee_percent,
         "monthly_fee_floor_usd": Decimal(org.monthly_fee_floor_usd),
         "security_posture": {

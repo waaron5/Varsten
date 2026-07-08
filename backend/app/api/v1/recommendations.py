@@ -1,5 +1,4 @@
 import uuid
-from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -8,11 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_user, resolve_project
 from app.db.session import get_db
-from app.eval.gate import EvalGateError, apply_measured_savings, assert_appliable
 from app.models import OrgMembership, Project, Recommendation, User
-from app.proxy.execution import activate_execution, deactivate_execution
+from app.recommendation_transitions import transition_recommendation
 from app.recommendations import ensure_recommendations_fresh
-from app.savings import record_applied_savings
 from app.schemas import RecommendationOut, RecommendationUpdate
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -59,27 +56,13 @@ def update_recommendation(
     if recommendation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found")
     _assert_can_update(user, recommendation, db)
-    now = datetime.now(UTC)
-    if payload.status == "applied":
-        # Medium-risk model-swap levers must clear a shadow eval first. The gate
-        # raises if the route has not been proven safe; on a passing run it returns
-        # the run so we attribute the MEASURED savings instead of the estimate.
-        try:
-            gating_run = assert_appliable(db, recommendation, automated=False)
-        except EvalGateError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        apply_measured_savings(recommendation, gating_run)
-        project = db.get(Project, recommendation.project_id)
-        if project is not None:
-            # Execution: activate the lever's policy (routing swap, trim transform, ...).
-            activate_execution(db, project, recommendation, gating_run, now=now)
-            record_applied_savings(db, project, recommendation, actor_user_id=user.id, source="user", now=now)
-    elif payload.status in {"dismissed", "rolled_back"}:
-        # Stop executing this lever; traffic returns to the original behaviour.
-        deactivate_execution(db, recommendation)
-    recommendation.status = payload.status
-    recommendation.updated_at = now
-    recommendation.resolved_at = now if payload.status != "open" else None
-    db.commit()
-    db.refresh(recommendation)
-    return recommendation
+    project = db.get(Project, recommendation.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="recommendation not found")
+    return transition_recommendation(
+        db,
+        project=project,
+        recommendation=recommendation,
+        actor=user,
+        next_status=payload.status,
+    )

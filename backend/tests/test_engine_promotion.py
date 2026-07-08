@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.engine.promotion import adjust_adaptive_holdbacks, promote_learning_candidates, sweep_all_projects
 from app.models import (
     EngineOutcomePrior,
+    EvalRun,
     LeverConfig,
     Project,
     ProxyPolicy,
@@ -24,6 +25,7 @@ from app.models import (
     RequestFeedback,
     UsageEvent,
 )
+from app.models.eval import RUN_COMPLETED, VERDICT_NEEDS_HUMAN, VERDICT_SAFE
 
 
 def _project(db_session, project_id: str) -> Project:
@@ -315,6 +317,89 @@ def test_auto_candidate_proposes_automation_upgrade_without_flipping_mode(provis
     assert "auto_apply_candidate" in rec.rationale
     db_session.refresh(config)
     assert config.automation_mode == "approve"
+
+
+def test_sweep_auto_applies_safe_recommendation_when_lever_is_auto(provision, db_session):
+    p = provision(plan="performance")
+    project = _project(db_session, p["project_id"])
+    rec = _recommendation(db_session, project)
+    db_session.add(
+        LeverConfig(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            lever="model_downshift",
+            enabled=True,
+            automation_mode="auto",
+        )
+    )
+    db_session.add(
+        EvalRun(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            recommendation_id=rec.id,
+            lever="model_downshift",
+            route_key="classification.intent",
+            incumbent_model="gpt-4o",
+            candidate_model="gpt-4o-mini",
+            status=RUN_COMPLETED,
+            verdict=VERDICT_SAFE,
+            cost_delta_usd=Decimal("12.00"),
+        )
+    )
+    db_session.commit()
+
+    results = sweep_all_projects(db_session)
+
+    db_session.refresh(rec)
+    assert rec.status == "applied"
+    assert rec.measurement_method == "replay_measured"
+    assert rec.estimated_monthly_savings_usd == Decimal("12.00")
+    policy = db_session.scalar(select(ProxyPolicy).where(ProxyPolicy.source_recommendation_id == rec.id))
+    assert policy is not None and policy.enabled and policy.candidate_model == "gpt-4o-mini"
+    action = db_session.scalar(
+        select(RecommendationAction).where(
+            RecommendationAction.recommendation_id == rec.id,
+            RecommendationAction.action_type == "applied",
+        )
+    )
+    assert action is not None and action.source == "system" and action.actor_user_id is None
+    assert results[str(project.id)]["auto_applied"][0]["recommendation_id"] == str(rec.id)
+
+
+def test_auto_apply_skips_needs_human_eval(provision, db_session):
+    p = provision(plan="performance")
+    project = _project(db_session, p["project_id"])
+    rec = _recommendation(db_session, project)
+    db_session.add(
+        LeverConfig(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            lever="model_downshift",
+            enabled=True,
+            automation_mode="auto",
+        )
+    )
+    db_session.add(
+        EvalRun(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            recommendation_id=rec.id,
+            lever="model_downshift",
+            route_key="classification.intent",
+            incumbent_model="gpt-4o",
+            candidate_model="gpt-4o-mini",
+            status=RUN_COMPLETED,
+            verdict=VERDICT_NEEDS_HUMAN,
+        )
+    )
+    db_session.commit()
+
+    results = sweep_all_projects(db_session)
+
+    db_session.refresh(rec)
+    assert rec.status == "open"
+    assert db_session.scalar(select(ProxyPolicy).where(ProxyPolicy.source_recommendation_id == rec.id)) is None
+    assert str(project.id) not in results
 
 
 def test_does_not_promote_below_readiness_bar(provision, db_session):

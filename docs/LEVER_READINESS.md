@@ -11,7 +11,7 @@ Two rules hold across every lever:
 
 1. **Free is observe-only.** No behaviour-changing lever can activate on the Free
    plan — enforced at the backend chokepoint, not the UI. Levers below are
-   Performance-only unless noted.
+   Optimize-only unless noted.
 2. **Fail-open and kill-switchable.** Any lever can be bypassed in one toggle
    (global `PROXY_KILL_SWITCH` or a project's bypass), and a failure in the
    optimization path forwards the request straight to the provider.
@@ -28,38 +28,45 @@ Two rules hold across every lever:
 
 | Lever | Default mode | Savings measurement | Cleared for | Notes |
 |---|---|---|---|---|
-| **Exact cache** (semantic_cache lever, exact-match) | auto | **Direct measured** (avoided model price, from the ledger) | **autonomous** | On the OpenAI dialect path. Content is TTL'd + purged (`PROXY_CACHE_TTL_SECONDS`). The one lever fully ready for hands-off use. |
-| **Batching** | auto | **Direct measured** (contractual discount on identical tokens) | **customer self-serve** (non-urgent jobs) | Async `/v1/batches` mirror; staged objects TTL'd + purged. Arithmetic savings, no holdback needed. |
-| **Token trim** | auto | Estimated until eval-proven | **founder-approved pilot** | Needs eval proof that output is unchanged before autonomous use. |
-| **Smart routing** | approve | **Holdback measured** (concurrent A/B with CI) once it has signal; estimated below threshold | **founder-approved pilot** | Approve-mode by default. Auto requires a passing shadow eval + holdback signal. Cross-provider routing is audited. |
-| **Model downshift** | approve | **Replay measured** (eval cost delta) / holdback | **founder-approved pilot** | Highest quality risk. Eval-gated; human approves. |
-| **Semantic (vector) cache** | **off** (`SEMANTIC_CACHE_ENABLED=false`) | n/a | **observe / keep off** | Disabled by default: it adds an embedding round-trip on the miss path and risks false-positive matches on near-identical tool-call JSON. Enable only with an in-process embedding model and a tuned per-route threshold. |
+| **Exact cache** (semantic_cache lever, exact-match) | auto | **Direct measured** (avoided model price, from the ledger) | **autonomous** | On the OpenAI dialect path. Content is TTL'd + purged (`PROXY_CACHE_TTL_SECONDS`). This is the always-on cache path; vector semantic matching is separate and remains disabled by default. |
+| **Batching** | auto | **Direct measured** (contractual discount on identical tokens) | **customer self-serve** (non-urgent jobs) | Async `/v1/batches` mirror; staged objects TTL'd + purged. Arithmetic savings, no holdback needed. It is functional and self-serve, but not inline automatic batching of normal proxy calls. |
+| **Token trim** | auto | Ledger / holdback once active; recommendation savings may start estimated | **autonomous when configured auto** | The sweep can apply open trim recommendations through the shared transition layer when the lever is enabled and auto-mode is set. |
+| **Smart routing** | approve | **Holdback measured** (concurrent A/B with CI) once it has signal; estimated below threshold | **approve by default; autonomous when configured auto and gates clear** | Eval-gated for apply. Auto-mode still goes through entitlement, eval, governance, execution, holdback, and rollback machinery. Cross-provider routing is audited. |
+| **Model downshift** | approve | **Replay measured** (eval cost delta) / holdback | **approve by default; autonomous when configured auto and gates clear** | Highest quality risk. Auto-mode requires a safe objective eval; needs-human verdicts remain manual. |
+| **Prompt compression** | approve | Replay measured / ledger once active | **approve by default; autonomous when configured auto and gates clear** | Generated off-path, eval-gated, and applied only by exact-hash substitution of the evaluated prompt. |
+| **Semantic (vector) cache** | **off** (`SEMANTIC_CACHE_ENABLED=false`) | n/a until enabled | **config-gated pilot** | Disabled by default: it adds an embedding round-trip on the miss path and risks false-positive matches on near-identical tool-call JSON. Enable only with an in-process embedding model and a tuned per-route threshold. |
 
-## Why only two levers are autonomous
+## What can run hands-off
 
-The exact cache and batching are the only levers whose savings are **arithmetic**
-(an avoided price, a contractual discount on identical tokens), so the
-counterfactual is measured, not modeled, and there's no quality risk to a stored
-exact response or a batch-priced identical call. Everything that swaps a model
-changes the output distribution, so it stays human-in-the-loop until the eval
-harness and the live holdback prove it safe on the customer's own traffic. This
-matches the savings-accounting split in Proof: only measured methods roll into
-verified savings (see `FAILURE_MODES.md` and the Proof page).
+Exact cache is the only fully autonomous hot-path optimization with no customer
+policy artifact. The policy-backed levers (token trim, smart routing, model
+downshift, prompt compression) can now run without a human apply action when the
+project's `LeverConfig` is enabled, `automation_mode="auto"`, and the shared
+transition gates pass. Batching is functional and self-serve through its async API,
+but it is not automatic inline batching of ordinary proxy requests.
+
+Arithmetic levers still have the cleanest savings proof: exact cache avoids the
+provider call, and batching uses the provider's batch price. Model swaps and prompt
+rewrites change output distribution, so auto-mode relies on eval gates, holdbacks,
+governance, canary/ramp controls, drift rollback, and measured outcome evidence.
 
 ## Defaults map to risk, by design
 
 `auto` defaults (exact cache, batching, token trim) are the low-risk, objective
-levers; `approve` defaults (smart routing, model downshift) are the medium-risk
-ones. Auto is the stronger and scarier sell, so it is earned lever by lever as the
-eval and holdback evidence accumulates — never switched on wholesale.
+levers; `approve` defaults (smart routing, model downshift, prompt compression)
+are the medium-risk ones. Auto is the stronger and scarier sell, so it is earned
+lever by lever as eval, holdback, and production evidence accumulate — never
+switched on wholesale.
 
 ## What it takes to promote a lever
 
-- **trim → autonomous:** an eval gate that proves output equivalence on the route.
+- **trim → autonomous:** enabled lever config, auto-mode, and production evidence
+  that stays within quality and latency guardrails.
 - **routing / model downshift → self-serve or autonomous:** a passing shadow eval on
-  the customer's real traffic **and** a live holdback with enough signal to report
-  measured savings with a confidence interval, plus auto-rollback on objective
-  drift.
+  the customer's real traffic, live holdback evidence as traffic accumulates, and
+  auto-rollback on objective drift.
+- **prompt compression → autonomous:** generated artifact, safe eval, exact-hash
+  substitution, and auto-mode.
 - **semantic vector cache → on:** an in-process embedding model (removes the
   miss-path latency) and a per-route distance threshold tuned against false
   positives.
