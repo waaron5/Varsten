@@ -1,3 +1,5 @@
+> **Historical, fully executed.** This directive kicked off the inline-proxy build. Every item below is now shipped: the proxy pipeline, zero-retention ledger, and all five levers named here refactored into live execution modules (plus a sixth, prompt compression, added after this was written — see `app/levers.py`). Kept as a record of original intent, not a current to-do list. For what's actually built and what's still open, read `CLAUDE.md` and `docs/design/ENGINE_IMPLEMENTATION_PLAN.md`.
+
 ### SYSTEM ARCHITECTURE & PRODUCT DIRECTIVE: THE VARSTEN OPTIMIZATION ENGINE
 
 We are building Varsten: an enterprise-grade AI FinOps optimization engine targeting mid-market B2B SaaS and AI Agent platforms spending $5k–$50k/month on LLMs. 

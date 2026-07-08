@@ -1,3 +1,5 @@
+> **Stale past §7.** Sections 1–7 (auth, tenancy, ledger, spend queries) describe foundations that still hold. Sections 8–11 describe the pre-engine build, before the inline proxy existed: "levers do not execute anything," "savings_attributions only seeded," "levers actually executing, any in-path proxy → not built." None of that is true anymore — the proxy is live, all six levers execute inline, and savings are measured from a live randomized holdback, not seeded demo data. For current engine truth read `CLAUDE.md`, `docs/design/ENGINE_IMPLEMENTATION_PLAN.md` (what shipped, slice by slice), and `docs/ENGINE_FINAL_PROOF_STATUS.md` (what's still blocking a freeze). Left in place below as a historical snapshot of the pre-engine architecture, not current documentation.
+
 1. Account creation and identity
 
   The login flow is Auth0, not hand-rolled.
@@ -180,7 +182,7 @@
   the cent for catalog-priced events because Varsten computed each one from tokens × versioned rate.
 
   ---
-  8. The recommendation engine and the five levers
+  8. The recommendation engine and the five levers (STALE — see banner at top of file)
 
   recommendations.py. Critical framing: the levers do not execute anything. Each "lever" is a detector that reads usage rows and writes
   a Recommendation row (deduped by a dedupe_key like token_trim:<route>:2026-06). The text describes a cut; nothing applies it.

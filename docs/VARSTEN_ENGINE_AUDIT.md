@@ -2,6 +2,8 @@
 
 Date: 2026-06-30
 
+> **Superseded.** This audit predates the roadmap A–F completion and the adversarial validation plan (both done 2026-07-04/05, after this was written). Its central verdict — "does not yet learn in a meaningful closed loop," "most optimization decisions are policy- and heuristic-driven" — no longer holds: the planner is the live authorization layer, outcome evidence promotes into recommendations, bandit routing and prompt compression are real executing levers, and `ChangeRequest` governance exists natively. Kept as the historical point-in-time record it was written to be, not current status. For current status read `docs/ENGINE_FINAL_PROOF_STATUS.md` and `docs/design/ENGINE_VALIDATION_PLAN.md`.
+
 Reviewer stance: hostile technical diligence. Comments, TODOs, mocked product screenshots, and marketing copy are not treated as proof.
 
 ## Executive Verdict

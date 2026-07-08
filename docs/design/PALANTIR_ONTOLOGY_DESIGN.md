@@ -16,6 +16,17 @@ spec) is generated to satisfy this ontology, not the reverse.
 
 ## 0. The key conceptual gap this build fills
 
+> **Update:** the gap this section describes has since been closed natively. `ChangeRequest`
+> now exists as a real Varsten object (`app/models/governance.py`, migration `f8a9b0c1d2e3`),
+> with exactly the state machine and evidence-bundle shape sketched below, proposed
+> automatically off a completed eval and enforced via a global/per-org flag. This document's
+> premise shifts accordingly: a Foundry integration would now **sync an existing native
+> object** into the Foundry ontology, not introduce governance where none existed. The
+> object inventory, property mappings, and Action design below are still a reasonable spec
+> for that sync — re-classify `ChangeRequest`'s own fields as **EXISTS** rather than
+> **DEMO-ONLY** before treating this as a build plan. See `app/engine/governance.py` for the
+> native lifecycle implementation.
+
 Varsten today has **no governance object**. The "approval" of a routing change is
 implicit and spread across four tables:
 

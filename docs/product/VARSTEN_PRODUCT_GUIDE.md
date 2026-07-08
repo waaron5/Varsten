@@ -32,7 +32,7 @@ The governing design principle is simple: every screen answers a money question 
 
 ## The selling point
 
-Varsten is a no-brainer because of how it is priced and how it proves itself. The customer pays a percentage of verified savings, with a floor that guarantees the fee stays below the savings. The customer never pays more than Varsten saves them. The Proof section shows realized savings, the Varsten fee, and the net to the customer after the fee, every month, measured against a live control. The buyer is not asked to take savings on faith or to do their own ROI math. The product carries the burden of proof.
+Varsten is a no-brainer because of how it is priced and how it proves itself. The customer pays at most 25% of verified savings, with any floor capped by that same 25% maximum. The customer never pays more than Varsten saves them, and the fee is always below verified savings when verified savings are positive. The Proof section shows realized savings, the Varsten fee, and the net to the customer after the fee, every month, measured against a live control. The buyer is not asked to take savings on faith or to do their own ROI math. The product carries the burden of proof.
 
 That reframes the purchase. A flat SaaS fee makes a CTO weigh cost against uncertain benefit. Pay-for-verified-savings makes the question "why would we not turn this on," because the downside is bounded to zero and the upside is measured and banked.
 
@@ -46,11 +46,12 @@ The buyer pain Varsten removes is not "I cannot see my spend." It is "I can see 
 
 ## The savings engine
 
-The engine is the heart of the product. It cuts spend through five levers. Every recommendation, every automated action, and every line of savings maps to one of them.
+The engine is the heart of the product. It cuts spend through six levers. Every recommendation, every automated action, and every line of savings maps to one of them.
 
-- **Smart routing** sends each request to the cheapest model that clears the quality bar for that route. Routing is decided per request from a policy, not set once globally.
+- **Smart routing** sends each request to the cheapest model that clears the quality bar for that route. Routing is decided per request from a policy, not set once globally, and can include bandit selection among eval-cleared candidates on a route (off by default).
 - **Semantic cache** reuses an answer when a new request is semantically close to one already served, removing an entire model call on a hit.
-- **Token trim** compresses prompts and context before the call without changing the output, cutting input tokens on every request to a route.
+- **Token trim** compresses prompts and context before the call without changing the output, cutting input tokens on every request to a route, deterministically.
+- **Prompt compression** is a separate lever from token trim: an off-path learned rewrite of a route's stable system prompt, proven safe on real traffic through the eval/replay gate and a named human approval, then substituted at request time only on an exact match to the evaluated original. Always approve-mode.
 - **Model downshift** systematically moves whole workloads down to a lower-cost tier wherever evals show quality holds.
 - **Batching** routes non-urgent jobs through batch endpoints to capture bulk pricing in exchange for a controlled delay.
 
@@ -58,7 +59,7 @@ The engine continuously analyzes traffic, identifies which levers apply to which
 
 ### Autonomy: auto versus approve
 
-For each lever the customer decides whether the engine acts on its own or waits for a human. Low-risk, objectively-measurable levers default to auto: semantic cache, batching, and token trim. Medium-risk levers default to approve: smart routing and model-downshift downgrades. Every auto-applied cut still passes all guardrails before going live, and any cut that fails a quality gate is rolled back automatically and surfaced in the decision queue. Auto is the stronger experience and the one a customer earns into lever by lever as trust builds.
+For each lever the customer decides whether the engine acts on its own or waits for a human. Low-risk, objectively-measurable levers default to auto: semantic cache, batching, and token trim. Medium-risk levers default to approve: smart routing and model-downshift downgrades. Prompt compression is also approve-mode, but permanently — it changes what the model reads, so it never graduates to auto no matter how much evidence accrues. Every auto-applied cut still passes all guardrails before going live, and any cut that fails a quality gate is rolled back automatically and surfaced in the decision queue. Auto is the stronger experience and the one a customer earns into lever by lever as trust builds.
 
 ## The app, section by section
 
@@ -73,7 +74,7 @@ The home surface. It answers "what should I do right now" and produces approvals
 The workspace where spend is cut. Three tabs.
 
 - **Recommendations** is a ranked list of proposed cuts, each with its lever, its monthly dollar impact, a risk label, a one-line rationale, and a one-click apply. This is the screen that sells the product, because it turns "your bill is too high" into "here is a specific $24,800-per-month cut at low risk, apply it."
-- **Levers** shows the five mechanisms, each with an on/off, its savings to date, and its measured quality impact. Turning a lever off pauses it everywhere.
+- **Levers** shows the six mechanisms, each with an on/off, its savings to date, and its measured quality impact. Turning a lever off pauses it everywhere.
 - **Automation** is where the customer sets auto versus approve per lever, with each lever's risk profile shown alongside.
 
 ### Guardrails

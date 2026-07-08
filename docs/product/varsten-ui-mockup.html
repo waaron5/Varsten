@@ -174,6 +174,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
   <symbol id="i-scissor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8 7l12 10M8 17L20 7"/></symbol>
   <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
   <symbol id="i-stack" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="5" rx="1.5"/><rect x="4" y="11" width="16" height="5" rx="1.5"/><path d="M4 18h16"/></symbol>
+  <symbol id="i-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
@@ -318,7 +319,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
       </div>
 
       <div class="tabview" id="engine-lev">
-        <div class="phead"><h2>Levers</h2><p>The five mechanisms that cut spend. Toggle one off to pause it everywhere.</p></div>
+        <div class="phead"><h2>Levers</h2><p>The six mechanisms that cut spend. Toggle one off to pause it everywhere.</p></div>
         <div class="card">
           <div class="lever"><div class="top"><div class="ic" style="width:32px;height:32px;border-radius:8px;background:var(--paper);display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg style="width:17px;height:17px" fill="none" stroke="currentColor" stroke-width="1.8"><use href="#i-route"/></svg></div>
             <div style="flex:1"><div class="name">Smart routing</div></div><span class="badge b-on">active</span><div class="toggle on" onclick="tog(this)"></div></div>
@@ -340,6 +341,10 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
             <div style="flex:1"><div class="name">Batching</div></div><span class="badge b-on">active</span><div class="toggle on" onclick="tog(this)"></div></div>
             <div class="desc">Routes non-urgent jobs through batch endpoints to capture bulk pricing.</div>
             <div class="stats"><div><div class="k">Saved this month</div><div class="v" style="color:var(--brand-d)">$13.3k</div></div><div><div class="k">Jobs batched</div><div class="v">9</div></div><div><div class="k">Avg delay</div><div class="v">2.4h</div></div></div></div>
+          <div class="lever"><div class="top"><div class="ic" style="width:32px;height:32px;border-radius:8px;background:var(--paper);display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg style="width:17px;height:17px" fill="none" stroke="currentColor" stroke-width="1.8"><use href="#i-compress"/></svg></div>
+            <div style="flex:1"><div class="name">Prompt compression</div></div><span class="badge b-off">paused</span><div class="toggle" onclick="tog(this)"></div></div>
+            <div class="desc">Learns a shorter version of a route's stable system prompt and substitutes it once proven safe. Always approve-mode.</div>
+            <div class="stats"><div><div class="k">Saved this month</div><div class="v" style="color:var(--brand-d)">$0</div></div><div><div class="k">Routes covered</div><div class="v">0</div></div><div><div class="k">Quality delta</div><div class="v">—</div></div></div></div>
         </div>
       </div>
 
@@ -354,11 +359,12 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
               <tr><td>Token trim</td><td><span class="badge b-low">low</span></td><td><div class="seg"><button class="on">Auto</button><button onclick="segPick(this)">Approve</button></div></td></tr>
               <tr><td>Smart routing</td><td><span class="badge b-med">medium</span></td><td><div class="seg"><button onclick="segPick(this)">Auto</button><button class="on">Approve</button></div></td></tr>
               <tr><td>Model downshift</td><td><span class="badge b-med">medium</span></td><td><div class="seg"><button onclick="segPick(this)">Auto</button><button class="on">Approve</button></div></td></tr>
+              <tr><td>Prompt compression</td><td><span class="badge b-med">changes the prompt</span></td><td><div class="seg"><button disabled style="opacity:.4;cursor:not-allowed">Auto</button><button class="on">Approve</button></div></td></tr>
             </tbody>
           </table>
         </div>
         <div style="height:14px"></div>
-        <div class="note">Auto-applied cuts still pass every guardrail before going live, and any cut that fails an eval gate is rolled back automatically and surfaced in the decision queue.</div>
+        <div class="note">Auto-applied cuts still pass every guardrail before going live, and any cut that fails an eval gate is rolled back automatically and surfaced in the decision queue. Prompt compression stays Approve permanently — it changes what the model reads, so it never earns Auto.</div>
       </div>
     </section>
 
@@ -465,6 +471,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
               <tr><td>Token trim</td><td class="num">$28.9k</td><td class="num">21%</td></tr>
               <tr><td>Model downshift</td><td class="num">$22.4k</td><td class="num">16%</td></tr>
               <tr><td>Batching</td><td class="num">$13.3k</td><td class="num">9%</td></tr>
+              <tr><td>Prompt compression</td><td class="num">$0</td><td class="num">0%</td></tr>
             </tbody>
           </table>
         </div>
@@ -581,7 +588,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
           <div class="card">
             <div class="card-h"><h3>Plan</h3></div>
             <table><tbody>
-              <tr><td>Pricing</td><td class="num">15% of verified savings</td></tr>
+              <tr><td>Pricing</td><td class="num">25% of verified savings</td></tr>
               <tr><td>This month</td><td class="num">$20.8k</td></tr>
               <tr><td>Savings floor</td><td class="num">guaranteed &gt; fee</td></tr>
             </tbody></table>
