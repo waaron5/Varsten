@@ -38,7 +38,7 @@ export default function TermsPage() {
 
       <ContentSection title="Fees and savings">
         <p>
-          Free plans may give you monitoring and proof features without inline optimization. Performance plans may charge
+          Free plans may give you monitoring and proof features without inline optimization. Optimize plans may charge
           a percentage of confirmed savings after any trial period. Estimates, recommendations, and changes you make on
           your own side are not billable unless you accept them in a written agreement.
         </p>

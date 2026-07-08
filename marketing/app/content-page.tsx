@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import "./content.css";
 import { APP_URL, CONTACT_EMAIL, DPA_REQUEST_HREF, START_FREE_HREF } from "./site-links";
 
 function Logo({ variant = "dark" }: { variant?: "dark" | "light" }) {
@@ -24,6 +25,7 @@ type ContentPageProps = {
 };
 
 type ContentSectionProps = {
+  id?: string;
   eyebrow?: string;
   title: string;
   children: ReactNode;
@@ -48,9 +50,9 @@ export function ContentPage({ eyebrow, title, description, children }: ContentPa
   );
 }
 
-export function ContentSection({ eyebrow, title, children }: ContentSectionProps) {
+export function ContentSection({ id, eyebrow, title, children }: ContentSectionProps) {
   return (
-    <section className="lp-content-section">
+    <section id={id} className="lp-content-section">
       {eyebrow ? <p className="lp-eyebrow muted">{eyebrow}</p> : null}
       <h2>{title}</h2>
       <div className="lp-content-section-body">{children}</div>
@@ -96,10 +98,10 @@ function ContentNav() {
           <Logo />
         </Link>
         <nav className="lp-nav-center" aria-label="Primary">
-          <Link href="/#product">Product</Link>
-          <Link href="/#how-it-works">How it works</Link>
-          <Link href="/#ledger">Proof</Link>
+          <Link href="/#levers">Levers</Link>
+          <Link href="/#integrations">Integrations</Link>
           <Link href="/#pricing">Pricing</Link>
+          <Link href="/docs">Docs</Link>
         </nav>
         <div className="lp-nav-right">
           <a className="lp-link" href={APP_URL}>
@@ -127,15 +129,16 @@ function ContentFooter() {
           </div>
           <div className="lp-footer-col">
             <h4>Product</h4>
-            <Link href="/#product">Overview</Link>
+            <Link href="/#top">Overview</Link>
             <Link href="/#levers">Savings levers</Link>
-            <Link href="/#ledger">The ledger</Link>
+            <Link href="/#integrations">Integrations</Link>
             <Link href="/#pricing">Pricing</Link>
           </div>
           <div className="lp-footer-col">
             <h4>Company</h4>
             <Link href="/docs">Docs</Link>
-            <Link href="/#how-it-works">How it works</Link>
+            <Link href="/status">Status</Link>
+            <Link href="/contact">Contact</Link>
           </div>
           <div className="lp-footer-col">
             <h4>Legal</h4>

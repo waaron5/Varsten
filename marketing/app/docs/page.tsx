@@ -14,6 +14,8 @@ export const metadata: Metadata = {
   description: "Production installation steps for routing AI traffic through Varsten with fail-open SDK fallback.",
 };
 
+const proxyBase = "https://api.varsten.ai/v1";
+
 const installCode = `# OpenAI
 npm install @varsten/openai openai
 
@@ -29,7 +31,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 GEMINI_API_KEY=AIza...
 
 # Optional. Defaults to https://api.varsten.ai/v1
-VARSTEN_BASE_URL=https://api.varsten.ai/v1`;
+VARSTEN_BASE_URL=${proxyBase}`;
 
 const openaiCode = `import { VarstenOpenAI } from "@varsten/openai";
 
@@ -91,12 +93,12 @@ const evaluationCode = `import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: process.env.VARSTEN_API_KEY,
-  baseURL: "https://api.varsten.ai/v1",
+  baseURL: "${proxyBase}",
 });`;
 
 const metadataCode = `// Metadata only — token counts and labels, never prompt or completion text.
 // No provider key, nothing in your request path, zero availability risk.
-await fetch("https://api.varsten.ai/v1/usage-events", {
+await fetch("${proxyBase}/usage-events", {
   method: "POST",
   headers: {
     "Authorization": \`Bearer \${process.env.VARSTEN_API_KEY}\`,
@@ -122,7 +124,7 @@ export default function DocsPage() {
       title="Setup Instructions"
       description="The production install uses the Varsten SDK wrapper. Your normal provider SDK still does the work, but the wrapper sends healthy traffic through Varsten and falls back directly to your provider when Varsten is unavailable."
     >
-      <ContentSection eyebrow="Production path" title="What you are changing">
+      <ContentSection id="quickstart" eyebrow="Production path" title="What you are changing">
         <ContentGrid>
           <ContentCard title="1. Add one Varsten package">
             <p>Install the wrapper for the provider you already use. Keep the official provider SDK installed.</p>
@@ -132,6 +134,29 @@ export default function DocsPage() {
           </ContentCard>
           <ContentCard title="3. Replace the client constructor">
             <p>Swap the provider client for the Varsten wrapper. Your request call sites should stay the same.</p>
+          </ContentCard>
+        </ContentGrid>
+      </ContentSection>
+
+      <ContentSection id="architecture" eyebrow="Architecture" title="Request path and fallback">
+        <ContentGrid>
+          <ContentCard title="Inline SDK path">
+            <p>
+              The SDK sends healthy traffic through Varsten so configured optimization policies can run.
+              The local provider key remains available for direct fail-open fallback.
+            </p>
+          </ContentCard>
+          <ContentCard title="Quick Eval path">
+            <p>
+              A stock OpenAI-compatible client points at Varsten with a base URL change. It is useful for
+              evaluation traffic, but it is not the production fail-open path.
+            </p>
+          </ContentCard>
+          <ContentCard title="Metadata-only path">
+            <p>
+              Usage events are posted asynchronously after provider calls. Nothing sits inline, so this path
+              is analysis-only and cannot apply optimization levers.
+            </p>
           </ContentCard>
         </ContentGrid>
       </ContentSection>
@@ -149,7 +174,7 @@ export default function DocsPage() {
         <ContentCode>{envCode}</ContentCode>
       </ContentSection>
 
-      <ContentSection eyebrow="Step 3" title="Replace the provider client">
+      <ContentSection id="sdk-reference" eyebrow="Step 3" title="Replace the provider client">
         <p>
           Start with one route or service. Do not rewrite prompts, request bodies, streaming loops,
           or tool handling as part of the first install.
