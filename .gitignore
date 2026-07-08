@@ -48,3 +48,6 @@ BRAND_STYLE_GUIDE.md
 
 # Local self-serve walkthrough harness runtime (PIDs, logs)
 .walkthrough/
+
+# macOS Finder metadata
+.DS_Store
