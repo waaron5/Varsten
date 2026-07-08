@@ -593,6 +593,13 @@ function AdminBillingSecurityBody() {
               <div className="mini-title">{titleize(data.plan)}</div>
               <p className="muted-copy">{titleize(data.pricing_model)}</p>
               <div className="hero-note" style={{ marginTop: 14 }}>Verified savings fee: {data.verified_savings_fee_percent === null ? "Not set" : `${data.verified_savings_fee_percent}%`}</div>
+              <div className="meta-row" style={{ marginTop: 14 }}>
+                <span className="pill neutral">{titleize(data.plan_tier)}</span>
+                <span className="pill neutral">{titleize(data.subscription_status)}</span>
+                <span className={`pill ${data.payment_method_ready_at ? "green" : "neutral"}`}>
+                  {data.payment_method_ready_at ? "Payment method ready" : "No payment method"}
+                </span>
+              </div>
             </div>
           </div>
           <div className="card">

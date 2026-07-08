@@ -1,12 +1,12 @@
 """Observe-only enforcement: a Free workspace can never activate a
-behaviour-changing lever. Performance can. Enforcement is backend-side."""
+behaviour-changing lever. Optimize can. Enforcement is backend-side."""
 
 import uuid
 from decimal import Decimal
 
 from sqlalchemy import func, select
 
-from app.models import Organization, ProxyPolicy, Recommendation
+from app.models import Organization, ProxyPolicy, Recommendation, UsageEvent
 from tests.conftest import auth_headers
 
 
@@ -59,6 +59,56 @@ def test_free_cannot_apply_recommendation(client, provision, db_session):
         select(func.count()).select_from(ProxyPolicy).where(ProxyPolicy.project_id == uuid.UUID(p["project_id"]))
     )
     assert policies == 0
+
+
+def test_free_cannot_apply_legacy_recommendation(client, provision, db_session):
+    p = provision()
+    rec = _make_recommendation(db_session, p)
+
+    resp = client.patch(
+        f"/v1/recommendations/{rec.id}",
+        headers=auth_headers(p["token"]),
+        json={"status": "applied"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["code"] == "feature_requires_performance"
+
+    db_session.refresh(rec)
+    assert rec.status == "open"
+    policies = db_session.scalar(
+        select(func.count()).select_from(ProxyPolicy).where(ProxyPolicy.project_id == uuid.UUID(p["project_id"]))
+    )
+    assert policies == 0
+
+
+def test_cross_org_engine_recommendation_update_is_rejected_without_mutation(client, provision, db_session):
+    owner = provision(sub="auth0|rec-owner", email="rec-owner@example.com")
+    other = provision(sub="auth0|rec-other", email="rec-other@example.com")
+    rec = _make_recommendation(db_session, owner)
+
+    resp = client.patch(
+        f"/v1/engine/recommendations/{rec.id}{_q(other['project_id'])}",
+        headers=auth_headers(other["token"]),
+        json={"status": "dismissed"},
+    )
+    assert resp.status_code == 404
+    db_session.refresh(rec)
+    assert rec.status == "open"
+
+
+def test_cross_org_legacy_recommendation_update_is_rejected_without_mutation(client, provision, db_session):
+    owner = provision(sub="auth0|legacy-owner", email="legacy-owner@example.com")
+    other = provision(sub="auth0|legacy-other", email="legacy-other@example.com")
+    rec = _make_recommendation(db_session, owner)
+
+    resp = client.patch(
+        f"/v1/recommendations/{rec.id}",
+        headers=auth_headers(other["token"]),
+        json={"status": "dismissed"},
+    )
+    assert resp.status_code == 403
+    db_session.refresh(rec)
+    assert rec.status == "open"
 
 
 def test_free_can_dismiss_recommendation(client, provision, db_session):
@@ -231,6 +281,68 @@ def test_entitlements_performance(client, provision, db_session):
     assert body["features"]["apply_recommendations"] is True
     assert body["features"]["guardrail_automation"] is True
     assert body["features"]["advanced_reports"] is True
+
+
+def _usage_event(p, *, pricing_status="priced", metadata=None) -> UsageEvent:
+    return UsageEvent(
+        organization_id=uuid.UUID(p["org_id"]),
+        project_id=uuid.UUID(p["project_id"]),
+        provider="openai",
+        model="gpt-4o-mini",
+        operation="chat_completion",
+        source="proxy",
+        input_tokens=10,
+        output_tokens=5,
+        total_tokens=15,
+        pricing_status=pricing_status,
+        event_metadata=metadata or {},
+    )
+
+
+def test_trial_progress_uses_deterministic_backend_thresholds(client, provision, db_session):
+    p = provision(plan="trialing")
+
+    body = client.get(f"/v1/entitlements{_q(p['project_id'])}", headers=auth_headers(p["token"])).json()
+    assert body["trial_progress"] == {
+        "first_request_received": False,
+        "priced_request_count": 0,
+        "directional_request_threshold": 60,
+        "directional_spend_ready": False,
+        "holdback_policy_active": False,
+        "holdback_control_count": 0,
+        "holdback_treatment_count": 0,
+        "holdback_arm_threshold": 30,
+        "holdback_proof_ready": False,
+    }
+
+    db_session.add_all([_usage_event(p) for _ in range(59)])
+    db_session.flush()
+    body = client.get(f"/v1/entitlements{_q(p['project_id'])}", headers=auth_headers(p["token"])).json()
+    assert body["trial_progress"]["first_request_received"] is True
+    assert body["trial_progress"]["priced_request_count"] == 59
+    assert body["trial_progress"]["directional_spend_ready"] is False
+
+    db_session.add(_usage_event(p))
+    db_session.flush()
+    body = client.get(f"/v1/entitlements{_q(p['project_id'])}", headers=auth_headers(p["token"])).json()
+    assert body["trial_progress"]["priced_request_count"] == 60
+    assert body["trial_progress"]["directional_spend_ready"] is True
+
+    _make_route_policy(db_session, p, enabled=True)
+    db_session.add_all([_usage_event(p, metadata={"holdback": True, "arm": "control"}) for _ in range(30)])
+    db_session.add_all([_usage_event(p, metadata={"holdback": True, "arm": "treatment"}) for _ in range(29)])
+    db_session.flush()
+    body = client.get(f"/v1/entitlements{_q(p['project_id'])}", headers=auth_headers(p["token"])).json()
+    assert body["trial_progress"]["holdback_policy_active"] is True
+    assert body["trial_progress"]["holdback_control_count"] == 30
+    assert body["trial_progress"]["holdback_treatment_count"] == 29
+    assert body["trial_progress"]["holdback_proof_ready"] is False
+
+    db_session.add(_usage_event(p, metadata={"holdback": True, "arm": "treatment"}))
+    db_session.flush()
+    body = client.get(f"/v1/entitlements{_q(p['project_id'])}", headers=auth_headers(p["token"])).json()
+    assert body["trial_progress"]["holdback_treatment_count"] == 30
+    assert body["trial_progress"]["holdback_proof_ready"] is True
 
 
 # --- behaviour-changing guardrail / report gates -----------------------------

@@ -1,5 +1,5 @@
-"""Self-serve trial lifecycle: a new signup is a Performance trial, the trial
-unlocks Performance until it ends, and an unpaid trial that elapses falls back to
+"""Self-serve trial lifecycle: a new signup is an Optimize trial, the trial
+unlocks Optimize until it ends, and an unpaid trial that elapses falls back to
 Free observe-only (durably, by sweep and lazily on read) without blocking traffic.
 """
 
@@ -88,6 +88,19 @@ def test_existing_free_user_with_trial_intent_starts_unused_trial(client, db_ses
     assert org.trial_ends_at is not None
 
 
+def test_trial_intent_does_not_start_when_payment_method_is_already_ready(client, db_session):
+    body = _sync_with_intent(client, intent="observe", sub="auth0|payment-ready-free", email="ready@example.com")
+    org = _org(db_session, body["organizations"][0]["id"])
+    org.payment_method_ready_at = datetime.now(UTC)
+    db_session.commit()
+
+    _sync_with_intent(client, intent="trial", sub="auth0|payment-ready-free", email="ready@example.com")
+    db_session.refresh(org)
+    assert org.plan_tier == PLAN_FREE
+    assert org.subscription_status == SUBSCRIPTION_ACTIVE
+    assert org.trial_started_at is None
+
+
 def test_observe_intent_does_not_downgrade_existing_trial(client, db_session):
     body = _sync(client, sub="auth0|trial-stays", email="trial-stays@example.com")
     org = _org(db_session, body["organizations"][0]["id"])
@@ -162,18 +175,37 @@ def test_sweep_downgrades_unpaid_expired_trial(db_session, provision):
     assert org.subscription_status == SUBSCRIPTION_EXPIRED
 
 
-def test_sweep_leaves_paid_trial_alone(db_session, provision):
+def test_sweep_promotes_payment_ready_expired_trial(db_session, provision):
     p = provision(plan="trialing")
     org = _org(db_session, p["org_id"])
     org.trial_ends_at = datetime.now(UTC) - timedelta(hours=1)
-    org.stripe_subscription_id = "sub_paid_123"  # a payment method on file means "paid"
+    org.payment_method_ready_at = datetime.now(UTC) - timedelta(days=1)
     db_session.commit()
 
-    expired = billing_lifecycle.sweep_expired_trials(db_session)
-    assert org.id not in expired
+    transitioned = billing_lifecycle.sweep_expired_trials(db_session)
+    assert org.id in transitioned
     db_session.refresh(org)
     assert org.plan_tier == PLAN_PERFORMANCE
-    assert org.subscription_status == SUBSCRIPTION_TRIALING
+    assert org.subscription_status == SUBSCRIPTION_ACTIVE
+
+
+def test_expired_trial_with_payment_method_promotes_on_read(client, db_session, provision):
+    p = provision(plan="trialing")
+    org = _org(db_session, p["org_id"])
+    org.trial_ends_at = datetime.now(UTC) - timedelta(hours=1)
+    org.payment_method_ready_at = datetime.now(UTC) - timedelta(days=1)
+    db_session.commit()
+    billing_lifecycle._invalidate(org.id)
+
+    body = _entitlements(client, p)
+    assert body["observe_only"] is False
+    assert body["plan_tier"] == PLAN_PERFORMANCE
+    assert body["features"]["apply_recommendations"] is True
+    assert body["subscription_status"] == SUBSCRIPTION_ACTIVE
+
+    db_session.refresh(org)
+    assert org.plan_tier == PLAN_PERFORMANCE
+    assert org.subscription_status == SUBSCRIPTION_ACTIVE
 
 
 def test_expired_org_keeps_visibility_but_locks_optimization(client, db_session, provision):

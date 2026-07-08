@@ -1,9 +1,10 @@
-"""Stripe self-serve upgrade: collect a payment method and activate Performance.
+"""Stripe self-serve upgrade: collect a payment method for Optimize.
 
 Varsten's price is a percentage of verified savings (billed through the Invoice
 flow), not a fixed monthly charge, so Checkout runs in `setup` mode: it collects
-and vaults a payment method on the customer, and completing it activates the
-Performance plan. There is intentionally no fixed-price subscription here.
+and vaults a payment method on the customer. Completing checkout during a trial
+marks the org ready to continue after the trial; it is not itself a paid-active
+transition. There is intentionally no fixed-price subscription here.
 
 All transitions funnel through `billing_lifecycle`, so this module only translates
 Stripe events into those calls; it never invents its own billing-state rules. The
@@ -106,9 +107,14 @@ def handle_event(db: Session, event: dict) -> bool:
         return False
 
     if event_type == "checkout.session.completed":
-        # Setup-mode checkout finished: a payment method is now on file -> activate.
+        # Setup-mode checkout finished. During a live trial this marks payment
+        # readiness only; expired/canceled/past-due/free orgs are explicitly
+        # reactivated by completing checkout.
         subscription_id = obj.get("subscription")  # null in setup mode; set if we ever use subscriptions
-        billing_lifecycle.activate_performance(org, stripe_subscription_id=subscription_id)
+        if subscription_id:
+            billing_lifecycle.activate_performance(org, stripe_subscription_id=subscription_id)
+        else:
+            billing_lifecycle.complete_payment_method_setup(org)
     elif event_type in ("customer.subscription.deleted",):
         billing_lifecycle.cancel_subscription(org)
     elif event_type in ("invoice.payment_failed",):

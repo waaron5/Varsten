@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.levers import LEVER_DISPLAY_ORDER
 from app.models import (
+    MAX_GAIN_SHARE_PERCENT,
     LeverConfig,
     Project,
     Recommendation,
@@ -41,10 +42,10 @@ _CENTS = Decimal("0.01")
 
 def org_fee_percent(project: Project) -> Decimal:
     """Varsten's gain-share fraction for this project's org. The single source of
-    truth is ``organizations.gain_share_percent`` (per-org, default 0.25); never a
-    hard-coded rate. ``billing.py`` reads the same column for invoicing, so the
-    fee a customer sees on the dashboard matches the fee they are billed."""
-    return Decimal(project.organization.gain_share_percent)
+    truth is ``organizations.gain_share_percent`` (per-org, default 0.25), capped
+    at 25%. ``billing.py`` applies the same cap for invoicing, so the fee a
+    customer sees on the dashboard matches the fee they are billed."""
+    return min(Decimal(project.organization.gain_share_percent), MAX_GAIN_SHARE_PERCENT)
 
 
 class SavingsSummary(TypedDict):

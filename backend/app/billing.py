@@ -1,8 +1,8 @@
 """Gain-share billing, computed from verified savings.
 
-The fee is the org's gain-share percent of VERIFIED (measured) savings, with a
-monthly floor. The floor is always capped at the savings, so the customer's net
-is never negative -- the "no-brainer" guarantee. Estimated savings never bill.
+The fee is the org's gain-share percent of VERIFIED (measured) savings, capped
+at 25% of those savings. A monthly floor may lift a small fee, but never above
+the same 25% cap. Estimated savings never bill.
 
 Manual today: an operator generates an invoice for a period; there is no
 auto-charge and no Stripe yet. The Invoice row is the durable billing record.
@@ -15,7 +15,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Invoice, Organization, Project
+from app.models import MAX_GAIN_SHARE_PERCENT, Invoice, Organization, Project
 from app.savings import month_end, month_start
 from app.savings_measurement import compute_verified_savings
 
@@ -24,6 +24,11 @@ _CENTS = Decimal("0.01")
 
 def _q(value: Decimal) -> Decimal:
     return Decimal(value).quantize(_CENTS, rounding=ROUND_HALF_UP)
+
+
+def effective_gain_share_percent(percent: Decimal) -> Decimal:
+    """The billable gain-share rate after the public 25% maximum is applied."""
+    return max(Decimal("0"), min(Decimal(percent), MAX_GAIN_SHARE_PERCENT))
 
 
 @dataclass(frozen=True)
@@ -36,17 +41,22 @@ class Billable:
 
 
 def compute_fee(verified_savings: Decimal, percent: Decimal, floor: Decimal) -> Billable:
-    """The fee on verified savings: percent of savings, lifted to the floor, then
-    capped at the savings so net is always >= 0."""
+    """The fee on verified savings.
+
+    The configured percent can be lower than 25%, but never bills above 25%.
+    The floor can lift a tiny bill, but it is capped by the same 25% maximum, not
+    by 100% of savings.
+    """
     gross = max(_q(verified_savings), Decimal("0"))
-    fee = _q(gross * percent)
+    effective_percent = effective_gain_share_percent(percent)
+    fee = _q(gross * effective_percent)
     if floor > 0:
         fee = max(fee, _q(floor))
-    # Never charge more than was verifiably saved -> the customer's net stays >= 0.
-    fee = min(fee, gross)
+    max_fee = _q(gross * MAX_GAIN_SHARE_PERCENT)
+    fee = min(fee, max_fee)
     return Billable(
         verified_savings_usd=gross,
-        gain_share_percent=percent,
+        gain_share_percent=effective_percent,
         monthly_fee_floor_usd=_q(floor),
         fee_usd=fee,
         net_savings_usd=gross - fee,

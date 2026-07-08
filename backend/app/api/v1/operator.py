@@ -19,6 +19,7 @@ from app.models import (
     ACTION_BILLING_UPDATED,
     ACTION_INVOICE_GENERATED,
     ACTION_PLAN_CHANGED,
+    MAX_GAIN_SHARE_PERCENT,
     PLAN_TIERS,
     SUBSCRIPTION_STATUSES,
     ApiKey,
@@ -192,7 +193,7 @@ def set_organization_plan(
     operator: User = Depends(_operator_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Operator-only plan switch for testing Free vs Performance. Gated by
+    """Operator-only plan switch for testing Free vs Optimize. Gated by
     operator_admin_emails; there is deliberately no public/self-serve plan switch."""
     tier = payload.plan_tier.strip().lower()
     if tier not in PLAN_TIERS:
@@ -226,7 +227,7 @@ def set_organization_plan(
 
 
 class BillingConfigUpdate(BaseModel):
-    gain_share_percent: Decimal | None = Field(default=None, ge=0, le=1)
+    gain_share_percent: Decimal | None = Field(default=None, ge=0, le=MAX_GAIN_SHARE_PERCENT)
     monthly_fee_floor_usd: Decimal | None = Field(default=None, ge=0)
     subscription_status: str | None = None
     trial_ends_at: datetime | None = None

@@ -66,7 +66,7 @@ def _open_recommendation(project: Project, amount: str) -> Recommendation:
         target_type="route",
         target_key="proxy:chat_completion",
         title="Enable safe response reuse",
-        description="Repeated prompts can be served from cache on Performance.",
+        description="Repeated prompts can be served from cache on Optimize.",
         rationale="Seeded recommendation for Dashboard projection integrity.",
         estimated_monthly_savings_usd=Decimal(amount),
         monthly_request_volume=100,
@@ -138,23 +138,22 @@ def test_free_proof_savings_reports_projected_open_opportunity_net(client, db_se
     assert "verified" not in body
 
 
-def test_fee_percent_is_configurable_per_org_not_hardcoded(client, db_session, provision):
+def test_fee_percent_is_configurable_per_org_below_cap(client, db_session, provision):
     """The gain-share fee flows from organizations.gain_share_percent, so changing
-    it changes both the proof opportunity fee and the billing-security display --
-    proving no rate is hard-coded."""
+    it changes both the proof opportunity fee and the billing-security display."""
     ws = provision(sub="auth0|fee-config", email="fee-config@example.com")
     project = _project(db_session, ws)
     org = db_session.get(Organization, project.organization_id)
-    org.gain_share_percent = Decimal("0.3000")
+    org.gain_share_percent = Decimal("0.2000")
     db_session.add_all([_traffic_event(project, cost="12.00"), _open_recommendation(project, "100.00")])
     db_session.commit()
 
     proof = client.get("/v1/proof/savings", headers=_b(ws["api_key"])).json()
-    assert Decimal(proof["estimated"]["open_opportunity_fee_usd"]) == Decimal("30.00")
-    assert Decimal(proof["estimated"]["open_opportunity_net_usd"]) == Decimal("70.00")
+    assert Decimal(proof["estimated"]["open_opportunity_fee_usd"]) == Decimal("20.00")
+    assert Decimal(proof["estimated"]["open_opportunity_net_usd"]) == Decimal("80.00")
 
     billing = client.get("/v1/admin/billing-security", headers=_b(ws["api_key"])).json()
-    assert Decimal(billing["verified_savings_fee_percent"]) == Decimal("30.00")
+    assert Decimal(billing["verified_savings_fee_percent"]) == Decimal("20.00")
 
 
 def test_performance_proof_savings_keeps_verified_separate_from_estimate(client, db_session, provision):

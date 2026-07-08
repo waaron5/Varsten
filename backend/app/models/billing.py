@@ -1,10 +1,11 @@
 """Gain-share invoices.
 
-One invoice per organization per billing period, computed from VERIFIED (measured)
-savings only -- never estimates. The fee is the org's gain-share percent of those
-savings, with a floor, and the floor is capped at the savings so the customer's
-net is always >= 0. Invoices are generated manually (operator) today; an automated
-Stripe path comes later. The row is the durable, CFO-defensible billing record.
+One invoice per organization per billing period, computed from VERIFIED
+(measured) savings only -- never estimates. The fee is the org's effective
+gain-share percent of those savings, capped at 25%. Any monthly floor is also
+capped at 25% of verified savings. Invoices are generated manually (operator)
+today; an automated Stripe path comes later. The row is the durable,
+CFO-defensible billing record.
 """
 
 import uuid

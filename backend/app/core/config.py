@@ -168,7 +168,7 @@ class Settings(BaseSettings):
     # downshifts the proxy into observe-only mode and surfaces warning headers/UI.
     free_monthly_request_limit: int = 100_000
     free_trial_days: int = 14
-    # How often the trial sweep downgrades unpaid, elapsed Performance trials to Free
+    # How often the trial sweep downgrades unpaid, elapsed Optimize trials to Free
     # observe-only. The entitlement read path also does this lazily, so the sweep is
     # the durable-state backstop, not the only mechanism; hourly is plenty.
     trial_sweep_interval_seconds: int = 3600
@@ -427,6 +427,10 @@ class Settings(BaseSettings):
     # set. When off, the checkout/portal endpoints return 503 and the webhook 404,
     # but trials, entitlements, and the sweep are unaffected.
     self_serve_billing_enabled: bool = False
+    # Emergency/manual-launch escape hatch. Production normally refuses to boot when
+    # self-serve billing is disabled because the landing page promises a trial-to-paid
+    # path. Set only when intentionally operating an assisted-conversion launch.
+    allow_disabled_self_serve_billing: bool = False
     stripe_secret_key: str = ""
     stripe_publishable_key: str = ""
     # Signing secret for the Stripe webhook endpoint. Required to verify that an
@@ -464,6 +468,11 @@ def validate_production(s: "Settings") -> list[str]:
         problems.append(f"CORS_ORIGINS must not include a localhost origin in production: {s.cors_origins}.")
     if not s.sentry_dsn:
         problems.append("SENTRY_DSN must be set in production so errors are visible.")
+    if not s.self_serve_billing_enabled and not s.allow_disabled_self_serve_billing:
+        problems.append(
+            "SELF_SERVE_BILLING_ENABLED must be true in production, or set "
+            "ALLOW_DISABLED_SELF_SERVE_BILLING=true for an intentional assisted-conversion launch."
+        )
     if s.self_serve_billing_enabled:
         # Only enforce Stripe config when self-serve billing is actually turned on, so
         # a deploy can run safely with billing temporarily disabled.

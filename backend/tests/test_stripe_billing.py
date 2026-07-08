@@ -1,4 +1,4 @@
-"""Stripe self-serve upgrade: a signature-verified webhook activates Performance;
+"""Stripe self-serve upgrade: a signature-verified webhook records payment readiness;
 forged events are rejected; the handler is idempotent; checkout/portal endpoints
 are gated behind the self-serve billing flag and org membership.
 """
@@ -14,9 +14,11 @@ import pytest
 from app import stripe_billing
 from app.core.config import settings
 from app.models import (
+    PLAN_FREE,
     PLAN_PERFORMANCE,
     SUBSCRIPTION_ACTIVE,
     SUBSCRIPTION_CANCELED,
+    SUBSCRIPTION_EXPIRED,
     SUBSCRIPTION_PAST_DUE,
     SUBSCRIPTION_TRIALING,
     Organization,
@@ -65,7 +67,7 @@ def _signed_headers(payload: bytes, secret: str = WEBHOOK_SECRET) -> dict:
 # --- handler (pure transition) ------------------------------------------------
 
 
-def test_checkout_completed_activates_performance(db_session, provision):
+def test_checkout_completed_during_trial_records_payment_readiness(db_session, provision):
     p = provision(plan="trialing")
     org = _org(db_session, p["org_id"])
     org.stripe_customer_id = "cus_activate"
@@ -75,7 +77,8 @@ def test_checkout_completed_activates_performance(db_session, provision):
     assert handled is True
     db_session.refresh(org)
     assert org.plan_tier == PLAN_PERFORMANCE
-    assert org.subscription_status == SUBSCRIPTION_ACTIVE
+    assert org.subscription_status == SUBSCRIPTION_TRIALING
+    assert org.payment_method_ready_at is not None
 
 
 def test_handler_is_idempotent(db_session, provision):
@@ -87,7 +90,23 @@ def test_handler_is_idempotent(db_session, provision):
     assert stripe_billing.handle_event(db_session, evt) is True
     assert stripe_billing.handle_event(db_session, evt) is True
     db_session.refresh(org)
+    assert org.subscription_status == SUBSCRIPTION_TRIALING
+    assert org.payment_method_ready_at is not None
+
+
+def test_checkout_completed_reactivates_expired_org(db_session, provision):
+    p = provision()
+    org = _org(db_session, p["org_id"])
+    org.stripe_customer_id = "cus_reactivate"
+    org.plan_tier = PLAN_FREE
+    org.subscription_status = SUBSCRIPTION_EXPIRED
+    db_session.commit()
+
+    assert stripe_billing.handle_event(db_session, _event("checkout.session.completed", "cus_reactivate")) is True
+    db_session.refresh(org)
+    assert org.plan_tier == PLAN_PERFORMANCE
     assert org.subscription_status == SUBSCRIPTION_ACTIVE
+    assert org.payment_method_ready_at is not None
 
 
 def test_subscription_deleted_downgrades(db_session, provision):
@@ -122,7 +141,7 @@ def test_webhook_404_when_billing_disabled(client):
     assert resp.status_code == 404
 
 
-def test_webhook_activates_with_valid_signature(client, db_session, provision, billing_on):
+def test_webhook_marks_payment_ready_with_valid_signature(client, db_session, provision, billing_on):
     p = provision(plan="trialing")
     org = _org(db_session, p["org_id"])
     org.stripe_customer_id = "cus_webhook"
@@ -133,7 +152,8 @@ def test_webhook_activates_with_valid_signature(client, db_session, provision, b
     assert resp.status_code == 200
     assert resp.json()["handled"] is True
     db_session.refresh(org)
-    assert org.subscription_status == SUBSCRIPTION_ACTIVE
+    assert org.subscription_status == SUBSCRIPTION_TRIALING
+    assert org.payment_method_ready_at is not None
 
 
 def test_webhook_rejects_bad_signature(client, db_session, provision, billing_on):

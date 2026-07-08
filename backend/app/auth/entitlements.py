@@ -1,8 +1,8 @@
 """Plan-tier entitlements and observe-only enforcement.
 
 Free is observe-only: Varsten meters, prices, records decision evidence, and
-recommends, but may never activate a behaviour-changing lever. Performance
-unlocks the savings levers. This is the single backend chokepoint that keeps a
+recommends, but may never activate a behaviour-changing lever. Optimize unlocks
+the savings levers. This is the single backend chokepoint that keeps a
 free workspace from accidentally altering production AI traffic.
 
 Enforcement lives here (not in the frontend) and is applied at the points where
@@ -232,7 +232,7 @@ async def observe_only_async(db: AsyncSession, organization_id: uuid.UUID) -> bo
 
 
 def require_performance(db: Session, project: Project, *, action: str) -> None:
-    """Raise 403 unless the project's org is on the Performance plan. ``action`` is
+    """Raise 403 unless the project's org is on the Optimize plan. ``action`` is
     a short human phrase used in the error so the UI can show why it was blocked."""
     if is_performance(db, project):
         return
@@ -242,7 +242,7 @@ def require_performance(db: Session, project: Project, *, action: str) -> None:
             "code": FEATURE_REQUIRES_PERFORMANCE,
             "action": action,
             "message": (
-                f"{action} requires the Performance plan. This workspace is in "
+                f"{action} requires the Optimize plan. This workspace is in "
                 "observe-only mode: Varsten is measuring your AI traffic but is "
                 "not changing any production behaviour."
             ),

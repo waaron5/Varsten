@@ -20,6 +20,9 @@ def _prod_settings(**overrides) -> Settings:
         "provider_key_aws_region": "us-east-1",
         "cors_origins": ["https://app.varsten.ai"],
         "sentry_dsn": "https://examplePublicKey@o0.ingest.sentry.io/0",
+        "self_serve_billing_enabled": True,
+        "stripe_secret_key": "sk_live_x",
+        "stripe_webhook_secret": "whsec_x",
     }
     base.update(overrides)
     return Settings(**base)
@@ -54,6 +57,31 @@ def test_localhost_cors_rejected_in_production():
 def test_missing_sentry_flagged():
     problems = validate_production(_prod_settings(sentry_dsn=""))
     assert any("SENTRY_DSN" in p for p in problems)
+
+
+def test_billing_disabled_requires_explicit_escape_hatch():
+    problems = validate_production(
+        _prod_settings(self_serve_billing_enabled=False, allow_disabled_self_serve_billing=False)
+    )
+    assert any("SELF_SERVE_BILLING_ENABLED" in p for p in problems)
+
+
+def test_billing_disabled_escape_hatch_skips_stripe_requirements():
+    problems = validate_production(
+        _prod_settings(
+            self_serve_billing_enabled=False,
+            allow_disabled_self_serve_billing=True,
+            stripe_secret_key="",
+            stripe_webhook_secret="",
+        )
+    )
+    assert not [p for p in problems if "SELF_SERVE_BILLING_ENABLED" in p or "STRIPE" in p]
+
+
+def test_billing_enabled_requires_stripe_secrets():
+    problems = validate_production(_prod_settings(stripe_secret_key="", stripe_webhook_secret=""))
+    assert any("STRIPE_SECRET_KEY" in p for p in problems)
+    assert any("STRIPE_WEBHOOK_SECRET" in p for p in problems)
 
 
 def test_assert_raises_on_bad_production_config():

@@ -21,6 +21,7 @@ interface EntitlementsValue {
   observeOnlyReason: string | null;
   quota: Entitlements["quota"] | null;
   trial: Entitlements["trial"] | null;
+  trialProgress: Entitlements["trial_progress"] | null;
   canApplyRecommendations: boolean;
   canEnableRouting: boolean;
   canEnableCaching: boolean;
@@ -59,6 +60,7 @@ function entitlementsValue(data: Entitlements | null, loading: boolean): Entitle
     observeOnlyReason: data.observe_only_reason,
     quota: data.quota,
     trial: data.trial,
+    trialProgress: data.trial_progress,
     ...featureAccess(data.features),
   };
 }
@@ -86,6 +88,7 @@ function lockedEntitlementsValue(loading: boolean): EntitlementsValue {
     observeOnlyReason: null,
     quota: null,
     trial: null,
+    trialProgress: null,
     ...featureAccess(LOCKED_FEATURES),
   };
 }

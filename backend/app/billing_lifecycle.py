@@ -8,9 +8,10 @@ owns the transaction (one place decides when work is durable). Each transition t
 changes entitlement-affecting state drops the process-local plan-tier cache so the
 proxy hot path observes the change immediately.
 
-A trial is considered "paid" once a Stripe subscription is attached; that single
-fact is what the lazy read-path check and the sweep both use to decide whether an
-elapsed trial should fall back to Free observe-only.
+A Stripe setup-mode checkout means "payment method ready", not "paid active".
+During the trial that readiness is only stored; when the trial elapses, the lazy
+read path / sweep either promotes the org to continuing active Optimize or
+downgrades it to Free observe-only.
 """
 
 import uuid
@@ -47,7 +48,7 @@ def _invalidate(organization_id: uuid.UUID | None) -> None:
 
 
 def start_trial(org: Organization, *, now: datetime | None = None) -> None:
-    """Put a freshly provisioned workspace on the Performance plan, trialing for
+    """Put a freshly provisioned workspace on the Optimize plan, trialing for
     settings.free_trial_days. The single entry point for "a new org starts a trial"."""
     now = _now(now)
     org.plan_tier = PLAN_PERFORMANCE
@@ -55,13 +56,14 @@ def start_trial(org: Organization, *, now: datetime | None = None) -> None:
     org.trial_started_at = now
     org.trial_ends_at = now + timedelta(days=settings.free_trial_days)
     org.plan_effective_at = now
+    org.payment_method_ready_at = None
     _invalidate(org.id)
 
 
 def activate_performance(
     org: Organization, *, stripe_subscription_id: str | None = None, now: datetime | None = None
 ) -> None:
-    """Move an org to an active, paid Performance plan (Stripe activation)."""
+    """Move an org to an active, continuing Optimize plan."""
     now = _now(now)
     org.plan_tier = PLAN_PERFORMANCE
     org.subscription_status = SUBSCRIPTION_ACTIVE
@@ -69,6 +71,28 @@ def activate_performance(
         org.stripe_subscription_id = stripe_subscription_id
     org.plan_effective_at = now
     _invalidate(org.id)
+
+
+def has_payment_method_ready(org: Organization) -> bool:
+    """True after setup-mode Checkout has confirmed a payment method is on file."""
+    return org.payment_method_ready_at is not None
+
+
+def complete_payment_method_setup(org: Organization, *, now: datetime | None = None) -> None:
+    """Record setup-mode Checkout completion.
+
+    If the org is still inside its trial, this only marks conversion readiness. If
+    the org is expired/canceled/past_due/free, checkout is an explicit reactivation
+    action and moves it to active Optimize.
+    """
+    now = _now(now)
+    if org.payment_method_ready_at is None:
+        org.payment_method_ready_at = now
+    if org.subscription_status == SUBSCRIPTION_TRIALING and not is_trial_elapsed(org, now=now):
+        org.plan_tier = PLAN_PERFORMANCE
+        _invalidate(org.id)
+        return
+    activate_performance(org, now=now)
 
 
 def expire_trial(org: Organization, *, now: datetime | None = None) -> None:
@@ -100,12 +124,14 @@ def cancel_subscription(org: Organization, *, now: datetime | None = None) -> No
 
 
 def is_trial_expired(org: Organization, *, now: datetime | None = None) -> bool:
-    """True when an unpaid trial has run past its end. A trial with a Stripe
-    subscription attached is never "expired"; it has paid."""
+    """True when a trialing org has run past its end."""
     if org.subscription_status != SUBSCRIPTION_TRIALING:
         return False
-    if org.stripe_subscription_id:
-        return False
+    return is_trial_elapsed(org, now=now)
+
+
+def is_trial_elapsed(org: Organization, *, now: datetime | None = None) -> bool:
+    """True when the trial end timestamp has elapsed, independent of payment state."""
     end = org.trial_ends_at
     if end is None:
         return False
@@ -115,32 +141,41 @@ def is_trial_expired(org: Organization, *, now: datetime | None = None) -> bool:
 
 
 def maybe_expire(org: Organization, *, now: datetime | None = None) -> bool:
-    """Lazily downgrade an org whose unpaid trial has elapsed. Returns True if it
-    transitioned (so the caller commits). Idempotent and safe to call on every read;
-    this is the correctness backstop that does not depend on the sweep having run."""
+    """Apply the trial-end transition on read.
+
+    An elapsed trial with payment readiness becomes active continuing Optimize;
+    otherwise it becomes Free observe-only. Returns True if it changed durable state.
+    """
     if is_trial_expired(org, now=now):
-        expire_trial(org, now=now)
+        if has_payment_method_ready(org):
+            activate_performance(org, now=now)
+        else:
+            expire_trial(org, now=now)
         return True
     return False
 
 
 def sweep_expired_trials(db: Session, *, now: datetime | None = None) -> list[uuid.UUID]:
-    """Find every trialing org whose unpaid window has elapsed and downgrade it to
-    Free observe-only. Commits once. Idempotent: an already-expired org no longer
-    matches the trialing filter. Returns the ids transitioned."""
+    """Find every trialing org whose window elapsed and apply the trial-end transition.
+
+    Returns the ids transitioned, whether they were promoted to active Optimize
+    or downgraded to Free observe-only.
+    """
     now = _now(now)
     orgs = db.scalars(
         select(Organization).where(
             Organization.subscription_status == SUBSCRIPTION_TRIALING,
             Organization.trial_ends_at.is_not(None),
             Organization.trial_ends_at <= now,
-            Organization.stripe_subscription_id.is_(None),
         )
     ).all()
-    expired: list[uuid.UUID] = []
+    transitioned: list[uuid.UUID] = []
     for org in orgs:
-        expire_trial(org, now=now)
-        expired.append(org.id)
-    if expired:
+        if has_payment_method_ready(org):
+            activate_performance(org, now=now)
+        else:
+            expire_trial(org, now=now)
+        transitioned.append(org.id)
+    if transitioned:
         db.commit()
-    return expired
+    return transitioned

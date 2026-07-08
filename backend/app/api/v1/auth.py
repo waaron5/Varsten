@@ -64,7 +64,7 @@ def sync_user(
                 user = User(email=email, name=name, auth_provider_subject=sub)
                 db.add(user)
                 db.flush()
-                # New signup: a Performance-trialing org with a ready-to-use default
+                # New signup: an Optimize-trialing org with a ready-to-use default
                 # project, so the 14-day trial is live and onboarding has somewhere to
                 # mint an API key without asking the user to create a project first.
                 provision_new_organization(
@@ -129,4 +129,5 @@ def _can_start_self_serve_trial(org: Organization) -> bool:
         and org.subscription_status == SUBSCRIPTION_ACTIVE
         and org.trial_started_at is None
         and org.stripe_subscription_id is None
+        and org.payment_method_ready_at is None
     )

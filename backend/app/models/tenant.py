@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,14 +13,15 @@ if TYPE_CHECKING:
     from app.models.project import Project
 
 # Entitlement tiers. Free is observe-only: Varsten meters and recommends but may
-# never activate a behaviour-changing lever. Performance unlocks the savings
-# levers. Enterprise is deferred (no extra capabilities modeled yet).
+# never activate a behaviour-changing lever. Optimize unlocks the savings levers.
+# Enterprise is deferred (no extra capabilities modeled yet). The internal key
+# remains "performance" for compatibility with existing data and tests.
 PLAN_FREE = "free"
 PLAN_PERFORMANCE = "performance"
 PLAN_TIERS = (PLAN_FREE, PLAN_PERFORMANCE)
 
 # Subscription lifecycle, independent of the entitlement tier. A new self-serve
-# workspace starts `trialing` on Performance; Stripe activation drives it to
+# workspace starts `trialing` on Optimize; Stripe activation drives it to
 # `active`; an unpaid trial that runs out is swept to `expired`. Operator config
 # can still set these directly.
 SUBSCRIPTION_TRIALING = "trialing"
@@ -38,12 +39,20 @@ SUBSCRIPTION_STATUSES = (
     SUBSCRIPTION_EXPIRED,
 )
 
-# Varsten's default share of verified savings (gain-share). Per-org overridable.
+# Varsten's share of verified savings (gain-share). Per-org overridable downward,
+# but never above the public 25% cap.
 DEFAULT_GAIN_SHARE_PERCENT = Decimal("0.25")
+MAX_GAIN_SHARE_PERCENT = Decimal("0.25")
 
 
 class Organization(Base, TimestampMixin):
     __tablename__ = "organizations"
+    __table_args__ = (
+        CheckConstraint(
+            "gain_share_percent >= 0 AND gain_share_percent <= 0.2500",
+            name="ck_organizations_gain_share_percent_0_to_25",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -52,7 +61,8 @@ class Organization(Base, TimestampMixin):
     # it can never touch a real customer org (is_demo=False is the default).
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     # Entitlement tier. Free (default) is observe-only; behaviour-changing levers
-    # are gated to performance. The single source of truth for feature gating.
+    # are gated to the internal "performance" key. The single source of truth for
+    # feature gating.
     plan_tier: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text(f"'{PLAN_FREE}'"))
     # When the self-serve onboarding funnel was completed, so it is not re-shown.
     # Null means onboarding is unfinished. All other setup state (has key, has
@@ -71,18 +81,27 @@ class Organization(Base, TimestampMixin):
     # is the hard stop after which an unpaid org falls back to Free observe-only.
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Stripe linkage for self-serve upgrade. The customer is created on first
-    # checkout; the subscription id is set once a payment method activates
-    # Performance. Their presence is what tells the trial sweep an org has paid.
+    # Stripe linkage for self-serve upgrade. The customer is created before hosted
+    # Checkout redirects; payment_method_ready_at is set only after setup-mode
+    # Checkout completes. A trial is allowed to continue after expiry only when that
+    # readiness timestamp exists.
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payment_method_ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Onboarding funnel events that are NOT derivable from other tables. Everything
     # else (api key, provider connection, first request) is derived live. First
     # write wins; these only mark that the step happened, never un-happen.
     integration_snippet_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dashboard_entered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Gain-share billing config. The fee is this fraction of VERIFIED savings, with
-    # a monthly floor; the floor is always capped at the savings so net stays >= 0.
+    # First self-serve integration selection. Completion is still derived from
+    # live records, but the selected path/provider lets onboarding verify the
+    # exact thing the user intended to set up.
+    onboarding_selected_path: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    onboarding_selected_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Gain-share billing config. The fee is this fraction of VERIFIED savings,
+    # capped at MAX_GAIN_SHARE_PERCENT. The monthly floor is also capped by that
+    # same maximum so the customer is never billed more than 25% of verified
+    # savings.
     gain_share_percent: Mapped[Decimal] = mapped_column(
         Numeric(5, 4),
         nullable=False,

@@ -1,4 +1,4 @@
-"""Gain-share billing: fee math (percent, floor, net>=0 guarantee), invoice
+"""Gain-share billing: fee math (25% cap, floor, net guarantee), invoice
 generation from verified savings only, and the operator/customer endpoints.
 """
 
@@ -46,12 +46,16 @@ def test_compute_fee_percent_floor_and_net_guarantee():
     # Plain percentage.
     b = billing.compute_fee(Decimal("100"), Decimal("0.25"), Decimal("0"))
     assert b.fee_usd == Decimal("25.00") and b.net_savings_usd == Decimal("75.00")
-    # Floor lifts a small fee...
-    b = billing.compute_fee(Decimal("40"), Decimal("0.25"), Decimal("15"))
-    assert b.fee_usd == Decimal("15.00")
-    # ...but the floor is capped at the savings, so net is never negative.
+    # Floor can lift a small fee only up to the 25% cap.
+    b = billing.compute_fee(Decimal("100"), Decimal("0.10"), Decimal("15"))
+    assert b.fee_usd == Decimal("15.00") and b.net_savings_usd == Decimal("85.00")
+    # A stale configured rate above 25% cannot overbill.
+    b = billing.compute_fee(Decimal("100"), Decimal("0.30"), Decimal("0"))
+    assert b.gain_share_percent == Decimal("0.25")
+    assert b.fee_usd == Decimal("25.00") and b.net_savings_usd == Decimal("75.00")
+    # The floor is also capped at 25% of verified savings.
     b = billing.compute_fee(Decimal("5"), Decimal("0.25"), Decimal("50"))
-    assert b.fee_usd == Decimal("5.00") and b.net_savings_usd == Decimal("0.00")
+    assert b.fee_usd == Decimal("1.25") and b.net_savings_usd == Decimal("3.75")
     # No savings, no fee.
     b = billing.compute_fee(Decimal("0"), Decimal("0.25"), Decimal("0"))
     assert b.fee_usd == Decimal("0.00") and b.net_savings_usd == Decimal("0.00")
@@ -103,7 +107,7 @@ def test_admin_billing_preview_and_history(client, db_session, provision):
     body = client.get(
         "/v1/admin/billing", headers=auth_headers(p["token"]), params={"project_id": p["project_id"]}
     ).json()
-    assert body["pricing_model"] == "percentage_of_verified_savings_with_floor"
+    assert body["pricing_model"] == "percentage_of_verified_savings_capped_at_25_percent"
     assert Decimal(str(body["current_period"]["verified_savings_usd"])) == Decimal("100.00")
     assert Decimal(str(body["current_period"]["fee_usd"])) == Decimal("25.00")
 
@@ -133,6 +137,13 @@ def test_operator_sets_billing_config(client, db_session, monkeypatch):
     assert resp.status_code == 200
     assert Decimal(str(resp.json()["gain_share_percent"])) == Decimal("0.2500")
     assert resp.json()["subscription_status"] == "trialing"
+
+    too_high = client.post(
+        f"/v1/operator/organizations/{org_id}/billing",
+        headers=auth_headers("auth0|op"),
+        json={"gain_share_percent": "0.2501"},
+    )
+    assert too_high.status_code == 422
 
     # Invalid subscription status is rejected.
     bad = client.post(

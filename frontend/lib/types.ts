@@ -700,8 +700,13 @@ export interface AdminTeam {
 
 export interface AdminBillingSecurity {
   plan: string;
+  plan_tier: string;
+  subscription_status: string;
+  trial_ends_at: string | null;
+  payment_method_ready_at: string | null;
   pricing_model: string;
   verified_savings_fee_percent: string | number | null;
+  monthly_fee_floor_usd: string | number;
   security_posture: {
     deployment_mode: string;
     content_storage: string;
@@ -840,6 +845,7 @@ export interface OnboardingMissingStep {
 
 export interface Entitlements {
   plan_tier: string;
+  subscription_status: string | null;
   observe_only: boolean;
   observe_only_reason: string | null;
   quota: {
@@ -850,6 +856,19 @@ export interface Entitlements {
   trial: {
     trial_ends_at: string | null;
     trial_expired: boolean;
+    payment_method_ready: boolean;
+    payment_method_ready_at: string | null;
+  };
+  trial_progress: {
+    first_request_received: boolean;
+    priced_request_count: number;
+    directional_request_threshold: number;
+    directional_spend_ready: boolean;
+    holdback_policy_active: boolean;
+    holdback_control_count: number;
+    holdback_treatment_count: number;
+    holdback_arm_threshold: number;
+    holdback_proof_ready: boolean;
   };
   features: {
     apply_recommendations: boolean;

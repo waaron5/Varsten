@@ -36,9 +36,9 @@ def admin_billing(
     db: Session = Depends(get_db),
 ) -> dict:
     """Plan, subscription, gain-share config, and a live preview of this month's
-    billable amount (the org's VERIFIED savings times the gain-share percent, floor
-    applied). The preview shows where the month is heading; the invoice is the
-    authoritative record."""
+    billable amount (the org's VERIFIED savings times the gain-share percent,
+    capped at 25%, with any floor capped at the same maximum). The preview shows
+    where the month is heading; the invoice is the authoritative record."""
     org = db.get(Organization, project.organization_id)
     preview = billing_service.current_period_billable(db, org)
     return {
@@ -46,8 +46,9 @@ def admin_billing(
         "subscription_status": org.subscription_status,
         "plan_effective_at": org.plan_effective_at,
         "trial_ends_at": org.trial_ends_at,
-        "pricing_model": "percentage_of_verified_savings_with_floor",
-        "gain_share_percent": org.gain_share_percent,
+        "payment_method_ready_at": org.payment_method_ready_at,
+        "pricing_model": "percentage_of_verified_savings_capped_at_25_percent",
+        "gain_share_percent": billing_service.effective_gain_share_percent(org.gain_share_percent),
         "monthly_fee_floor_usd": org.monthly_fee_floor_usd,
         "current_period": {
             "verified_savings_usd": preview.verified_savings_usd,
@@ -98,8 +99,12 @@ def create_checkout_session(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Start a Stripe Checkout (setup mode) to add a payment method and activate
-    Performance. Returns the hosted Checkout URL for the client to redirect to."""
+    """Start Stripe Checkout (setup mode) to add a payment method.
+
+    During an active trial, completion marks the org ready to continue after the
+    trial. Expired/canceled/past-due/free orgs are reactivated by completion.
+    Returns the hosted Checkout URL for the client to redirect to.
+    """
     _require_billing_enabled()
     try:
         customer_id = stripe_billing.ensure_customer(db, org, email=user.email)

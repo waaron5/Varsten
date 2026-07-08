@@ -149,12 +149,12 @@ def test_self_serve_smoke(client, db_session, monkeypatch):
     )
     _say(9, "first gateway request detected (mocked ledger write)")
 
-    # 10. Dashboard shows trial mode + Performance access.
+    # 10. Dashboard shows trial mode + Optimize access.
     ent = client.get(f"/v1/entitlements?project_id={project_id}", headers=auth_headers(sub)).json()
     assert ent["plan_tier"] == PLAN_PERFORMANCE and ent["observe_only"] is False
     assert ent["trial"]["trial_ends_at"] is not None and ent["trial"]["trial_expired"] is False
     assert ent["features"]["apply_recommendations"] is True
-    _say(10, "entitlements: Performance unlocked, trial active")
+    _say(10, "entitlements: Optimize unlocked, trial active")
 
     # 13b. Upgrade actions are gated off while billing is disabled (default).
     disabled_checkout = client.post(f"/v1/organizations/{org_id}/billing/checkout-session", headers=auth_headers(sub))
@@ -174,18 +174,27 @@ def test_self_serve_smoke(client, db_session, monkeypatch):
     assert org.subscription_status == SUBSCRIPTION_EXPIRED
     _say(11, "expired trial -> Free observe-only; metering still serves")
 
-    # 14. Production readiness FAILS only when billing is on but Stripe config missing.
-    s_off = settings.model_copy(update={"self_serve_billing_enabled": False})
-    assert not [p for p in validate_production(s_off) if "STRIPE" in p]
+    # 14. Production readiness fails when self-serve billing is disabled without an
+    # explicit assisted-conversion escape hatch, and still flags missing Stripe
+    # config when billing is enabled.
+    s_off = settings.model_copy(
+        update={"self_serve_billing_enabled": False, "allow_disabled_self_serve_billing": False}
+    )
+    assert any("SELF_SERVE_BILLING_ENABLED" in p for p in validate_production(s_off))
+    s_off_allowed = settings.model_copy(
+        update={"self_serve_billing_enabled": False, "allow_disabled_self_serve_billing": True}
+    )
+    assert not [p for p in validate_production(s_off_allowed) if "STRIPE" in p or "SELF_SERVE" in p]
     s_on_missing = settings.model_copy(
         update={"self_serve_billing_enabled": True, "stripe_secret_key": "", "stripe_webhook_secret": ""}
     )
     stripe_problems = [p for p in validate_production(s_on_missing) if "STRIPE" in p]
     assert len(stripe_problems) == 2
-    _say(14, "validate_production: clean when billing off, flags Stripe only when on+missing")
+    _say(14, "validate_production: billing disabled needs escape hatch; Stripe required when billing is on")
 
-    # 13c. Confirm a billing-disabled production config has no Stripe blockers (boots).
-    _say(13, "billing disabled -> production boots without Stripe config")
+    # 13c. Confirm an intentionally assisted-conversion production config has no
+    # Stripe blockers (boots only because the escape hatch is explicit).
+    _say(13, "billing disabled + escape hatch -> production boots without Stripe config")
 
     # 12. Stripe setup mode (test mode). Enable billing + stub the SDK network calls.
     monkeypatch.setattr(settings, "self_serve_billing_enabled", True)
@@ -218,7 +227,8 @@ def test_self_serve_smoke(client, db_session, monkeypatch):
     assert bad.status_code == 400
     db_session.refresh(org)
     assert org.plan_tier == PLAN_PERFORMANCE and org.subscription_status == SUBSCRIPTION_ACTIVE
-    _say(12, "webhook verifies signature; payment method activates Performance")
+    assert org.payment_method_ready_at is not None
+    _say(12, "webhook verifies signature; expired org reactivates Optimize")
 
     portal = client.post(f"/v1/organizations/{org_id}/billing/portal-session", headers=auth_headers(sub))
     assert portal.status_code == 200 and portal.json()["url"] == "https://portal.stripe/x"

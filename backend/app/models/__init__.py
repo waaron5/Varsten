@@ -55,6 +55,7 @@ from app.models.proxy_policy import ROUTING_LEVERS, ProxyPolicy
 from app.models.recommendation import Recommendation
 from app.models.tenant import (
     DEFAULT_GAIN_SHARE_PERCENT,
+    MAX_GAIN_SHARE_PERCENT,
     PLAN_FREE,
     PLAN_PERFORMANCE,
     PLAN_TIERS,
@@ -92,6 +93,7 @@ __all__ = [
     "INVOICE_SENT",
     "INVOICE_STATUSES",
     "INVOICE_VOID",
+    "MAX_GAIN_SHARE_PERCENT",
     "PLAN_FREE",
     "PLAN_PERFORMANCE",
     "PLAN_TIERS",
