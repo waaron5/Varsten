@@ -170,15 +170,18 @@ class LocalDBProviderKeyResolver:
     def get(self, project_id: uuid.UUID, provider: str) -> str | None:
         from app.models import ProviderConnection
 
+        provider_name = _provider(provider)
         db = SessionLocal()
         try:
             connection = db.scalar(
                 select(ProviderConnection).where(
                     ProviderConnection.project_id == project_id,
-                    ProviderConnection.provider == _provider(provider),
+                    ProviderConnection.provider == provider_name,
                 )
             )
-            if connection is None or not connection.secret_ref:
+            if connection is None:
+                return EnvProviderKeyResolver().get(project_id, provider_name)
+            if not connection.secret_ref:
                 return None
             return self._decrypt_ref(connection.secret_ref)
         finally:

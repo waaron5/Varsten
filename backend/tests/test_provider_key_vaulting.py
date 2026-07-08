@@ -110,6 +110,14 @@ def test_env_provider_key_delete_is_explicitly_unsupported(monkeypatch):
         delete_provider_key_for_project(uuid.uuid4(), "openai")
 
 
+def test_localdb_provider_key_resolver_falls_back_to_env_when_no_connection(monkeypatch):
+    project_id = uuid.uuid4()
+    monkeypatch.setattr(settings, "provider_key_backend", "localdb")
+    monkeypatch.setattr(settings, "proxy_openai_keys", {str(project_id): "sk-openai-test"})
+
+    assert provider_key_for_project(project_id, "openai") == "sk-openai-test"
+
+
 def test_secrets_manager_resolver_reads_json_secret(monkeypatch):
     project_id = uuid.uuid4()
     fake = FakeSecretsManager()
