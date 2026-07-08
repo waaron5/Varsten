@@ -55,6 +55,7 @@ def test_seed_demo_creates_product_story_data_idempotently(db_session):
     project = db_session.get(Project, project_id)
     summary = compute_savings_summary(db_session, project)
 
+    assert project.is_demo is True
     assert events >= 750
     # Savings are derived from applied recommendations, never seeded constants.
     assert gross_savings > 0
