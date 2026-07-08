@@ -30,27 +30,23 @@ I am a CS student at BYU relocating to NYC. Varsten started as my portfolio piec
 
 This raises the bar on execution, not on surface area. "Done over complete" still holds: ship a focused, coherent slice rather than a sprawling half-built one. But "done" now means production-done for the slice in scope. A real client pushes real traffic, trusts real numbers, and expects the thing to stay up, stay secure, and never leak across tenants. The engine-first vision below is the destination; the near-term job is to make the control plane and decision loop genuinely deployable, secure, and reliable for one real customer.
 
-### Current phase: close the learning loop (Build 2)
+### Current phase: close the capacity gate before engine freeze
 
-Varsten is an inline Smart Proxy Gateway that intercepts, optimizes, and forwards live LLM traffic under a gain-share model. The Phase 1 "lean slice" framing (OpenAI-only, semantic-cache-only) is obsolete: that build shipped and the codebase is well past it. What exists and works today:
+Varsten is an inline Smart Proxy Gateway that intercepts, optimizes, and forwards live LLM traffic under a gain-share model. The Phase 1 "lean slice" framing (OpenAI-only, semantic-cache-only) is obsolete, and so is the "close the learning loop" framing that replaced it: the engine's full A–F roadmap and its adversarial validation plan are both complete as of 2026-07-05 (`docs/design/ENGINE_IMPLEMENTATION_PLAN.md`, `docs/design/ENGINE_VALIDATION_PLAN.md`). What exists and works today:
 
-- **Execution (hot path):** all five levers execute for real. Exact + semantic cache (pgvector, model-scoped, TTL-bound), model routing via `ProxyPolicy` with per-request predicates, deterministic token trim, OpenAI batch submission with measured discount capture. Three client dialects (OpenAI, Anthropic native, Gemini native) with cross-provider routing and an ineligibility audit trail. Every lookup fails open; per-project circuit breakers, budget hard caps, rate limiting, project-level bypass.
-- **Measurement:** live holdback A/B per route (random arm assignment, difference-in-means, 95% CI, 30-sample minimum per arm), direct-measured `saved_usd` on ledger events, strict measurement vocabulary where `estimated` never rolls into "verified" (`savings_measurement.py`).
-- **Quality:** objective response-health boolean off-path, scheduled drift sweep with auto-rollback against the concurrent control arm, shadow eval harness (replay, golden sets, objective scorers, pairwise judge) with the hard rule that judge-scored routes never auto-apply.
-- **Learning (in flight):** content-free request classification, an observe-only planner emitting per-lever candidates with reason codes, and outcome scoring that aggregates decision evidence + feedback into per-segment readiness tiers (`insufficient_data → savings_unproven → quality_risk → recommendable → auto_apply_candidate`). The planner does not yet authorize execution.
+- **Execution (hot path):** six levers execute for real. Exact + semantic cache (pgvector, model-scoped, TTL-bound), model routing via `ProxyPolicy` with per-request predicates plus bandit selection among eval-cleared candidates (quality-gated Thompson draw, exploits on measured savings; off by default, `shadow` mode available), deterministic per-request token trim, learned prompt compression (off-path generation, exact-hash substitution at request time, always approve-mode and eval-gated), OpenAI batch submission with measured discount capture. Three client dialects (OpenAI, Anthropic native, Gemini native) with cross-provider routing and an ineligibility audit trail. Every lookup fails open; per-project circuit breakers, budget hard caps, rate limiting, project-level bypass, canary ramp on policy activation, same-provider non-streaming retry/fallback, optional Redis-backed shared state for multi-instance deploys.
+- **Measurement:** live holdback A/B per route on always-valid sequential inference (time-uniform confidence sequences, not a fixed 95% CI checked continuously) for both savings and drift rollback, adaptive holdback sizing (steps down as confidence firms up, restores on ambiguity), direct-measured `saved_usd` on ledger events, strict measurement vocabulary where `estimated` never rolls into "verified" (`savings_measurement.py`).
+- **Quality:** objective response-health boolean off-path, scheduled drift sweep with auto-rollback (quality, latency, and latency-SLO triggers) against the concurrent control arm, shadow eval harness (replay, golden sets, objective scorers, pairwise judge) with the hard rule that judge-scored routes never auto-apply.
+- **Learning:** content-free request classification; the planner is the live authorization layer for cache/routing/trim/compression (cache/routing/trim consult `draft.optimization_plan`, and a `None` plan fails open); persisted outcome priors feed it; outcome scoring aggregates decision evidence + feedback into per-segment readiness tiers (`insufficient_data → savings_unproven → quality_risk → recommendable → auto_apply_candidate`) and promotes cleared segments into open recommendations on an interval sweep — promotion never applies anything, the eval-gated apply path stays the sole authorization point that turns a recommendation into a live policy.
+- **Governance:** a first-class `ChangeRequest` object (`app/models/governance.py`, design in `docs/design/PALANTIR_ONTOLOGY_DESIGN.md` §2) — one row per proposed model-swap change with the frozen evidence bundle, state machine `proposed → approved/rejected → active → rolled_back`, named-approver decision with rationale, immutable audit event. Proposed automatically off a completed routing-lever eval. Enforcement (blocking apply without an approved request) is off by default globally, with a per-org default-on option for enterprise.
 
-The current build closes the gap between "observes and reports" and the goal: Varsten learns from production traffic which strategies preserve quality at the lowest cost, automatically applies them with fail-open reliability and guardrails, and produces audit-ready proof. Roadmap, in order:
+Roadmap A–F is done; `docs/design/ENGINE_IMPLEMENTATION_PLAN.md` §2 has the slice-by-slice record of what shipped and why some things landed out of the stated order (B1 and parts of D/E moved earlier when they had no unfinished prerequisites and unblocked later work). Two things landed default-off rather than fully live: bandit routing (E) and `ChangeRequest` enforcement (F) — both exist, are tested, and wait on an explicit flag/org setting rather than more code.
 
-- **A. Close the loop.** The planner becomes the single decision point the proxy executes, and learned outcome evidence promotes into recommendations that flow through the existing eval-gate → apply → holdback → drift machinery. Includes a canonical route identity shared by segments, policies, evals, and guardrails.
-- **B. Statistical rigor.** Always-valid sequential inference (confidence sequences / mSPRT) for holdback savings and drift rollback instead of a fixed 95% CI checked continuously; adaptive holdback sizing; recency weighting on outcome priors. The gain-share invoice is billed on these numbers, so this is a revenue-integrity item, not polish.
-- **C. Reliability parity.** Retry with backoff, fallback chains (same model, alternate provider first), provider key pools, shared circuit/cooldown/budget state in Redis for multi-instance deploys, per-route latency SLO enforced as a guardrail, canary ramp for policy activation instead of binary on/off.
-- **D. New levers, in risk order.** Provider prompt-cache orchestration (stable-prefix restructuring), off-path learned prompt compression behind the eval gate, then a trace/session model for detecting and removing redundant LLM calls in agent workflows.
-- **E. Learned policy within guardrails.** Thompson sampling over eval-cleared candidates per route with a hard exploration budget; Bayesian optimization for continuous knobs. Guardrails are constraints, never inputs. Only after A–C.
-- **F. Governance hardening.** A first-class `ChangeRequest` object (see `docs/design/PALANTIR_ONTOLOGY_DESIGN.md`): one row per proposed change with the evidence bundle, named approver, rationale, and immutable audit chain.
+**Current phase is capacity, not features.** Per `docs/ENGINE_FINAL_PROOF_STATUS.md` (2026-07-06): the engine is functionally complete for a controlled pilot but not frozen. A 200 RPS HTTP load benchmark still fails locally and a 100 RPS diagnostic misses its added-p99 target (`docs/ENGINE_LOAD_BENCHMARK*.md`). Closing that gate — or validating against a real staging deployment — comes before packaging/onboarding becomes the primary workstream. Disclosed, deliberate backlog behind that, not blocking a pilot unless one depends on it: streaming-path fallback (retries cover streaming, mid-SSE model fallback does not), cross-provider fallback (same-provider only until the provider-key vault work lands), and variance-based Thompson sampling in the bandit (currently exploits on mean measured savings, no persisted variance).
 
 The production-hardening work already done (tenant-isolated auth, containerized deploy, CI, recompute off the read path) is the foundation under all of this and still holds. Streaming remains non-negotiable: never buffer a completion before streaming it to the client; capture token/billing metadata asynchronously.
 
-`docs/design/ENGINE_IMPLEMENTATION_PLAN.md` is the working spec for this roadmap: slice-by-slice scope, schemas, invariants, and required tests. Read it before starting any engine work and keep it updated as slices land.
+`docs/design/ENGINE_IMPLEMENTATION_PLAN.md` is the historical, slice-by-slice record of how the engine was built — read it for schemas, invariants, and design rationale on any engine module. `docs/ENGINE_FINAL_PROOF_STATUS.md` is the current source of truth for what's blocking a freeze.
 
 #### Zero-retention, honestly
 
@@ -68,7 +64,7 @@ Routes:
 
 /engine                  redirects to /engine/recommendations
   /recommendations       ranked cuts with $ impact, risk, one-click apply
-  /levers                the five mechanisms, each with on/off, savings to date, quality impact
+  /levers                the six mechanisms, each with on/off, savings to date, quality impact
   /automation            auto vs approve, per lever
 
 /guardrails              redirects to /guardrails/quality
@@ -96,13 +92,14 @@ Dashboard and Engine should cover ninety percent of daily use. If a user has to 
 
 Proof is the load-bearing page. The net-to-you-after-fee row and the counterfactual baseline are the difference between a number finance trusts and a number finance argues with. Build it like the renewal depends on it, because it does.
 
-## The five levers
+## The six levers
 
-These are the mechanisms the engine uses to cut spend. Everything in the Engine maps to one of them.
+These are the mechanisms the engine uses to cut spend. Everything in the Engine maps to one of them. (`backend/app/levers.py` is the canonical vocabulary — check it, not memory, before claiming a lever count anywhere.)
 
-- **Smart routing**: send each request to the cheapest model that clears the quality bar for that route.
+- **Smart routing**: send each request to the cheapest model that clears the quality bar for that route. Includes bandit selection among eval-cleared candidates on a route (quality-gated, off by default).
 - **Semantic cache**: reuse an answer when a new request is semantically close to one already served.
-- **Token trim**: compress prompts and context before the call without changing the output.
+- **Token trim**: compress prompts and context before the call, per request, deterministically, without changing the output.
+- **Prompt compression**: distinct from token trim. An off-path learned rewrite of a route's *stable system prompt*, proven safe on real traffic through the eval/replay gate and a named human approval, then substituted at request time only on an exact hash match to the evaluated original. Always approve-mode, because it changes what the model reads — never auto-applies, ever.
 - **Model downshift**: systematically move whole workloads to a lower-cost tier where evals allow it.
 - **Batching**: route non-urgent jobs through batch endpoints to capture bulk pricing.
 
@@ -145,7 +142,7 @@ Auto-apply only where the signal is objective and cheap. For open-ended generati
 For each lever, the customer decides whether the engine acts on its own or waits for a human. Defaults:
 
 - **Auto** for low-risk, objective levers: semantic cache, batching, token trim.
-- **Approve** for medium-risk levers: smart routing, model downshift.
+- **Approve** for medium-risk levers: smart routing, model downshift. Prompt compression is also approve-mode, but not because it's merely "medium-risk" — it changes what the model reads, so it stays human-gated by design regardless of how much evidence accrues.
 
 Auto-applied cuts still pass every guardrail before going live, and any cut that fails an eval gate is rolled back automatically and surfaced in the decision queue. Ship both modes with a per-lever toggle. Auto is the stronger sell and the scarier one, so earn it lever by lever as trust builds.
 
@@ -218,7 +215,7 @@ Frontend:
 - Next.js or React with TypeScript
 - I work professionally in Angular + tRPC + Prisma, so React is intentional learning here
 
-The inline proxy is part of this backend: a multi-dialect reverse proxy (OpenAI, Anthropic native, Gemini native) with streaming pass-through, all five levers live, and the holdback A/B measuring them. A future in-VPC data-plane deployment may split it into a separate thin service in the customer's environment, but today it runs in this backend.
+The inline proxy is part of this backend: a multi-dialect reverse proxy (OpenAI, Anthropic native, Gemini native) with streaming pass-through, all six levers live, and the holdback A/B measuring them. A future in-VPC data-plane deployment may split it into a separate thin service in the customer's environment, but today it runs in this backend.
 
 ## What is built and what comes next
 
@@ -226,13 +223,14 @@ The inline proxy is part of this backend: a multi-dialect reverse proxy (OpenAI,
 - OAuth sign-in, organizations, multi-tenancy, the `vk_` API key scheme and tenancy resolution
 - Authoritative cost measurement (versioned `Numeric(20,12)` pricing catalog, cost derivation, `cost_source`, `pricing_status`)
 - The `usage_events` ledger and metadata model the proxy writes into; decision evidence (`RequestDecisionEvent`, `RequestFeedback`, `OptimizationDecision`) and runtime traces with a content denylist
-- The inline proxy: streaming pass-through, exact + semantic cache, routing/downshift with predicates, token trim, batching; circuit breakers, budget hard caps, rate limiting, bypass; fail-open on every lever lookup
-- The eval/replay harness with golden sets, objective scorers, and a pairwise judge; the apply gate; the live randomized holdback A/B; drift auto-rollback
-- Rule-based recommendation detection, decision-loop UI, Proof with verified-vs-estimated separation
-- The observe-only optimization planner and outcome scoring (`app/engine/`) — the learning layer, not yet authorizing execution
+- The inline proxy, all six levers live: streaming pass-through, exact + semantic cache, routing/downshift with predicates (plus bandit selection among eval-cleared candidates, off by default), deterministic token trim, learned prompt compression (approve-mode, eval-gated, exact-hash substitution), batching; circuit breakers, budget hard caps, rate limiting, bypass, canary ramp on activation, same-provider non-streaming retry/fallback, optional Redis-backed shared state for multi-instance deploys; fail-open on every lever lookup
+- The eval/replay harness with golden sets, objective scorers, and a pairwise judge; the apply gate; the live randomized holdback A/B on always-valid sequential inference (not a fixed CI); adaptive holdback sizing; drift auto-rollback on quality, latency, and latency-SLO triggers
+- Recommendation detection including two detection-only proposals that never self-execute — prompt-cache prefix-restructure and agent-loop redundant-call detection — plus decision-loop UI and Proof with verified-vs-estimated separation
+- The optimization planner as the live authorization layer for cache/routing/trim/compression (a `None` plan fails open), persisted outcome priors, and outcome scoring that promotes evidence into open recommendations on an interval sweep (`app/engine/`) — promotion never applies anything; the eval-gated apply path is the sole authorization point
+- The `ChangeRequest` governance object (`app/models/governance.py`): propose-from-evidence, named-human decide, activate-on-apply, roll-back-with-drift; enforcement is opt-in (global flag, per-org default-on option for enterprise)
 - Tenant-isolated auth, containerized deploy + CI, recompute off the read path
 
-**Current build (roadmap phase A):** close the learning loop. Promote learned outcome evidence into the recommendation → eval gate → apply → holdback pipeline, make the planner the single decision point the proxy executes, and establish a canonical route identity. Phases B–F (statistics, reliability, new levers, learned policy, governance) follow in that order; see "Current phase" above.
+**Current build:** the engine's A–F roadmap and its adversarial validation plan (`docs/design/ENGINE_VALIDATION_PLAN.md`, workstreams V0–V8) are both complete as of 2026-07-05. The open blocker is operational capacity, not features — a 200 RPS HTTP load benchmark still fails locally (`docs/ENGINE_FINAL_PROOF_STATUS.md`, 2026-07-06). Closing that gate, or validating against a real staging deployment, comes before packaging/onboarding becomes the primary workstream. See "Current phase" above.
 
 **Not in scope at all for now:**
 - Billing-grade invoice reconciliation
@@ -242,18 +240,13 @@ The inline proxy is part of this backend: a multi-dialect reverse proxy (OpenAI,
 - Multi-cloud infrastructure optimization
 - API key rotation flow (one key per project is fine for now)
 
-Build simple before complex. Do not start a later roadmap phase before the earlier one is coherent end to end, and do not pretend a capability exists in the codebase when it does not.
+Build simple before complex. Do not pretend a capability exists in the codebase when it does not — and do not pretend a capability that already shipped is still hypothetical. Check `app/levers.py`, `docs/design/ENGINE_IMPLEMENTATION_PLAN.md` §2, and `docs/ENGINE_FINAL_PROOF_STATUS.md` before describing what phase the engine is in; this file gets stale faster than the code does.
 
 ## Database design notes (current thinking)
 
-Suggested core tables: `organizations`, `users`, `organization_memberships`, `api_keys`, `usage_events`, `model_prices`, `model_price_overrides`, `model_price_sync_runs`, `budgets`, `alerts`, `recommendations`, `monthly_reports`. A model catalog table is acceptable if it supports normalization, aliases, capabilities, tiers, or cheaper-substitute mappings without hard-coding pricing.
+This section is the original v1 planning doc, written before the engine was built. It's kept for the access-pattern reasoning below (still valid), not as a schema listing — the real schema has moved far past "suggested core tables." `recommendations`, `savings_attributions`, and the holdback/experiment machinery this section once deferred as "a later, production-phase concern" are all built and live (`ProxyPolicy.holdback_percent`, `proxy/sequential.py`), alongside a much larger set of engine tables this section never anticipated: `PromptCompression`, `ChangeRequest`, `EngineOutcomePrior`, `ReplaySample`, `EvalRun`, and more. For current schema truth, read `backend/app/models/`, not this list.
 
-New tables the engine direction implies (design when you reach them, not before):
-- `recommendations` carries lever type, target (route / endpoint / workload), estimated monthly savings, risk level, rationale, and status (`open` | `applied` | `dismissed` | `rolled_back`).
-- A savings-attribution concept (call it `savings_attributions` or fold into reports) ties a realized saved amount to a recommendation, a lever, and a measurement method, with a confidence interval. This is what Proof reads from.
-- A holdback / experiment table is a later, production-phase concern. Do not build it for v1.
-
-The `usage_events` table is the hot one. Columns:
+The `usage_events` table is the hot one and this part still holds. Columns:
 
 - `organization_id`
 - `project_id`
@@ -365,7 +358,7 @@ This is a target, not a contract. Open to changes if there's a real reason.
 ## Things that should make Claude pause and ask
 
 - If I propose reverting to an analytics or dashboard-first framing where measurement is the product. Measurement is the foundation. The engine and Proof are the product.
-- If I propose skipping ahead in the roadmap (a new lever, a learned policy, a new provider surface) before the current phase is coherent end to end. Scope additions honestly first.
+- If I propose adding new engine surface area (a new lever, a learned policy, a new provider) before the capacity gate closes or before validating that an existing piece is coherent end to end. The A–F feature roadmap is done; new scope now competes with shipping a real pilot, not with a future roadmap slot.
 - If I propose letting the engine auto-apply anything that has not cleared the eval gate and the readiness thresholds, or letting a judge-scored (subjective) route auto-apply at all.
 - If I propose putting the proxy in a client's path without a kill switch and fail-open behavior once it moves past skeleton. Being inline means if Varsten is down their calls fail; that safety story is required before real traffic.
 - If I propose writing prompt or completion text to the ledger. The ledger is metadata only; the semantic cache is the one documented exception.
