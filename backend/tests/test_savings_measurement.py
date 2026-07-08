@@ -1,7 +1,7 @@
 """Measured savings derived from the ledger: direct (cache/batch/route) and the
 holdback A/B with a confidence interval. These prove the auditable "verified"
 number is real arithmetic on recorded facts, not an estimate, and that the Proof
-endpoint exposes it only on Performance and never calls an estimate "saved".
+endpoint exposes it only on Optimize and never calls an estimate "saved".
 """
 
 import uuid

@@ -294,7 +294,7 @@ function RecommendationActions({
   if (!onStatus) return null;
   const showEvaluate = gated && onEvaluate;
   const applyTitle = locked
-    ? "Enable Performance to apply this recommendation and track savings"
+    ? "Enable Optimize to apply this recommendation and track savings"
     : gatedBlocked
       ? "Run a shadow eval that clears before applying"
       : undefined;
@@ -447,7 +447,7 @@ function EngineUpgradeBanner({ items }: { items: Recommendation[] | null }) {
       {count > 0
         ? `You have ${count} savings ${count === 1 ? "opportunity" : "opportunities"}${total > 0 ? ` worth an estimated ${usd(total, 0)}/mo` : ""}. `
         : "Varsten is measuring your traffic. "}
-      Enable Performance to apply these recommendations with eval gates and rollback, and to track
+      Enable Optimize to apply these recommendations with eval gates and rollback, and to track
       verified savings. No production behavior is changed until you do.
     </NoticeCard>
   );
@@ -600,11 +600,11 @@ function LeverToggle({
   const className = effectiveOn ? "lever-toggle on" : "lever-toggle";
   return (
     <button
-      aria-label={locked ? `${leverLabel(item.lever)} available on Performance` : `${action} ${leverLabel(item.lever)}`}
+      aria-label={locked ? `${leverLabel(item.lever)} available on Optimize` : `${action} ${leverLabel(item.lever)}`}
       aria-pressed={effectiveOn}
       className={className}
       disabled={busy || locked}
-      title={locked ? "Upgrade to Performance to enable this lever" : undefined}
+      title={locked ? "Upgrade to Optimize to enable this lever" : undefined}
       onClick={() => (locked ? undefined : onToggle(item))}
       type="button"
     />
@@ -692,7 +692,7 @@ function EngineLeversBody() {
       />
       <EngineTabs active="/engine/levers" />
       {observeOnly && (
-        <LockedNotice title="Levers change production behavior — available on Performance.">
+        <LockedNotice title="Levers change production behavior — available on Optimize.">
           On Free, Varsten observes your traffic only. Upgrade to turn levers on and capture savings.
         </LockedNotice>
       )}
@@ -730,7 +730,7 @@ function AutomationModeControl({
   locked: boolean;
   onMode: (item: AutomationLever, mode: AutomationMode) => void;
 }) {
-  const title = locked ? "Upgrade to Performance to control automation" : undefined;
+  const title = locked ? "Upgrade to Optimize to control automation" : undefined;
   return (
     <div className="seg" aria-label={`${leverLabel(item.lever)} automation mode`}>
       <button
@@ -850,7 +850,7 @@ function EngineAutomationBody() {
       />
       <EngineTabs active="/engine/automation" />
       {observeOnly && (
-        <LockedNotice title="Automation runs levers without a human — available on Performance.">
+        <LockedNotice title="Automation runs levers without a human — available on Optimize.">
           Free is observe-only. Upgrade to let Varsten auto-apply or require approval per lever.
         </LockedNotice>
       )}

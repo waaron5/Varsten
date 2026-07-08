@@ -35,7 +35,7 @@ def _completion(text: str, ptok: int = 10, ctok: int = 5) -> dict:
 
 
 def _project(db, provision) -> Project:
-    ws = provision(sub="auth0|eval", email="eval@example.com")
+    ws = provision(sub="auth0|eval", email="eval@example.com", plan="performance")
     return db.get(Project, uuid.UUID(ws["project_id"]))
 
 

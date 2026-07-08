@@ -4,7 +4,7 @@ A new workspace is an organization plus a default Production project. Without th
 project a new user has nowhere to mint an API key, so onboarding dead-ends on its
 first step. Creating it here (not asking the user) keeps the funnel uninterrupted.
 
-By default the organization starts on a 14-day Performance trial via the central
+By default the organization starts on a 14-day Optimize trial via the central
 billing lifecycle, so the advertised trial is real the moment someone signs up.
 """
 
@@ -25,7 +25,7 @@ def provision_new_organization(
     owner_user_id: uuid.UUID | None = None,
     start_trial: bool = True,
 ) -> tuple[Organization, Project]:
-    """Create an org (optionally on a Performance trial), its owner membership, and a
+    """Create an org (optionally on an Optimize trial), its owner membership, and a
     default Production project. Flushes so ids are available; the caller commits."""
     org = Organization(name=name)
     db.add(org)

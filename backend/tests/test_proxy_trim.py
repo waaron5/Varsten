@@ -43,7 +43,7 @@ def reset_circuit():
 def _project(db, provision) -> Project:
     ws = provision(sub="auth0|trim", email="trim@example.com")
     project = db.get(Project, uuid.UUID(ws["project_id"]))
-    # Token-trim is a Performance-tier lever; exercise it on a paid org.
+    # Token-trim is an Optimize-tier lever; exercise it on a paid org.
     org = db.get(Organization, project.organization_id)
     org.plan_tier = "performance"
     db.flush()

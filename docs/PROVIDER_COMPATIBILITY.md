@@ -42,9 +42,9 @@ pointing their base URL at Varsten — see the live smoke suite
 
 - **Semantic cache (exact-match)** and **metering** apply to the OpenAI-dialect
   path. Anthropic and Gemini native are passthrough-metered today (no cache on the
-  native path); cross-provider routing is gated to Performance and audited.
+  native path); cross-provider routing is gated to Optimize and audited.
 - All other levers (semantic vector cache, trim, batching, smart routing) are
-  Performance-gated and covered by the lever readiness matrix in the audit.
+  Optimize-gated and covered by the lever readiness matrix in the audit.
 
 ## Known limitations (be upfront)
 

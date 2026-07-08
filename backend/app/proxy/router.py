@@ -691,7 +691,7 @@ async def _openai_dialect_completions(
         return cache_probe.response
 
     # Hard-cap budget enforcement on the paid forward path. Cache hits above were
-    # served at $0 and are exempt; only optimization-enabled (Performance,
+    # served at $0 and are exempt; only optimization-enabled (Optimize,
     # non-bypassed) traffic is gated, and the check is fail-open.
     if ctx.optimize_enabled:
         blocked = await _budget_block(db, project, ctx.draft.ctx, ctx.request_id)
@@ -725,7 +725,7 @@ async def _openai_dialect_completions(
     adapter, client_key, opt = _resolve_openai_candidate_provider(project, ctx.adapter, ctx.client_key, opt, ctx.draft)
 
     # --- forward to OpenAI (cache miss, bypassed, or observe-only). store_cache is
-    # off unless optimization is enabled (Performance and not kill-switched). ---
+    # off unless optimization is enabled (Optimize and not kill-switched). ---
     headers = _openai_forward_headers(
         adapter=adapter,
         bypass=ctx.bypass,

@@ -275,7 +275,7 @@ Closed so far:
     Idempotency-Key is not forwarded upstream when compression changed the
     body. Drift sweep covers the lever (same-model pair) for auto-rollback.
   - Endpoints: `POST /v1/engine/compressions` (background generation; audit
-    event; Performance-gated) and `GET /v1/engine/compressions` (artifact list
+    event; Optimize-gated) and `GET /v1/engine/compressions` (artifact list
     — sizes and hashes, deliberately not the compressed text).
   - Also: `LEVER_DEFAULT_AUTOMATION` now drives the demo seed's lever configs
     (was a drifted hard-coded copy), and lever-set test assertions moved to 6.

@@ -1,7 +1,7 @@
 # Self-serve onboarding + billing: implementation plan
 
 Status: IMPLEMENTED (backend + frontend wiring + tests). Scope: make the advertised
-14-day Performance trial real, reliable, and upgradeable end to end. No org invites,
+14-day Optimize trial real, reliable, and upgradeable end to end. No org invites,
 no plan selection UI, no enterprise flows, no gain-share Stripe metering, no sidecar.
 
 What shipped, against the plan below:
@@ -11,7 +11,7 @@ What shipped, against the plan below:
 - `app/billing_lifecycle.py`: the single home for every billing-state transition
   (start_trial, activate_performance, expire_trial, mark_past_due, cancel,
   maybe_expire, sweep_expired_trials). Used by signup, entitlements, sweep, Stripe.
-- `app/provisioning.py`: signup creates a Performance-trialing org + default
+- `app/provisioning.py`: signup creates an Optimize-trialing org + default
   Production project (wired into `/auth/sync`; `create_organization` gets the project
   but no fresh trial, to avoid trial farming).
 - Entitlements patched (not rewritten) for expired/canceled/past_due + lazy read-time
@@ -60,7 +60,7 @@ Already done:
 
 The real gaps:
 1. New orgs are created Free + active with **no trial and no project**. The trial is
-   never started, so the whole "14-day Performance trial" is inert today.
+   never started, so the whole "14-day Optimize trial" is inert today.
 2. No `trial_started_at`, `stripe_customer_id`, `stripe_subscription_id` columns; no
    `expired` subscription status.
 3. No Stripe at all. Upgrade is a `mailto:` link.
@@ -99,7 +99,7 @@ Do **not** change the server defaults for `plan_tier`/`subscription_status` (lea
 them free/active). The trial is set explicitly in the signup path so demo/seeded and
 operator-created orgs are unaffected. Migration is additive only; no backfill.
 
-### 3.2 Signup provisions a trialing Performance org + default project (priorities 2, 3)
+### 3.2 Signup provisions a trialing Optimize org + default project (priorities 2, 3)
 New shared helper, e.g. `app/auth/provisioning.py::provision_new_organization(db, name) -> (Organization, Project)`:
 - Create org with `plan_tier=performance`, `subscription_status=trialing`,
   `trial_started_at=now`, `trial_ends_at=now + settings.free_trial_days`.
@@ -152,9 +152,9 @@ Webhook (new tiny router, unauthenticated but **signature-verified** with
     `plan_tier=free`, `subscription_status=canceled`, invalidate.
   - `invoice.payment_failed` -> `subscription_status=past_due` (observe-only), invalidate.
 
-**Open decision (flagged):** what does "activate Performance" mean in Stripe?
+**Open decision (flagged):** what does "activate Optimize" mean in Stripe?
 - (A, recommended) Checkout in `mode=setup`: collect a payment method, mark the org
-  active Performance on completion. Matches the gain-share pricing model (you bill
+  active Optimize on completion. Matches the gain-share pricing model (you bill
   verified savings via the existing `Invoice` flow, not a fixed monthly Stripe
   charge), and honors "do not add advanced gain-share billing calculations."
 - (B) Checkout in `mode=subscription` against a fixed `stripe_price_id`. Simpler
@@ -176,7 +176,7 @@ New scheduler job `trial-sweep` (`backend/app/scheduler.py` + a function in
 - Required behavior, all already structurally true and re-asserted by tests:
   traffic keeps flowing (proxy is fail-open; observe-only never blocks), optimizations
   lock (observe-only gating), metering + dashboard + recommendations continue (they
-  are not Performance-gated).
+  are not Optimize-gated).
 
 ### 3.6 Onboarding checklist, fully record-driven (priority 8)
 Two of the five items are not derivable, so persist them on the org (3.1 columns):
@@ -193,7 +193,7 @@ become trivial; the two new ones read the new columns.
   snippet `CopyButton`; call `{dashboard_entered}` in `finish()` before routing to
   `/dashboard`. Render the checklist from the status response.
 - `UpgradeView.tsx` / `app/admin/billing-security/page.tsx`: replace the `mailto:`
-  CTA with an "Add payment method / Activate Performance" button that POSTs to
+  CTA with an "Add payment method / Activate Optimize" button that POSTs to
   `checkout-session` and redirects to the returned Stripe URL; show "Manage billing"
   (portal) once `subscription_status=active`; show a trial countdown from
   `trial_ends_at`. Keep the existing observe-only / paused messaging for the expired
@@ -210,17 +210,17 @@ The connect path already validates and vaults all three providers. The only work
   expected beyond config/docs.
 
 ## 6. Tests (priority 9)
-- `test_session_auth` / new `test_provisioning`: new signup creates a Performance
+- `test_session_auth` / new `test_provisioning`: new signup creates an Optimize
   **trialing** org with `trial_started_at`/`trial_ends_at` set and exactly one
   Production project.
-- `test_entitlements`: a trialing Performance org gets Performance entitlements
+- `test_entitlements`: a trialing Optimize org gets Optimize entitlements
   (observe_only=False, features unlocked) until `trial_ends_at`; past `trial_ends_at`
   it is observe-only with reason `trial_expired`.
 - new `test_trials`: the sweep flips an unpaid expired trial to Free/`expired`, leaves
   a paid (`stripe_subscription_id` set) trial alone, and an expired org keeps metering
   + recommendations while levers are locked.
 - new `test_stripe_billing`: webhook with a valid signature for an active subscription
-  moves the org to active Performance and stores `stripe_subscription_id`; invalid
+  moves the org to active Optimize and stores `stripe_subscription_id`; invalid
   signature is rejected; cancel/payment_failed transitions downgrade; handler is
   idempotent. Stripe SDK calls mocked; no network.
 - `test_provider_connections`: a successful connect updates onboarding status to
@@ -249,5 +249,5 @@ after step 5 even before Stripe lands.
 - Do not block traffic on expiry. The sweep and entitlement changes only flip
   observe-only; the proxy stays fail-open.
 - Server defaults stay free/active; the trial is opt-in per signup path so seeded/demo
-  and operator orgs do not silently become billable Performance trials.
+  and operator orgs do not silently become billable Optimize trials.
 - Stripe keys are secrets: platform secret store only, gated in `validate_production`.

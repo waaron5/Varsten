@@ -123,7 +123,7 @@ async def create_batch(
     """Create the batch over an uploaded input file: stream it to OpenAI and start
     the job. Fails if the input has not been uploaded yet."""
     project = api_context.project
-    # Submitting a batch is a behaviour-changing savings lever -> Performance only.
+    # Submitting a batch is a behaviour-changing savings lever -> Optimize only.
     require_performance(db, project, action="Submitting a batch job")
     job = _get_job(db, project, payload.input_file_id)
     if job.status != STATUS_CREATED:

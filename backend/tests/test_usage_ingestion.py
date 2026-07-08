@@ -460,7 +460,7 @@ def test_product_section_read_apis_render_with_api_key(client, db_session):
 def test_product_section_config_writes(client, db_session):
     token = _key(client)
     # This exercises behaviour-changing config (auto-rollback guardrail, hard cap),
-    # which is Performance-only, so run it on a Performance org.
+    # which is Optimize-only, so run it on an Optimize org.
     import uuid as _uuid
 
     me = client.post(

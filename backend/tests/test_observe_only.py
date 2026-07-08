@@ -2,7 +2,7 @@
 
 Free is observe-only: the proxy meters and records, but does not serve or store
 the cache, so a repeat request still hits the upstream and accrues no captured
-savings. Performance caches as before.
+savings. Optimize caches as before.
 """
 
 import uuid
@@ -84,7 +84,7 @@ async def test_free_does_not_cache_or_capture_savings(
 @pytest.mark.anyio
 async def test_observe_only_async_fails_open_to_observe():
     """If the plan lookup itself errors, the org is treated as observe-only, never
-    Performance."""
+    Optimize."""
     from app.auth.entitlements import invalidate_plan_tier, observe_only_async
 
     invalidate_plan_tier()
@@ -100,7 +100,7 @@ async def test_observe_only_async_fails_open_to_observe():
 async def test_proxy_fails_open_to_observe_only(async_client, async_provision, monkeypatch, mock_openai):
     """The exact fail-open contract: when the tier lookup raises, the request still
     succeeds (traffic never blocked) but behaviour-changing optimization stays off —
-    even on a Performance org, caching does not kick in."""
+    even on an Optimize org, caching does not kick in."""
     p = await async_provision(plan_tier="performance")
     monkeypatch.setattr(settings, "proxy_openai_keys", {p["project_id"]: "sk-test"})
 
@@ -114,7 +114,7 @@ async def test_proxy_fails_open_to_observe_only(async_client, async_provision, m
     r2 = await async_client.post("/v1/chat/completions", headers=headers, json=_body())
     # Traffic succeeds despite the failed lookup...
     assert r1.status_code == 200 and r2.status_code == 200
-    # ...and behaves observe-only (no caching), not Performance.
+    # ...and behaves observe-only (no caching), not Optimize.
     assert r1.headers.get("X-Varsten-Mode") == "observe"
     assert mock_openai["completions"] == 2
 

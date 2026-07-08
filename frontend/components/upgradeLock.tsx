@@ -14,7 +14,7 @@ export function LockedNotice({ title, children }: { title: string; children?: Re
         <strong>{title}</strong>
         {children ? <span>{children}</span> : null}
       </div>
-      <Link href="/upgrade" className="btn primary">Upgrade to Performance</Link>
+      <Link href="/upgrade" className="btn primary">Upgrade to Optimize</Link>
     </div>
   );
 }
@@ -24,7 +24,7 @@ export function LockedNotice({ title, children }: { title: string; children?: Re
 export function EffectiveStatusBadge({
   observeOnly,
   active,
-  lockedLabel = "Available on Performance",
+  lockedLabel = "Available on Optimize",
 }: {
   observeOnly: boolean;
   active: boolean;

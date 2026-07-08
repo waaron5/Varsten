@@ -172,9 +172,9 @@ function accountPlanState({
 }) {
   return {
     actionHref: isPerformance ? "/admin/billing-security" : "/upgrade",
-    actionLabel: isPerformance ? "Billing & plan" : "Upgrade to Performance",
+    actionLabel: isPerformance ? "Billing & plan" : "Upgrade to Optimize",
     detail: isPerformance && !observeOnly ? "Optimization enabled" : "Observe-only",
-    name: isPerformance ? "Performance" : "Free",
+    name: isPerformance ? "Optimize" : "Free",
     show: !entitlementsLoading && planTier !== null,
   };
 }

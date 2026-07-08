@@ -21,8 +21,8 @@ def test_plan_switch_is_audited(client, db_session, monkeypatch):
     synced = _sync_user(client, "auth0|op", "op@example.com").json()
     org_id = synced["organizations"][0]["id"]
 
-    # A fresh signup is on a Performance trial, so exercise an audited transition
-    # off it (Performance -> Free) rather than a no-op.
+    # A fresh signup is on an Optimize trial, so exercise an audited transition
+    # off it (Optimize -> Free) rather than a no-op.
     resp = client.post(
         f"/v1/operator/organizations/{org_id}/plan",
         headers=auth_headers("auth0|op"),

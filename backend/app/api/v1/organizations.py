@@ -19,7 +19,7 @@ def create_organization(
 ) -> Organization:
     # The creator becomes the owner and the org gets a default Production project so
     # it is never a dead end. An additional workspace created through the API does
-    # NOT start a fresh trial (that would let one user farm unlimited Performance
+    # NOT start a fresh trial (that would let one user farm unlimited Optimize
     # trials); the self-serve trial is granted once, at signup.
     org, _project = provision_new_organization(db, name=payload.name, owner_user_id=user.id, start_trial=False)
     if payload.monthly_spend_budget_usd is not None:
