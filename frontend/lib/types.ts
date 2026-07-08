@@ -818,12 +818,24 @@ export interface OnboardingStatus {
   provider_connections: OnboardingProviderConnection[];
   first_request: OnboardingFirstRequest;
   integration: OnboardingIntegration;
+  selected_path: "sdk" | "base_url" | "metadata";
+  selection_saved: boolean;
+  selected_provider: "openai" | "anthropic" | "gemini" | null;
+  verified_method: IntegrationMethod | null;
+  verification_status: "waiting" | "path_mismatch" | "verified";
+  can_complete: boolean;
+  missing_steps: OnboardingMissingStep[];
   checklist: OnboardingChecklistItem[];
 }
 
 export interface OnboardingChecklistItem {
   key: string;
   complete: boolean;
+}
+
+export interface OnboardingMissingStep {
+  key: string;
+  label: string;
 }
 
 export interface Entitlements {

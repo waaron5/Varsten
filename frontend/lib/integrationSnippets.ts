@@ -7,11 +7,24 @@
 import type { IntegrationMethod } from "@/lib/types";
 
 // The public proxy/ingest base customers point their client at. Distinct from the
-// dashboard API host; swap per environment if the proxy host differs.
-export const PROXY_BASE = "https://api.varsten.ai/v1";
+// dashboard API host when the proxy host differs. In local/e2e environments the
+// dashboard API often serves the proxy routes too, so fall back to API_BASE + /v1.
+const PRODUCTION_PROXY_BASE = "https://api.varsten.ai/v1";
+
+function normalizeProxyBase(value: string | undefined): string | undefined {
+  const trimmed = value?.trim().replace(/\/+$/, "");
+  if (!trimmed) return undefined;
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
+export const PROXY_BASE =
+  normalizeProxyBase(process.env.NEXT_PUBLIC_VARSTEN_PROXY_BASE) ??
+  normalizeProxyBase(process.env.NEXT_PUBLIC_API_BASE) ??
+  PRODUCTION_PROXY_BASE;
 export const DOCS_HREF = "https://varsten.ai/docs";
 
 export type IntegrationPathId = "metadata" | "base_url" | "sdk";
+export type IntegrationProviderId = "openai" | "anthropic" | "gemini";
 
 export interface IntegrationPath {
   id: IntegrationPathId;
@@ -79,13 +92,11 @@ export function integrationPath(id: IntegrationPathId): IntegrationPath {
 
 // --- snippets ---------------------------------------------------------------
 
-export const SDK_INSTALL: { label: string; value: string }[] = [
-  { label: "OpenAI", value: "npm install @varsten/openai openai" },
-  { label: "Anthropic", value: "npm install @varsten/anthropic @anthropic-ai/sdk" },
-  { label: "Gemini", value: "npm install @varsten/gemini @google/genai" },
-];
-
-export const SDK_SNIPPET = `import { VarstenOpenAI } from "@varsten/openai";
+export const SDK_PROVIDER_SNIPPETS: Record<IntegrationProviderId, { label: string; install: string; snippet: string }> = {
+  openai: {
+    label: "OpenAI",
+    install: "npm install @varsten/openai openai",
+    snippet: `import { VarstenOpenAI } from "@varsten/openai";
 
 const client = new VarstenOpenAI({
   varstenApiKey: process.env.VARSTEN_API_KEY, // vk_...  (identifies you to Varsten)
@@ -99,7 +110,46 @@ const res = await client.chat.completions.create({
   messages: [{ role: "user", content: "Say hello from Varsten" }],
 });
 
-console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`;
+console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`,
+  },
+  anthropic: {
+    label: "Anthropic",
+    install: "npm install @varsten/anthropic @anthropic-ai/sdk",
+    snippet: `import { VarstenAnthropic } from "@varsten/anthropic";
+
+const client = new VarstenAnthropic({
+  varstenApiKey: process.env.VARSTEN_API_KEY,     // vk_...
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY, // sk-ant-... used only for direct fallback
+  onFallback: (event) => console.warn("varsten fallback", event.reasonCode),
+});
+
+const res = await client.messages.create({
+  model: "claude-3-5-haiku-20241022",
+  max_tokens: 256,
+  messages: [{ role: "user", content: "Say hello from Varsten" }],
+});
+
+console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`,
+  },
+  gemini: {
+    label: "Gemini",
+    install: "npm install @varsten/gemini @google/genai",
+    snippet: `import { VarstenGemini } from "@varsten/gemini";
+
+const client = new VarstenGemini({
+  varstenApiKey: process.env.VARSTEN_API_KEY, // vk_...
+  geminiApiKey: process.env.GEMINI_API_KEY,   // AIza... used only for direct fallback
+  onFallback: (event) => console.warn("varsten fallback", event.reasonCode),
+});
+
+const res = await client.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents: "Say hello from Varsten",
+});
+
+console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`,
+  },
+};
 
 export const SDK_FAILOPEN_TEST = `# In a non-production shell only:
 VARSTEN_BASE_URL=http://127.0.0.1:1 npm run your-ai-test
@@ -107,18 +157,38 @@ VARSTEN_BASE_URL=http://127.0.0.1:1 npm run your-ai-test
 # The request should still complete through the provider,
 # and your onFallback handler should log the reason code.`;
 
-export const BASE_URL_SNIPPET = `import OpenAI from "openai";
+export const BASE_URL_PROVIDER_SNIPPETS: Record<IntegrationProviderId, { label: string; endpoint: string; snippet: string }> = {
+  openai: {
+    label: "OpenAI",
+    endpoint: `baseURL: "${PROXY_BASE}"`,
+    snippet: `import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: process.env.VARSTEN_API_KEY,
   baseURL: "${PROXY_BASE}",
-});`;
+});`,
+  },
+  anthropic: {
+    label: "Anthropic",
+    endpoint: `baseURL: "${PROXY_BASE}"`,
+    snippet: `import Anthropic from "@anthropic-ai/sdk";
 
-export const BASE_URL_PROVIDER_SNIPPETS = [
-  { label: "OpenAI", value: `baseURL: "${PROXY_BASE}"` },
-  { label: "Anthropic", value: `baseURL: "${PROXY_BASE}"` },
-  { label: "Gemini", value: `baseURL: "${PROXY_BASE}/v1beta"` },
-];
+const client = new Anthropic({
+  apiKey: process.env.VARSTEN_API_KEY,
+  baseURL: "${PROXY_BASE}",
+});`,
+  },
+  gemini: {
+    label: "Gemini",
+    endpoint: `baseUrl: "${PROXY_BASE}/v1beta"`,
+    snippet: `import { GoogleGenAI } from "@google/genai";
+
+const client = new GoogleGenAI({
+  apiKey: process.env.VARSTEN_API_KEY,
+  httpOptions: { baseUrl: "${PROXY_BASE}/v1beta" },
+});`,
+  },
+};
 
 // Metadata ingestion: token counts + labels only, never prompt/completion text.
 export const METADATA_SNIPPET = `// After each LLM call, send a usage record. Metadata only — never prompt or

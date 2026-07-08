@@ -33,7 +33,7 @@ export interface MockProxyResponse {
 
 function jsonHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
-    "access-control-allow-headers": "authorization,content-type,x-varsten-metadata",
+    "access-control-allow-headers": "authorization,content-type,x-varsten-client,x-varsten-metadata",
     "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "access-control-allow-origin": "*",
     "access-control-expose-headers": "x-varsten-mode,x-varsten-request-id,x-varsten-routed",
@@ -109,34 +109,74 @@ async function handleAuthAndProjects(ctx: MockRouteContext): Promise<boolean> {
 }
 
 async function handleOnboarding(ctx: MockRouteContext): Promise<boolean> {
-  const { route, request, state } = ctx;
   if (matches(ctx, "GET", "/v1/onboarding/status")) {
-    increment(state, "onboardingStatus");
-    await fulfillJson(route, state.onboarding);
+    increment(ctx.state, "onboardingStatus");
+    await fulfillJson(ctx.route, ctx.state.onboarding);
     return true;
   }
-  if (matches(ctx, "POST", "/v1/onboarding/complete")) {
-    increment(state, "completeOnboarding");
-    state.onboarding = { ...state.onboarding, onboarding_completed_at: NOW };
-    await fulfillJson(route, { onboarding_completed_at: NOW });
-    return true;
-  }
-  if (matches(ctx, "POST", `/v1/projects/${PROJECT_ID}/connections`)) {
-    increment(state, "connectProvider");
-    const body = await postJson(request);
-    await fulfillJson(route, markProviderConnected(state, String(body.provider ?? "openai")));
-    return true;
-  }
-  if (matches(ctx, "POST", "/v1/onboarding/event")) {
-    increment(state, "onboardingEvent");
-    const body = await postJson(request);
-    const field = body.event === "dashboard_entered" ? "dashboard_entered" : "integration_snippet_viewed";
-    state.onboarding = { ...state.onboarding, [field]: true };
-    increment(state, `event:${String(body.event)}`);
-    await fulfillJson(route, { event: body.event, recorded_at: NOW });
-    return true;
-  }
+  if (matches(ctx, "POST", "/v1/onboarding/complete")) return completeOnboarding(ctx);
+  if (matches(ctx, "POST", "/v1/onboarding/selection")) return saveOnboardingSelection(ctx);
+  if (matches(ctx, "POST", `/v1/projects/${PROJECT_ID}/connections`)) return connectProvider(ctx);
+  if (matches(ctx, "POST", "/v1/onboarding/event")) return recordOnboardingEvent(ctx);
   return false;
+}
+
+async function completeOnboarding({ route, state }: MockRouteContext): Promise<boolean> {
+  increment(state, "completeOnboarding");
+  recomputeOnboardingCompletion(state);
+  if (!state.onboarding.can_complete) {
+    await fulfillJson(
+      route,
+      {
+        detail: {
+          code: "onboarding_incomplete",
+          message: "Onboarding cannot be completed until setup is verified.",
+          missing_steps: state.onboarding.missing_steps,
+        },
+      },
+      409,
+    );
+    return true;
+  }
+  state.onboarding = { ...state.onboarding, onboarding_completed_at: NOW };
+  await fulfillJson(route, { onboarding_completed_at: NOW });
+  return true;
+}
+
+async function saveOnboardingSelection({ request, route, state }: MockRouteContext): Promise<boolean> {
+  increment(state, "saveSelection");
+  const body = await postJson(request);
+  const path = String(body.path ?? "sdk");
+  const provider = path === "metadata" ? null : String(body.provider ?? state.onboarding.selected_provider ?? "openai");
+  state.onboarding = {
+    ...state.onboarding,
+    selected_path: path,
+    selection_saved: true,
+    selected_provider: provider,
+    integration_snippet_viewed: false,
+    onboarding_completed_at: null,
+  };
+  recomputeOnboardingCompletion(state);
+  await fulfillJson(route, { selected_path: path, selected_provider: provider });
+  return true;
+}
+
+async function connectProvider({ request, route, state }: MockRouteContext): Promise<boolean> {
+  increment(state, "connectProvider");
+  const body = await postJson(request);
+  await fulfillJson(route, markProviderConnected(state, String(body.provider ?? "openai")));
+  return true;
+}
+
+async function recordOnboardingEvent({ request, route, state }: MockRouteContext): Promise<boolean> {
+  increment(state, "onboardingEvent");
+  const body = await postJson(request);
+  const field = body.event === "dashboard_entered" ? "dashboard_entered" : "integration_snippet_viewed";
+  state.onboarding = { ...state.onboarding, [field]: true };
+  recomputeOnboardingCompletion(state);
+  increment(state, `event:${String(body.event)}`);
+  await fulfillJson(route, { event: body.event, recorded_at: NOW });
+  return true;
 }
 
 async function handleBilling(ctx: MockRouteContext): Promise<boolean> {
@@ -161,6 +201,7 @@ async function handleApiKeys(ctx: MockRouteContext): Promise<boolean> {
   if (!matches(ctx, "POST", `/v1/projects/${PROJECT_ID}/api-keys`)) return false;
   increment(ctx.state, "createApiKey");
   ctx.state.onboarding = { ...ctx.state.onboarding, has_api_key: true };
+  recomputeOnboardingCompletion(ctx.state);
   await fulfillJson(ctx.route, {
     id: "key_e2e_default",
     project_id: PROJECT_ID,
@@ -191,6 +232,20 @@ async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
 
 async function handleProxy(ctx: MockRouteContext): Promise<boolean> {
   const { route, request, state } = ctx;
+  if (matches(ctx, "POST", "/v1/usage-events")) {
+    increment(state, "ingest");
+    const body = await postJson(request);
+    const event = createUsageEvent({
+      provider: String(body.provider ?? "openai"),
+      model: String(body.model ?? "gpt-4o-mini"),
+      source: "ingest",
+      metadata: { ingest: true },
+    });
+    (state.usageEvents.items as JsonObject[]).unshift(event);
+    markFirstRequestSeen(state, event);
+    await fulfillJson(route, { id: event.id, status: "accepted" }, 202);
+    return true;
+  }
   if (!matches(ctx, "POST", "/v1/chat/completions")) return false;
   increment(state, "proxy");
   const body = await postJson(request);
@@ -244,6 +299,7 @@ export function createProfile(overrides: JsonObject = {}): JsonObject {
 export function createEntitlements(overrides: JsonObject = {}): JsonObject {
   return {
     plan_tier: "performance",
+    subscription_status: "trialing",
     observe_only: false,
     observe_only_reason: null,
     quota: {
@@ -254,6 +310,19 @@ export function createEntitlements(overrides: JsonObject = {}): JsonObject {
     trial: {
       trial_ends_at: "2026-07-07T19:00:00.000Z",
       trial_expired: false,
+      payment_method_ready: false,
+      payment_method_ready_at: null,
+    },
+    trial_progress: {
+      first_request_received: false,
+      priced_request_count: 0,
+      directional_request_threshold: 60,
+      directional_spend_ready: false,
+      holdback_policy_active: false,
+      holdback_control_count: 0,
+      holdback_treatment_count: 0,
+      holdback_arm_threshold: 30,
+      holdback_proof_ready: false,
     },
     features: {
       apply_recommendations: true,
@@ -302,7 +371,19 @@ export function createOnboardingStatus(overrides: JsonObject = {}): JsonObject {
       any_sdk: false,
       base_url_without_sdk: false,
     },
+    selected_path: "sdk",
+    selection_saved: false,
+    selected_provider: "openai",
+    verified_method: null,
+    verification_status: "waiting",
+    can_complete: false,
+    missing_steps: [
+      { key: "has_api_key", label: "Create a Varsten API key" },
+      { key: "has_provider_connection", label: "Connect OpenAI provider key" },
+      { key: "first_request", label: "Send a verified first request" },
+    ],
     checklist: [
+      { key: "selected_path", complete: false },
       { key: "has_api_key", complete: false },
       { key: "has_provider_connection", complete: false },
       { key: "integration_snippet_viewed", complete: false },
@@ -545,7 +626,14 @@ function markProviderConnected(state: MockState, provider: string): JsonObject {
     ...state.onboarding,
     has_provider_connection: true,
     provider_connections: [...existing, connection],
+    integration: {
+      ...(state.onboarding.integration as JsonObject),
+      providers: ((state.onboarding.integration as JsonObject).providers as JsonObject[]).map((row) =>
+        row.provider === provider ? { ...row, key_configured: true } : row,
+      ),
+    },
   };
+  recomputeOnboardingCompletion(state);
   return {
     id: `conn_${provider}`,
     provider,
@@ -561,40 +649,161 @@ function markProviderConnected(state: MockState, provider: string): JsonObject {
 }
 
 function markFirstRequestSeen(state: MockState, event: JsonObject): void {
+  const provider = String(event.provider ?? "openai");
+  const method = integrationMethodForEvent(event);
+  const sdkClient = sdkClientForEvent(event, method);
   state.onboarding = {
     ...state.onboarding,
-    first_request: {
-      seen: true,
-      request_count: state.calls.proxy,
-      request_id: event.id,
-      provider: event.provider,
-      model: event.model,
-      cost_usd: event.cost_usd,
-      cost_source: event.cost_source,
-      pricing_status: event.pricing_status,
-      input_tokens: event.input_tokens,
-      output_tokens: event.output_tokens,
-      latency_ms: event.latency_ms,
-      environment: event.environment,
-      feature: event.feature,
-      workflow: event.workflow,
-      task_type: "support_reply.billing",
-      occurred_at: event.occurred_at,
-      metadata_quality: {
-        level: "great",
-        message: "Metadata is complete enough for workflow-level proof.",
-      },
+    first_request: firstRequestPayload(state, event),
+    integration: updatedIntegrationPayload(state, provider, method, sdkClient),
+  };
+  updateTrialProgressForEvent(state, event);
+  recomputeOnboardingCompletion(state);
+}
+
+function integrationMethodForEvent(event: JsonObject): string {
+  if (event.metadata && typeof event.metadata === "object" && "sdk_client" in event.metadata) return "sdk";
+  return event.source === "ingest" ? "metadata" : "base_url";
+}
+
+function sdkClientForEvent(event: JsonObject, method: string): string | null {
+  if (method !== "sdk") return null;
+  return String((event.metadata as JsonObject).sdk_client ?? "@varsten/openai@0.1.0");
+}
+
+function firstRequestPayload(state: MockState, event: JsonObject): JsonObject {
+  return {
+    seen: true,
+    request_count: (state.calls.proxy ?? 0) + (state.calls.ingest ?? 0),
+    source: event.source,
+    request_id: event.id,
+    provider: event.provider,
+    model: event.model,
+    cost_usd: event.cost_usd,
+    cost_source: event.cost_source,
+    pricing_status: event.pricing_status,
+    input_tokens: event.input_tokens,
+    output_tokens: event.output_tokens,
+    latency_ms: event.latency_ms,
+    environment: event.environment,
+    feature: event.feature,
+    workflow: event.workflow,
+    task_type: "support_reply.billing",
+    occurred_at: event.occurred_at,
+    metadata_quality: {
+      level: "great",
+      message: "Metadata is complete enough for workflow-level proof.",
     },
   };
 }
 
-async function defaultProxyHandler(_request: Request, body: JsonObject, state: MockState): Promise<MockProxyResponse> {
+function updatedIntegrationPayload(state: MockState, provider: string, method: string, sdkClient: string | null): JsonObject {
+  const integration = state.onboarding.integration as JsonObject;
+  return {
+    ...integration,
+    providers: (integration.providers as JsonObject[]).map((row) =>
+      row.provider === provider ? { ...row, method, sdk_client: sdkClient } : row,
+    ),
+    any_sdk: method === "sdk" || Boolean(integration.any_sdk),
+    base_url_without_sdk: method === "base_url",
+  };
+}
+
+function updateTrialProgressForEvent(state: MockState, event: JsonObject): void {
+  const progress = state.entitlements.trial_progress as JsonObject | undefined;
+  if (!progress) return;
+  const pricedCount = Number(progress.priced_request_count ?? 0) + (event.pricing_status === "priced" ? 1 : 0);
+  progress.first_request_received = true;
+  progress.priced_request_count = pricedCount;
+  progress.directional_spend_ready = pricedCount >= Number(progress.directional_request_threshold ?? 60);
+}
+
+function recomputeOnboardingCompletion(state: MockState): void {
+  const onboarding = state.onboarding;
+  const path = String(onboarding.selected_path ?? "sdk");
+  const provider = selectedProviderForPath(onboarding, path);
+  const selectedConnected = selectedProviderConnected(onboarding, provider);
+  const providers = ((onboarding.integration as JsonObject).providers as JsonObject[]) ?? [];
+  const anySdk = providers.some((row) => row.method === "sdk");
+  (onboarding.integration as JsonObject).any_sdk = anySdk;
+  (onboarding.integration as JsonObject).base_url_without_sdk = providers.some((row) => row.method === "base_url") && !anySdk;
+  const observedMethod = observedMethodForPath(providers, path, provider);
+  const verifiedMethod = observedMethod === "none" ? null : observedMethod;
+  const missing = missingOnboardingSteps(onboarding, path, provider, selectedConnected, verifiedMethod);
+  onboarding.verified_method = verifiedMethod;
+  onboarding.verification_status = verifiedMethod === path ? "verified" : verifiedMethod ? "path_mismatch" : "waiting";
+  onboarding.missing_steps = missing;
+  onboarding.can_complete = missing.length === 0;
+  onboarding.checklist = onboardingChecklist(onboarding, path, selectedConnected, verifiedMethod);
+}
+
+function selectedProviderForPath(onboarding: JsonObject, path: string): string | null {
+  return path === "metadata" ? null : String(onboarding.selected_provider ?? "openai");
+}
+
+function selectedProviderConnected(onboarding: JsonObject, provider: string | null): boolean {
+  const connections = onboarding.provider_connections as JsonObject[];
+  return provider === null || connections.some((connection) => connection.provider === provider && connection.status === "connected");
+}
+
+function observedMethodForPath(providers: JsonObject[], path: string, provider: string | null): string | null {
+  if (path === "metadata") return providers.some((row) => row.method === "metadata") ? "metadata" : null;
+  return (providers.find((row) => row.provider === provider)?.method as string | null | undefined) ?? null;
+}
+
+function firstRequestMissingLabel(path: string, verifiedMethod: string | null): string {
+  if (verifiedMethod) return "Send traffic through the selected integration method";
+  return path === "metadata" ? "Send a usage record" : "Send a verified first request";
+}
+
+function missingOnboardingSteps(
+  onboarding: JsonObject,
+  path: string,
+  provider: string | null,
+  selectedConnected: boolean,
+  verifiedMethod: string | null,
+): JsonObject[] {
+  const missing = [];
+  if (!onboarding.has_api_key) missing.push({ key: "has_api_key", label: "Create a Varsten API key" });
+  if (path !== "metadata" && !selectedConnected) missing.push({ key: "has_provider_connection", label: `Connect ${providerLabel(String(provider))} provider key` });
+  if (verifiedMethod !== path) {
+    missing.push({ key: "first_request", label: firstRequestMissingLabel(path, verifiedMethod) });
+  }
+  return missing;
+}
+
+function onboardingChecklist(
+  onboarding: JsonObject,
+  path: string,
+  selectedConnected: boolean,
+  verifiedMethod: string | null,
+): JsonObject[] {
+  return [
+    { key: "selected_path", complete: Boolean(onboarding.selection_saved) },
+    { key: "has_api_key", complete: Boolean(onboarding.has_api_key) },
+    ...(path === "metadata" ? [] : [{ key: "has_provider_connection", complete: selectedConnected }]),
+    { key: "integration_snippet_viewed", complete: Boolean(onboarding.integration_snippet_viewed) },
+    { key: "first_request", complete: verifiedMethod === path },
+    { key: "dashboard_entered", complete: Boolean(onboarding.dashboard_entered) },
+  ];
+}
+
+function providerLabel(provider: string): string {
+  if (provider === "anthropic") return "Anthropic";
+  if (provider === "gemini") return "Gemini";
+  return "OpenAI";
+}
+
+async function defaultProxyHandler(request: Request, body: JsonObject, state: MockState): Promise<MockProxyResponse> {
+  const sdkClient = request.headers()["x-varsten-client"];
   const event = createUsageEvent({
     provider: "openai",
     model: String(body.model ?? "gpt-4o-mini"),
+    source: "proxy",
     metadata: {
       proxy: true,
       first_request: true,
+      ...(sdkClient ? { sdk_client: sdkClient } : {}),
     },
   });
   (state.usageEvents.items as JsonObject[]).unshift(event);

@@ -1,30 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RequireSession } from "@/components/RequireSession";
 import { useProjectResource } from "@/components/useProjectResource";
+import { useTimedPolling } from "@/components/useTimedPolling";
 import { useSession } from "@/components/session";
 import { ApiError, api } from "@/lib/api";
 import { currentOnboardingIntent } from "@/lib/onboardingIntent";
 import {
   BASE_URL_PROVIDER_SNIPPETS,
-  BASE_URL_SNIPPET,
   DOCS_HREF,
   INTEGRATION_PATHS,
   METADATA_SNIPPET,
   PROXY_BASE,
   SDK_FAILOPEN_TEST,
-  SDK_INSTALL,
-  SDK_SNIPPET,
+  SDK_PROVIDER_SNIPPETS,
   integrationPath,
   type IntegrationPath,
   type IntegrationPathId,
+  type IntegrationProviderId,
 } from "@/lib/integrationSnippets";
 import type { ApiKeyCreated, OnboardingIntegration, OnboardingStatus } from "@/lib/types";
 
 const SETUP_CALL_HREF = "mailto:mail@varsten.ai?subject=Varsten%20setup%20call";
-type ProviderId = "openai" | "anthropic" | "gemini";
+type ProviderId = IntegrationProviderId;
 type ProviderDefinition = (typeof PROVIDERS)[number];
 type ProviderConnectionStatus = OnboardingStatus["provider_connections"][number];
 
@@ -110,25 +110,13 @@ function OnboardingBody() {
   const router = useRouter();
   const { activeProjectId, getToken } = useSession();
   const { data, loading, error, reload } = useProjectResource<OnboardingStatus>(["onboardingStatus"], api.onboardingStatus);
+  const [completionError, setCompletionError] = useState<string | null>(null);
 
-  const firstSeen = data?.first_request.seen ?? false;
+  const canComplete = data?.can_complete ?? false;
 
-  // Poll for the first request only while we are still waiting for one. Stops as
-  // soon as it arrives, and caps total polling so a tab left open overnight
-  // waiting on a deploy does not hammer the API indefinitely.
-  useEffect(() => {
-    if (!data || firstSeen) return;
-    const startedAt = Date.now();
-    const maxDurationMs = 20 * 60 * 1000;
-    const id = window.setInterval(() => {
-      if (Date.now() - startedAt > maxDurationMs) {
-        window.clearInterval(id);
-        return;
-      }
-      void reload();
-    }, 4000);
-    return () => window.clearInterval(id);
-  }, [data, firstSeen, reload]);
+  // Poll while verification is incomplete. This keeps watching through mismatch
+  // states, such as base-URL traffic arriving when the SDK path was selected.
+  useTimedPolling(Boolean(data && !canComplete), 4000, reload);
 
   const recordEvent = useCallback(
     async (event: "snippet_viewed" | "dashboard_entered") => {
@@ -142,13 +130,14 @@ function OnboardingBody() {
   );
 
   const finish = useCallback(async () => {
+    setCompletionError(null);
     try {
       await recordEvent("dashboard_entered");
       await api.completeOnboarding(await getToken(), activeProjectId ?? undefined);
+      router.push("/dashboard");
     } catch {
-      // Completion is best-effort; the dashboard still works if it fails.
+      setCompletionError("Setup is not verified yet. Send the first request shown here, then try again.");
     }
-    router.push("/dashboard");
   }, [activeProjectId, getToken, recordEvent, router]);
 
   if (loading && !data) {
@@ -174,7 +163,16 @@ function OnboardingBody() {
     );
   }
 
-  return <OnboardingWizard status={data} onReload={() => void reload()} onFinish={() => void finish()} onSnippetViewed={() => void recordEvent("snippet_viewed")} />;
+  return (
+    <OnboardingWizard
+      completionError={completionError}
+      onFinish={() => void finish()}
+      onLeave={() => router.push("/dashboard")}
+      onReload={() => void reload()}
+      onSnippetViewed={() => void recordEvent("snippet_viewed").then(() => reload())}
+      status={data}
+    />
+  );
 }
 
 // --- wizard step model -------------------------------------------------------
@@ -187,22 +185,19 @@ interface StepMeta {
   done: boolean;
 }
 
-function hasProgress(status: OnboardingStatus): boolean {
-  return status.has_api_key || status.has_provider_connection || status.first_request.seen;
+function checklistComplete(status: OnboardingStatus, key: string): boolean {
+  return status.checklist.some((item) => item.key === key && item.complete);
 }
 
-// A step counts as "done" only once the user has genuinely finished it. The path
-// step has a sensible default, so it's done only after the user has moved past it
-// (pastPath) — never green on first paint.
-function buildSteps(status: OnboardingStatus, path: IntegrationPath, pastPath: boolean): StepMeta[] {
+function buildSteps(status: OnboardingStatus, path: IntegrationPath): StepMeta[] {
   const steps: StepMeta[] = [
-    { key: "path", label: "Connect", done: pastPath },
-    { key: "api-key", label: "API key", done: status.has_api_key },
+    { key: "path", label: "Connect", done: status.selection_saved },
+    { key: "api-key", label: "API key", done: checklistComplete(status, "has_api_key") },
   ];
   if (path.requiresProviderConnection) {
-    steps.push({ key: "provider", label: "Provider", done: status.has_provider_connection });
+    steps.push({ key: "provider", label: "Provider", done: checklistComplete(status, "has_provider_connection") });
   }
-  steps.push({ key: "connect", label: "Verify", done: status.first_request.seen });
+  steps.push({ key: "connect", label: "Verify", done: status.can_complete });
   return steps;
 }
 
@@ -234,32 +229,51 @@ function stepHead(key: StepKey, status: OnboardingStatus, path: IntegrationPath)
 
 // --- top progress stepper ----------------------------------------------------
 
-// Completion is positional: a node only turns green + checked once the user has
-// advanced past it. The active step is highlighted but never shown as complete,
-// and upcoming steps stay neutral even if their backing status happens to be set.
 function WizardStepper({ steps, activeIndex }: { steps: StepMeta[]; activeIndex: number }) {
   return (
     <ol className="onb-stepper" aria-label="Setup progress">
-      {steps.map((step, i) => {
-        const done = i < activeIndex;
-        const active = i === activeIndex;
-        const status = done ? "completed" : active ? "current" : "upcoming";
-        return (
-          <li key={step.key} className="onb-stepper-seg" aria-current={active ? "step" : undefined}>
-            {i > 0 ? <div className={`onb-line${i <= activeIndex ? " done" : ""}`} aria-hidden="true" /> : null}
-            <div className={`onb-node${done ? " done" : ""}${active ? " active" : ""}`}>
-              <div className="onb-dot" aria-hidden="true">
-                <OnbIcon path={done ? CHECK_ICON : STEP_ICONS[step.key]} />
-              </div>
-              <div className="onb-node-label">
-                {step.label}
-                <span className="onb-sr-only"> — {status}</span>
-              </div>
-            </div>
-          </li>
-        );
-      })}
+      {steps.map((step, i) => (
+        <StepSegment
+          key={step.key}
+          active={i === activeIndex}
+          lineDone={i > 0 && steps.slice(0, i).every((s) => s.done)}
+          showLine={i > 0}
+          step={step}
+        />
+      ))}
     </ol>
+  );
+}
+
+function stepStatus(done: boolean, active: boolean): string {
+  if (done) return "completed";
+  return active ? "current" : "upcoming";
+}
+
+function StepSegment({
+  active,
+  lineDone,
+  showLine,
+  step,
+}: {
+  active: boolean;
+  lineDone: boolean;
+  showLine: boolean;
+  step: StepMeta;
+}) {
+  return (
+    <li className="onb-stepper-seg" aria-current={active ? "step" : undefined}>
+      {showLine ? <div className={`onb-line${lineDone ? " done" : ""}`} aria-hidden="true" /> : null}
+      <div className={`onb-node${step.done ? " done" : ""}${active ? " active" : ""}`}>
+        <div className="onb-dot" aria-hidden="true">
+          <OnbIcon path={step.done ? CHECK_ICON : STEP_ICONS[step.key]} />
+        </div>
+        <div className="onb-node-label">
+          {step.label}
+          <span className="onb-sr-only"> — {stepStatus(step.done, active)}</span>
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -278,7 +292,7 @@ function StepFooter({
 }: {
   onBack: (() => void) | null;
   primary: PrimaryAction;
-  secondary?: React.ReactNode;
+  secondary?: ReactNode;
 }) {
   return (
     <div className="onb-foot">
@@ -295,60 +309,155 @@ function StepFooter({
   );
 }
 
-function OnboardingWizard({
-  status,
-  onReload,
-  onFinish,
-  onSnippetViewed,
-}: {
-  status: OnboardingStatus;
-  onReload: () => void;
-  onFinish: () => void;
-  onSnippetViewed: () => void;
-}) {
-  const [pathId, setPathId] = useState<IntegrationPathId>(() => {
-    if (typeof window !== "undefined") {
-      const saved = window.localStorage.getItem(pathStorageKey(status.project_id));
-      if (saved && INTEGRATION_PATHS.some((p) => p.id === saved)) return saved as IntegrationPathId;
-    }
-    return defaultPathForIntent();
-  });
-  const path = integrationPath(pathId);
+function resolveOpenKey(manualKey: StepKey | null, steps: StepMeta[]): StepKey {
+  if (manualKey && steps.some((s) => s.key === manualKey)) return manualKey;
+  const firstIncomplete = steps.find((s) => !s.done);
+  return firstIncomplete?.key ?? steps[steps.length - 1].key;
+}
 
-  // The path step defaults sensibly but is only "done" once the user has moved
-  // past it. A returning user who has already generated a key / connected a
-  // provider / sent traffic is clearly past it, so seed from real progress.
-  const [pastPath, setPastPath] = useState(() => hasProgress(status));
-  const steps = useMemo(() => buildSteps(status, path, pastPath), [status, path, pastPath]);
-
+function useWizardNavigation(steps: StepMeta[]) {
   // manualKey is the user's explicit position in the wizard (set by Back /
   // Continue). Whenever it no longer names a step in the current list — e.g. a
   // path switch hid the provider step — this falls through to the first
   // incomplete step, computed at render time rather than corrected in an effect.
   const [manualKey, setManualKey] = useState<StepKey | null>(null);
-  const openKey = useMemo<StepKey>(() => {
-    if (manualKey && steps.some((s) => s.key === manualKey)) return manualKey;
-    const firstIncomplete = steps.find((s) => !s.done);
-    return firstIncomplete?.key ?? steps[steps.length - 1].key;
-  }, [manualKey, steps]);
-
+  const openKey = useMemo(() => resolveOpenKey(manualKey, steps), [manualKey, steps]);
   const currentIndex = steps.findIndex((s) => s.key === openKey);
   const goNext = useCallback(() => {
     setManualKey(steps[Math.min(currentIndex + 1, steps.length - 1)].key);
   }, [steps, currentIndex]);
   const goBack = currentIndex > 0 ? () => setManualKey(steps[currentIndex - 1].key) : null;
+  return { currentIndex, goBack, goNext, openKey, setManualKey };
+}
 
+function providerForPath(pathId: IntegrationPathId, provider: ProviderId): ProviderId | null {
+  return pathId === "metadata" ? null : provider;
+}
+
+function useOnboardingSelection(
+  status: OnboardingStatus,
+  onReload: () => void,
+) {
+  const { activeProjectId, getToken } = useSession();
+  const [draftPathId, setDraftPathId] = useState<IntegrationPathId | null>(null);
+  const [draftProvider, setDraftProvider] = useState<ProviderId | null>(null);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+  const [selectionErr, setSelectionErr] = useState<string | null>(null);
+  const pathId = draftPathId ?? status.selected_path ?? defaultPathForIntent();
+  const selectedProvider = draftProvider ?? status.selected_provider ?? "openai";
+  const path = integrationPath(pathId);
+
+  const saveSelection = useCallback(
+    async (nextPath: IntegrationPathId, provider: ProviderId | null): Promise<boolean> => {
+      setSelectionBusy(true);
+      setSelectionErr(null);
+      try {
+        await api.saveOnboardingSelection(await getToken(), activeProjectId ?? undefined, { path: nextPath, provider });
+        onReload();
+        return true;
+      } catch (e) {
+        setSelectionErr(e instanceof Error ? e.message : String(e));
+        return false;
+      } finally {
+        setSelectionBusy(false);
+      }
+    },
+    [activeProjectId, getToken, onReload],
+  );
+
+  return {
+    path,
+    pathId,
+    saveSelection,
+    selectedProvider,
+    selectionBusy,
+    selectionErr,
+    setDraftPathId,
+    setDraftProvider,
+  };
+}
+
+function useOnboardingSelectionActions({
+  goNext,
+  pathId,
+  saveSelection,
+  selectedProvider,
+  setDraftPathId,
+  setDraftProvider,
+  setManualKey,
+  status,
+}: {
+  goNext: () => void;
+  pathId: IntegrationPathId;
+  saveSelection: (path: IntegrationPathId, provider: ProviderId | null) => Promise<boolean>;
+  selectedProvider: ProviderId;
+  setDraftPathId: (path: IntegrationPathId | null) => void;
+  setDraftProvider: (provider: ProviderId | null) => void;
+  setManualKey: (key: StepKey | null) => void;
+  status: OnboardingStatus;
+}) {
   const selectPath = useCallback(
-    (id: IntegrationPathId) => {
-      setPathId(id);
+    async (id: IntegrationPathId) => {
+      setDraftPathId(id);
+      setManualKey("path");
       try {
         window.localStorage.setItem(pathStorageKey(status.project_id), id);
       } catch {
         // Non-fatal; the choice still applies for this session.
       }
+      await saveSelection(id, providerForPath(id, selectedProvider));
     },
-    [status.project_id],
+    [saveSelection, selectedProvider, setDraftPathId, setManualKey, status.project_id],
   );
+
+  const continueFromPath = useCallback(async () => {
+    if (!status.selection_saved || status.selected_path !== pathId) {
+      const saved = await saveSelection(pathId, providerForPath(pathId, selectedProvider));
+      if (!saved) return;
+    }
+    goNext();
+  }, [goNext, pathId, saveSelection, selectedProvider, status.selected_path, status.selection_saved]);
+
+  const selectProvider = useCallback(
+    async (provider: ProviderId): Promise<boolean> => {
+      setDraftProvider(provider);
+      return saveSelection(pathId, provider);
+    },
+    [pathId, saveSelection, setDraftProvider],
+  );
+
+  return { continueFromPath, selectPath, selectProvider };
+}
+
+function OnboardingWizard({
+  completionError,
+  status,
+  onReload,
+  onFinish,
+  onLeave,
+  onSnippetViewed,
+}: {
+  completionError: string | null;
+  status: OnboardingStatus;
+  onReload: () => void;
+  onFinish: () => void;
+  onLeave: () => void;
+  onSnippetViewed: () => void | Promise<void>;
+}) {
+  const selection = useOnboardingSelection(status, onReload);
+  const { path, pathId, saveSelection, selectedProvider, selectionBusy, selectionErr, setDraftPathId, setDraftProvider } = selection;
+  const steps = useMemo(() => buildSteps(status, path), [status, path]);
+  const { currentIndex, goBack, goNext, openKey, setManualKey } = useWizardNavigation(steps);
+  const { continueFromPath, selectPath, selectProvider } = useOnboardingSelectionActions({
+    goNext,
+    pathId,
+    saveSelection,
+    selectedProvider,
+    setDraftPathId,
+    setDraftProvider,
+    setManualKey,
+    status,
+  });
 
   const head = stepHead(openKey, status, path);
 
@@ -363,25 +472,25 @@ function OnboardingWizard({
         </div>
 
         <div className="onb-body">
-          {openKey === "path" && (
-            <PathStep active={pathId} onSelect={selectPath} onContinue={() => { setPastPath(true); goNext(); }} />
-          )}
-          {openKey === "api-key" && (
-            <ApiKeyStep status={status} onBack={goBack} onComplete={goNext} />
-          )}
-          {openKey === "provider" && (
-            <ProviderStep
-              status={status}
-              isSdk={path.method === "sdk"}
-              onBack={goBack}
-              onChanged={onReload}
-              onConnected={goNext}
-              onUseMetadata={() => selectPath("metadata")}
-            />
-          )}
-          {openKey === "connect" && (
-            <ConnectAndVerifyStep status={status} path={path} onBack={goBack} onSnippetViewed={onSnippetViewed} onFinish={onFinish} />
-          )}
+          <WizardStepBody
+            completionError={completionError}
+            goBack={goBack}
+            goNext={goNext}
+            onFinish={onFinish}
+            onLeave={onLeave}
+            onReload={onReload}
+            onSnippetViewed={onSnippetViewed}
+            openKey={openKey}
+            path={path}
+            pathId={pathId}
+            selectedProvider={selectedProvider}
+            selectionBusy={selectionBusy}
+            selectionErr={selectionErr}
+            selectPath={selectPath}
+            selectProvider={selectProvider}
+            status={status}
+            continueFromPath={continueFromPath}
+          />
         </div>
 
         <div className="onb-help">
@@ -393,7 +502,89 @@ function OnboardingWizard({
   );
 }
 
-function Tag({ label, tone }: { label: string; tone: "pos" | "neg" | "neutral" }) {
+function WizardStepBody({
+  completionError,
+  continueFromPath,
+  goBack,
+  goNext,
+  onFinish,
+  onLeave,
+  onReload,
+  onSnippetViewed,
+  openKey,
+  path,
+  pathId,
+  selectedProvider,
+  selectionBusy,
+  selectionErr,
+  selectPath,
+  selectProvider,
+  status,
+}: {
+  completionError: string | null;
+  continueFromPath: () => Promise<void>;
+  goBack: (() => void) | null;
+  goNext: () => void;
+  onFinish: () => void;
+  onLeave: () => void;
+  onReload: () => void;
+  onSnippetViewed: () => void | Promise<void>;
+  openKey: StepKey;
+  path: IntegrationPath;
+  pathId: IntegrationPathId;
+  selectedProvider: ProviderId;
+  selectionBusy: boolean;
+  selectionErr: string | null;
+  selectPath: (id: IntegrationPathId) => Promise<void>;
+  selectProvider: (provider: ProviderId) => Promise<boolean>;
+  status: OnboardingStatus;
+}) {
+  switch (openKey) {
+    case "path":
+      return (
+        <PathStep
+          active={pathId}
+          busy={selectionBusy}
+          error={selectionErr}
+          onSelect={(id) => void selectPath(id)}
+          onContinue={() => void continueFromPath()}
+        />
+      );
+    case "api-key":
+      return <ApiKeyStep status={status} onBack={goBack} onComplete={() => { onReload(); goNext(); }} />;
+    case "provider":
+      return (
+        <ProviderStep
+          status={status}
+          isSdk={path.method === "sdk"}
+          onBack={goBack}
+          onChanged={onReload}
+          onConnected={goNext}
+          onProviderSelected={selectProvider}
+          onUseMetadata={() => { void selectPath("metadata"); }}
+          selectedProvider={selectedProvider}
+        />
+      );
+    case "connect":
+      return (
+        <ConnectAndVerifyStep
+          completionError={completionError}
+          onBack={goBack}
+          onFinish={onFinish}
+          onLeave={onLeave}
+          onSnippetViewed={onSnippetViewed}
+          path={path}
+          provider={selectedProvider}
+          status={status}
+        />
+      );
+  }
+}
+
+type TagTone = "pos" | "neg" | "neutral";
+type TagMeta = { label: string; tone: TagTone };
+
+function Tag({ label, tone }: TagMeta) {
   return <span className={`onb-tag${tone === "pos" ? " pos" : tone === "neg" ? " neg" : ""}`}>{label}</span>;
 }
 
@@ -403,12 +594,40 @@ const PATH_ICONS: Record<IntegrationPathId, string> = {
   metadata: "M7 3h8l4 4v14H7z M15 3v5h5 M10 13h6 M10 17h4",
 };
 
+const FAIL_OPEN_TAGS: Record<IntegrationPath["failOpen"], TagMeta> = {
+  yes: { label: "Fail-open", tone: "pos" },
+  no: { label: "Not fail-open", tone: "neg" },
+  "n/a": { label: "Nothing inline", tone: "pos" },
+};
+
+function contentTag(path: IntegrationPath): TagMeta {
+  return path.seesContent
+    ? { label: "Sees content", tone: "neutral" }
+    : { label: "Metadata only", tone: "pos" };
+}
+
+function providerKeyTag(path: IntegrationPath): TagMeta {
+  return { label: path.needsProviderKey ? "Provider key" : "No provider key", tone: "neutral" };
+}
+
+function optimizeTag(path: IntegrationPath): TagMeta {
+  return { label: path.unlocksOptimize ? "Can optimize" : "Measure only", tone: "neutral" };
+}
+
+function pathTags(path: IntegrationPath): TagMeta[] {
+  return [FAIL_OPEN_TAGS[path.failOpen], contentTag(path), providerKeyTag(path), optimizeTag(path)];
+}
+
 function PathStep({
   active,
+  busy,
+  error,
   onSelect,
   onContinue,
 }: {
   active: IntegrationPathId;
+  busy: boolean;
+  error: string | null;
   onSelect: (id: IntegrationPathId) => void;
   onContinue: () => void;
 }) {
@@ -419,7 +638,8 @@ function PathStep({
           <PathOption key={p.id} path={p} active={p.id === active} onSelect={() => onSelect(p.id)} />
         ))}
       </div>
-      <StepFooter onBack={null} primary={{ label: "Continue", onClick: onContinue }} />
+      {error ? <div className="onb-note neg">{error}</div> : null}
+      <StepFooter onBack={null} primary={{ label: busy ? "Saving…" : "Continue", onClick: onContinue, disabled: busy }} />
     </>
   );
 }
@@ -436,13 +656,7 @@ function PathOption({ path, active, onSelect }: { path: IntegrationPath; active:
         </span>
         <span className="onb-option-tagline">{path.tagline}</span>
         <span className="onb-tags">
-          <Tag
-            label={path.failOpen === "yes" ? "Fail-open" : path.failOpen === "no" ? "Not fail-open" : "Nothing inline"}
-            tone={path.failOpen === "no" ? "neg" : "pos"}
-          />
-          <Tag label={path.seesContent ? "Sees content" : "Metadata only"} tone={path.seesContent ? "neutral" : "pos"} />
-          <Tag label={path.needsProviderKey ? "Provider key" : "No provider key"} tone="neutral" />
-          <Tag label={path.unlocksOptimize ? "Can optimize" : "Measure only"} tone="neutral" />
+          {pathTags(path).map((tag) => <Tag key={tag.label} label={tag.label} tone={tag.tone} />)}
         </span>
       </span>
       <span className="onb-radio" aria-hidden="true" />
@@ -450,7 +664,7 @@ function PathOption({ path, active, onSelect }: { path: IntegrationPath; active:
   );
 }
 
-function CopyButton({ value, label = "Copy", onCopy }: { value: string; label?: string; onCopy?: () => void }) {
+function CopyButton({ value, label = "Copy", onCopy }: { value: string; label?: string; onCopy?: () => void | Promise<void> }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -463,7 +677,7 @@ function CopyButton({ value, label = "Copy", onCopy }: { value: string; label?: 
         } catch {
           /* clipboard unavailable; the value is selectable in the block */
         }
-        onCopy?.();
+        void onCopy?.();
       }}
     >
       {copied ? "Copied" : label}
@@ -544,14 +758,18 @@ function ProviderStep({
   onBack,
   onChanged,
   onConnected,
+  onProviderSelected,
   onUseMetadata,
+  selectedProvider,
 }: {
   status: OnboardingStatus;
   isSdk: boolean;
   onBack: (() => void) | null;
   onChanged: () => void;
   onConnected: () => void;
+  onProviderSelected: (provider: ProviderId) => Promise<boolean>;
   onUseMetadata: () => void;
+  selectedProvider: ProviderId;
 }) {
   const { activeProjectId, getToken } = useSession();
   const [keys, setKeys] = useState<Record<ProviderId, string>>({ openai: "", anthropic: "", gemini: "" });
@@ -568,6 +786,7 @@ function ProviderStep({
     try {
       await api.connectProjectProvider(await getToken(), activeProjectId, provider, apiKey);
       setKeys((current) => ({ ...current, [provider]: "" }));
+      await onProviderSelected(provider);
       onChanged();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -580,6 +799,8 @@ function ProviderStep({
       setBusy(null);
     }
   };
+  const selectedConnection = connectionByProvider.get(selectedProvider);
+  const selectedConnected = selectedConnection?.status === "connected";
 
   return (
     <>
@@ -605,7 +826,9 @@ function ProviderStep({
               key={provider.id}
               onConnect={connect}
               onKeyChange={(value) => setKeys((current) => ({ ...current, [provider.id]: value }))}
+              onSelect={onProviderSelected}
               provider={provider}
+              selected={selectedProvider === provider.id}
               value={keys[provider.id]}
             />
           );
@@ -614,9 +837,9 @@ function ProviderStep({
 
       <StepFooter
         onBack={onBack}
-        primary={{ label: "Continue", onClick: onConnected, disabled: !status.has_provider_connection }}
+        primary={{ label: "Continue", onClick: onConnected, disabled: !selectedConnected }}
         secondary={
-          <button className="onb-linkbtn" onClick={onUseMetadata}>
+          <button className="onb-linkbtn" onClick={() => void onUseMetadata()}>
             No provider key? Switch to metadata only
           </button>
         }
@@ -663,7 +886,9 @@ function ProviderConnectionCard({
   error,
   onConnect,
   onKeyChange,
+  onSelect,
   provider,
+  selected,
   value,
 }: {
   busy: ProviderId | null;
@@ -671,15 +896,22 @@ function ProviderConnectionCard({
   error?: string;
   onConnect: (provider: ProviderId) => Promise<void>;
   onKeyChange: (value: string) => void;
+  onSelect: (provider: ProviderId) => Promise<boolean>;
   provider: ProviderDefinition;
+  selected: boolean;
   value: string;
 }) {
   const connected = connection?.status === "connected";
   return (
-    <div className="onb-provider">
+    <div className="onb-provider" style={selected ? { borderColor: "var(--brand)" } : undefined}>
       <div className="onb-provider-head">
         <div className="onb-provider-name">{provider.name}</div>
-        <span className={`pill ${connected ? "green" : "neutral"}`}>{providerConnectionLabel(connection)}</span>
+        <div className="right" style={{ gap: 8 }}>
+          <span className={`pill ${connected ? "green" : "neutral"}`}>{providerConnectionLabel(connection)}</span>
+          <button className="onb-linkbtn" disabled={selected || busy !== null} onClick={() => void onSelect(provider.id)}>
+            {selected ? "Selected" : "Use"}
+          </button>
+        </div>
       </div>
       <div className="onb-provider-desc">{provider.description}</div>
       {connected ? (
@@ -731,8 +963,17 @@ function ProviderKeyForm({
   );
 }
 
-function IntegrationSnippet({ path, onSnippetViewed }: { path: IntegrationPath; onSnippetViewed: () => void }) {
+function IntegrationSnippet({
+  path,
+  provider,
+  onSnippetViewed,
+}: {
+  path: IntegrationPath;
+  provider: ProviderId;
+  onSnippetViewed: () => void | Promise<void>;
+}) {
   if (path.id === "sdk") {
+    const setup = SDK_PROVIDER_SNIPPETS[provider];
     return (
       <>
         <div className="onb-note">
@@ -742,20 +983,19 @@ function IntegrationSnippet({ path, onSnippetViewed }: { path: IntegrationPath; 
           with the encrypted copy you connected.
         </div>
         <div className="onb-install">
-          {SDK_INSTALL.map((s) => (
-            <div key={s.label} className="onb-install-row">
-              <span className="onb-install-label">{s.label}</span>
-              <span className="mono">{s.value}</span>
-            </div>
-          ))}
+          <div className="onb-install-row">
+            <span className="onb-install-label">{setup.label}</span>
+            <span className="mono">{setup.install}</span>
+          </div>
         </div>
-        <pre style={CODE_STYLE}>{SDK_SNIPPET}</pre>
-        <div style={{ marginTop: 10 }}><CopyButton value={SDK_SNIPPET} label="Copy SDK snippet" onCopy={onSnippetViewed} /></div>
+        <pre style={CODE_STYLE}>{setup.snippet}</pre>
+        <div style={{ marginTop: 10 }}><CopyButton value={setup.snippet} label={`Copy ${setup.label} SDK snippet`} onCopy={onSnippetViewed} /></div>
       </>
     );
   }
 
   if (path.id === "base_url") {
+    const setup = BASE_URL_PROVIDER_SNIPPETS[provider];
     return (
       <>
         <div className="onb-note warn">
@@ -764,15 +1004,13 @@ function IntegrationSnippet({ path, onSnippetViewed }: { path: IntegrationPath; 
           this route is production-critical.
         </div>
         <div className="onb-install">
-          {BASE_URL_PROVIDER_SNIPPETS.map((snippet) => (
-            <div className="onb-install-row" key={snippet.label}>
-              <span className="onb-install-label">{snippet.label}</span>
-              <span className="mono">{snippet.value}</span>
-            </div>
-          ))}
+          <div className="onb-install-row">
+            <span className="onb-install-label">{setup.label}</span>
+            <span className="mono">{setup.endpoint}</span>
+          </div>
         </div>
-        <pre style={CODE_STYLE}>{BASE_URL_SNIPPET}</pre>
-        <div style={{ marginTop: 10 }}><CopyButton value={BASE_URL_SNIPPET} label="Copy snippet" onCopy={onSnippetViewed} /></div>
+        <pre style={CODE_STYLE}>{setup.snippet}</pre>
+        <div style={{ marginTop: 10 }}><CopyButton value={setup.snippet} label={`Copy ${setup.label} snippet`} onCopy={onSnippetViewed} /></div>
       </>
     );
   }
@@ -818,81 +1056,142 @@ function pricingStatusLabel(status: string | null | undefined): string {
   }
 }
 
-function IntegrationHealth({ integration, path }: { integration: OnboardingIntegration; path: IntegrationPath }) {
-  const match = integration.providers.find((p) => p.method === path.method);
-  const seenMethod = integration.providers.find((p) => p.method !== "none");
+function providerLabel(provider: ProviderId | null | undefined): string {
+  switch (provider) {
+    case "anthropic":
+      return "Anthropic";
+    case "gemini":
+      return "Gemini";
+    case "openai":
+    default:
+      return "OpenAI";
+  }
+}
 
-  if (path.method === "sdk" && integration.any_sdk) {
-    return (
+function methodLabel(method: string | null | undefined): string {
+  switch (method) {
+    case "sdk":
+      return "Production SDK";
+    case "base_url":
+      return "base URL";
+    case "metadata":
+      return "metadata ingestion";
+    default:
+      return "no matching traffic";
+  }
+}
+
+function expectedSignal(path: IntegrationPath, provider: ProviderId): string {
+  if (path.method === "metadata") return "a usage record posted to the metadata ingest endpoint";
+  if (path.method === "sdk") return `${providerLabel(provider)} traffic carrying the Varsten SDK marker`;
+  return `${providerLabel(provider)} traffic through the Varsten base URL without an SDK marker`;
+}
+
+type IntegrationProviderSignal = OnboardingIntegration["providers"][number];
+type HealthContext = {
+  match: IntegrationProviderSignal | undefined;
+  path: IntegrationPath;
+  provider: ProviderId;
+  seenMethod: IntegrationProviderSignal | undefined;
+};
+type HealthRule = {
+  matches: (context: HealthContext) => boolean;
+  render: (context: HealthContext) => ReactNode;
+};
+
+const integrationHealthRules: HealthRule[] = [
+  {
+    matches: ({ match, path }) => path.method === "sdk" && match?.method === "sdk",
+    render: ({ match }) => (
       <div className="pill green" style={{ marginTop: 10 }}>
         Fail-open SDK detected{match?.sdk_client ? ` (${match.sdk_client})` : ""}. You are production-safe.
       </div>
-    );
-  }
-  if (integration.base_url_without_sdk) {
-    return (
-      <div className="onb-note warn" style={{ marginTop: 10 }}>
-        This traffic is running through base-URL mode, which is not fail-open. Before it is
-        production-critical, move it to the fail-open SDK so a Varsten outage can never block a request.
+    ),
+  },
+  {
+    matches: ({ match, path }) => path.method === "base_url" && match?.method === "base_url",
+    render: ({ provider }) => (
+      <div className="pill green" style={{ marginTop: 10 }}>
+        Base-URL traffic detected for {providerLabel(provider)}. This evaluation path is live.
       </div>
-    );
-  }
-  if (path.method === "metadata" && seenMethod?.method === "metadata") {
-    return (
+    ),
+  },
+  {
+    matches: ({ match, path }) => path.method === "sdk" && match?.method === "base_url",
+    render: ({ provider }) => (
+      <div className="onb-note warn" style={{ marginTop: 10 }}>
+        We detected {providerLabel(provider)} base-URL traffic, but you chose the Production SDK.
+        Install the SDK wrapper so Varsten can verify fail-open behavior before setup is complete.
+      </div>
+    ),
+  },
+  {
+    matches: ({ path, seenMethod }) => path.method === "metadata" && seenMethod?.method === "metadata",
+    render: () => (
       <div className="pill green" style={{ marginTop: 10 }}>
         Metadata ingestion is live. Nothing is inline and no content left your boundary.
       </div>
-    );
-  }
-  return null;
+    ),
+  },
+];
+
+function IntegrationHealth({
+  integration,
+  path,
+  provider,
+}: {
+  integration: OnboardingIntegration;
+  path: IntegrationPath;
+  provider: ProviderId;
+}) {
+  const match = integration.providers.find((p) => p.provider === provider);
+  const seenMethod = integration.providers.find((p) => p.method !== "none");
+  const context = { match, path, provider, seenMethod };
+  const rule = integrationHealthRules.find((candidate) => candidate.matches(context));
+
+  return rule ? rule.render(context) : null;
 }
 
 function ConnectAndVerifyStep({
+  completionError,
   status,
   path,
+  provider,
   onBack,
   onSnippetViewed,
   onFinish,
+  onLeave,
 }: {
+  completionError: string | null;
   status: OnboardingStatus;
   path: IntegrationPath;
+  provider: ProviderId;
   onBack: (() => void) | null;
-  onSnippetViewed: () => void;
+  onSnippetViewed: () => void | Promise<void>;
   onFinish: () => void;
+  onLeave: () => void;
 }) {
   const fr = status.first_request;
   const spinnerRef = useRef<HTMLDivElement>(null);
 
   return (
     <>
-      <IntegrationSnippet path={path} onSnippetViewed={onSnippetViewed} />
+      <IntegrationSnippet path={path} provider={provider} onSnippetViewed={onSnippetViewed} />
 
       <div className="onb-verify">
-        {!fr.seen ? (
-          <WaitingForFirstRequest spinnerRef={spinnerRef} path={path} />
+        {!status.can_complete ? (
+          <>
+            <WaitingForFirstRequest spinnerRef={spinnerRef} path={path} provider={provider} status={status} />
+            {fr.seen ? <FirstRequestDetails fr={fr} integration={status.integration} path={path} provider={provider} /> : null}
+          </>
         ) : (
           <>
             <div className="onb-note pos" style={{ fontWeight: 600 }}>
               {fr.source === "ingest"
-                ? "First usage record received. Varsten is measuring your AI traffic."
-                : "First request received. Varsten is observing your AI traffic. No production behavior has been changed."}
+                ? "Verified live: first usage record received. Varsten is measuring your AI traffic."
+                : "Verified live: first request received through the selected integration."}
             </div>
-            <table className="tbl" style={{ marginTop: 12 }}>
-              <tbody>
-                <tr><td className="muted">Provider</td><td>{fr.provider}</td></tr>
-                <tr><td className="muted">Model</td><td>{fr.model}</td></tr>
-                <tr><td className="muted">Measured cost</td><td>{fmtUsd(fr.cost_usd)} <span className="muted">({pricingStatusLabel(fr.pricing_status)})</span></td></tr>
-                <tr><td className="muted">Tokens</td><td>{fr.input_tokens} in / {fr.output_tokens} out</td></tr>
-                <tr><td className="muted">Latency</td><td>{fr.latency_ms ?? "—"} ms</td></tr>
-                <tr><td className="muted">Environment</td><td>{fr.environment ?? "—"}</td></tr>
-                <tr><td className="muted">Request id</td><td>{fr.request_id ?? "—"}</td></tr>
-                <tr><td className="muted">Task / workflow</td><td>{fr.task_type ?? fr.workflow ?? fr.feature ?? "—"}</td></tr>
-              </tbody>
-            </table>
-            <div className={`pill ${fr.metadata_quality.level === "great" ? "green" : "neutral"}`} style={{ marginTop: 12 }}>
-              {fr.metadata_quality.message}
-            </div>
-            <IntegrationHealth integration={status.integration} path={path} />
+            <FirstRequestDetails fr={fr} integration={status.integration} path={path} provider={provider} />
             <div className="onb-note" style={{ marginTop: 12 }}>
               As traffic builds, your <strong>Dashboard</strong> fills in live spend and the cuts worth
               real money, and <strong>Proof</strong> starts a verified savings number you can take to
@@ -903,18 +1202,68 @@ function ConnectAndVerifyStep({
         )}
       </div>
 
-      {/* Setup is done once the snippet is in hand — the live request is a
-          confirmation, not a gate. The dashboard is always reachable so an SDK
-          integration that deploys hours later never sits on a dead-end. */}
+      {completionError ? <div className="onb-note neg">{completionError}</div> : null}
       <StepFooter
         onBack={onBack}
-        primary={{ label: fr.seen ? "Go to dashboard" : "Finish — go to dashboard", onClick: onFinish }}
+        primary={{
+          label: status.can_complete ? "Finish setup" : "Waiting for verification",
+          onClick: onFinish,
+          disabled: !status.can_complete,
+        }}
+        secondary={
+          <button className="onb-linkbtn" onClick={onLeave}>
+            Leave setup without finishing
+          </button>
+        }
       />
     </>
   );
 }
 
-function WaitingForFirstRequest({ spinnerRef, path }: { spinnerRef: React.RefObject<HTMLDivElement | null>; path: IntegrationPath }) {
+function FirstRequestDetails({
+  fr,
+  integration,
+  path,
+  provider,
+}: {
+  fr: OnboardingStatus["first_request"];
+  integration: OnboardingIntegration;
+  path: IntegrationPath;
+  provider: ProviderId;
+}) {
+  return (
+    <>
+      <table className="tbl" style={{ marginTop: 12 }}>
+        <tbody>
+          <tr><td className="muted">Provider</td><td>{fr.provider}</td></tr>
+          <tr><td className="muted">Model</td><td>{fr.model}</td></tr>
+          <tr><td className="muted">Measured cost</td><td>{fmtUsd(fr.cost_usd)} <span className="muted">({pricingStatusLabel(fr.pricing_status)})</span></td></tr>
+          <tr><td className="muted">Tokens</td><td>{fr.input_tokens} in / {fr.output_tokens} out</td></tr>
+          <tr><td className="muted">Latency</td><td>{fr.latency_ms ?? "—"} ms</td></tr>
+          <tr><td className="muted">Environment</td><td>{fr.environment ?? "—"}</td></tr>
+          <tr><td className="muted">Request id</td><td>{fr.request_id ?? "—"}</td></tr>
+          <tr><td className="muted">Task / workflow</td><td>{fr.task_type ?? fr.workflow ?? fr.feature ?? "—"}</td></tr>
+        </tbody>
+      </table>
+      <div className={`pill ${fr.metadata_quality.level === "great" ? "green" : "neutral"}`} style={{ marginTop: 12 }}>
+        {fr.metadata_quality.message}
+      </div>
+      <IntegrationHealth integration={integration} path={path} provider={provider} />
+    </>
+  );
+}
+
+function WaitingForFirstRequest({
+  spinnerRef,
+  path,
+  provider,
+  status,
+}: {
+  spinnerRef: React.RefObject<HTMLDivElement | null>;
+  path: IntegrationPath;
+  provider: ProviderId;
+  status: OnboardingStatus;
+}) {
   // Surface a helpful nudge if the first request is slow to arrive, so the funnel
   // never spins forever with no guidance.
   const [slow, setSlow] = useState(false);
@@ -925,16 +1274,25 @@ function WaitingForFirstRequest({ spinnerRef, path }: { spinnerRef: React.RefObj
   return (
     <div className="onb-waiting">
       <div className="onb-note" style={{ fontWeight: 600, color: "var(--text)", marginTop: 0 }}>
-        You&apos;re set up. Nothing else to do here.
+        Run or deploy this change. Finish unlocks when Varsten verifies {expectedSignal(path, provider)}.
       </div>
       <div className="onb-waiting-row" style={{ marginTop: 8 }}>
         <div className="spinner" ref={spinnerRef} />
         <span>
-          {path.method === "metadata"
-            ? "Listening for your first usage record — it appears here live. You can head to the dashboard now."
-            : "Listening for your first request — it appears here live. You can head to the dashboard now."}
+          {status.verified_method
+            ? `Detected ${methodLabel(status.verified_method)} traffic, but not the selected ${methodLabel(path.method)} setup yet.`
+            : path.method === "metadata"
+              ? "Listening for your first usage record — this page updates the instant it lands."
+              : "Listening for your first request — this page updates the instant it lands."}
         </span>
       </div>
+      {status.missing_steps.length ? (
+        <ul style={{ margin: "10px 0 0", paddingLeft: 18 }}>
+          {status.missing_steps.map((step) => (
+            <li className="es" key={step.key} style={{ listStyle: "disc" }}>{step.label}</li>
+          ))}
+        </ul>
+      ) : null}
       {slow ? (
         <div className="onb-note" style={{ marginTop: 10 }}>
           Nothing yet? That&apos;s fine — traffic can take a while to reach a new integration. If you expected

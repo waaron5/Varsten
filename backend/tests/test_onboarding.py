@@ -1,8 +1,9 @@
 """Self-serve onboarding status: derived setup state + first-request detection."""
 
 import uuid
+from datetime import UTC, datetime
 
-from app.models import UsageEvent
+from app.models import ProviderConnection, UsageEvent
 from tests.conftest import auth_headers
 
 
@@ -40,6 +41,9 @@ def test_status_fresh_workspace_is_observe_only(client, provision, db_session):
     s = _status(client, p)
     assert s["plan_tier"] == "free"
     assert s["observe_only"] is True
+    assert s["selected_path"] == "base_url"
+    assert s["selection_saved"] is False
+    assert s["can_complete"] is False
     assert s["has_project"] is True
     assert s["has_api_key"] is True  # provision creates one
     assert s["has_provider_connection"] is False
@@ -76,8 +80,46 @@ def test_metadata_quality_nudges_when_sparse(client, provision, db_session):
     assert s["first_request"]["metadata_quality"]["level"] == "none"
 
 
-def test_complete_sets_timestamp(client, provision, db_session):
+def _select(client, p, path="sdk", provider="openai") -> dict:
+    resp = client.post(
+        f"/v1/onboarding/selection?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+        json={"path": path, "provider": provider},
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def _snippet_viewed(client, p) -> None:
+    resp = client.post(
+        f"/v1/onboarding/event?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+        json={"event": "snippet_viewed"},
+    )
+    assert resp.status_code == 200
+
+
+def _connect_provider(db_session, p, provider="openai") -> None:
+    now = datetime.now(UTC)
+    db_session.add(
+        ProviderConnection(
+            organization_id=uuid.UUID(p["org_id"]),
+            project_id=uuid.UUID(p["project_id"]),
+            provider=provider,
+            connection_method="secrets_manager",
+            status="connected",
+            secret_ref=f"test/{p['project_id']}/{provider}",
+            last_sync_at=now,
+            last_verified_at=now,
+        )
+    )
+    db_session.flush()
+
+
+def test_complete_sets_timestamp_after_verified_metadata_ingest(client, provision, db_session):
     p = provision()
+    _select(client, p, path="metadata", provider=None)
+    _add_event(db_session, p, source="ingest")
     resp = client.post(
         f"/v1/onboarding/complete?project_id={p['project_id']}",
         headers=auth_headers(p["token"]),
@@ -85,6 +127,80 @@ def test_complete_sets_timestamp(client, provision, db_session):
     assert resp.status_code == 200
     assert resp.json()["onboarding_completed_at"] is not None
     assert _status(client, p)["onboarding_completed_at"] is not None
+
+
+def test_complete_rejects_until_selected_setup_is_verified(client, provision, db_session):
+    p = provision()
+    _select(client, p, path="sdk", provider="openai")
+    resp = client.post(
+        f"/v1/onboarding/complete?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+    )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["code"] == "onboarding_incomplete"
+    missing = {step["key"] for step in detail["missing_steps"]}
+    assert {"has_provider_connection", "first_request"} <= missing
+    assert "integration_snippet_viewed" not in missing
+
+
+def test_delayed_first_request_ingestion_controls_completion(client, provision, db_session):
+    p = provision()
+    _select(client, p, path="base_url", provider="openai")
+    _connect_provider(db_session, p)
+
+    before = client.post(
+        f"/v1/onboarding/complete?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+    )
+    assert before.status_code == 409
+    assert _status(client, p)["verification_status"] == "waiting"
+
+    _add_event(db_session, p, source="proxy")
+    after = client.post(
+        f"/v1/onboarding/complete?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+    )
+    assert after.status_code == 200
+    assert _status(client, p)["verification_status"] == "verified"
+
+
+def test_sdk_completion_requires_sdk_marked_selected_provider_traffic(client, provision, db_session):
+    p = provision()
+    _select(client, p, path="sdk", provider="openai")
+    _connect_provider(db_session, p)
+    _add_event(db_session, p, source="proxy", event_metadata={"sdk_client": "@varsten/openai@0.1.0"})
+    s = _status(client, p)
+    assert s["verified_method"] == "sdk"
+    assert s["verification_status"] == "verified"
+    assert s["can_complete"] is True
+
+
+def test_sdk_selection_rejects_base_url_only_traffic(client, provision, db_session):
+    p = provision()
+    _select(client, p, path="sdk", provider="openai")
+    _connect_provider(db_session, p)
+    _snippet_viewed(client, p)
+    _add_event(db_session, p, source="proxy")
+    s = _status(client, p)
+    assert s["verified_method"] == "base_url"
+    assert s["verification_status"] == "path_mismatch"
+    assert s["can_complete"] is False
+    resp = client.post(
+        f"/v1/onboarding/complete?project_id={p['project_id']}",
+        headers=auth_headers(p["token"]),
+    )
+    assert resp.status_code == 409
+
+
+def test_metadata_checklist_skips_provider_connection(client, provision, db_session):
+    p = provision()
+    _select(client, p, path="metadata", provider=None)
+    s = _status(client, p)
+    checklist = _checklist(s)
+    assert "has_provider_connection" not in checklist
+    assert s["selected_provider"] is None
+    assert {step["key"] for step in s["missing_steps"]} == {"first_request"}
 
 
 def test_status_tenant_isolation(client, provision, db_session):
@@ -104,12 +220,14 @@ def test_status_exposes_full_checklist(client, provision, db_session):
     p = provision()
     cl = _checklist(_status(client, p))
     assert set(cl) == {
+        "selected_path",
         "has_api_key",
         "has_provider_connection",
         "integration_snippet_viewed",
         "first_request",
         "dashboard_entered",
     }
+    assert cl["selected_path"] is False
     assert cl["has_api_key"] is True  # provision creates one
     assert cl["integration_snippet_viewed"] is False
     assert cl["dashboard_entered"] is False

@@ -191,6 +191,17 @@ export const api = {
   onboardingStatus: (token: string, projectId: string | undefined) =>
     request<OnboardingStatus>(readPath("/onboarding/status", projectId), token),
 
+  saveOnboardingSelection: (
+    token: string,
+    projectId: string | undefined,
+    body: { path: "sdk" | "base_url" | "metadata"; provider?: "openai" | "anthropic" | "gemini" | null },
+  ) =>
+    request<{ selected_path: string | null; selected_provider: string | null }>(
+      readPath("/onboarding/selection", projectId),
+      token,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
   completeOnboarding: (token: string, projectId: string | undefined) =>
     request<{ onboarding_completed_at: string | null }>(
       readPath("/onboarding/complete", projectId),
