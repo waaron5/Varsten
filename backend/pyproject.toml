@@ -48,6 +48,7 @@ markers = [
 [tool.coverage.run]
 branch = true
 omit = [
+    "scripts/benchmark_proof.py",
     "scripts/benchmark_runner.py",
     "scripts/check_complexity.py",
     "scripts/fake_provider.py",

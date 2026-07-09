@@ -4,13 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { APP_URL, START_TRIAL_HREF } from "@/app/site-links";
+import { trackMarketingEvent } from "./analytics/AnalyticsProvider";
 
 const RESOURCES_CLOSE_DELAY_MS = 250;
 
 const PRODUCT_LINKS = [
-  ["Levers", "#levers"],
-  ["Integrations", "#integrations"],
-  ["Pricing", "#pricing"],
+  ["Levers", "/#levers"],
+  ["Integrations", "/#integrations"],
+  ["Pricing", "/pricing"],
 ] as const;
 
 const RESOURCE_GROUPS = [
@@ -18,16 +19,17 @@ const RESOURCE_GROUPS = [
     title: "Build",
     links: [
       ["Docs", "/docs", "Setup guide and integration notes"],
-      ["Quickstart", "/docs#quickstart", "Point existing AI traffic at Varsten"],
-      ["SDK reference", "/docs#sdk-reference", "Headers, attribution, and examples"],
-      ["Architecture", "/docs#architecture", "How metering and optimization run inline"],
+      ["Quickstart", "/docs/quickstart", "Point existing AI traffic at Varsten"],
+      ["OpenAI SDK", "/docs/openai-sdk", "Headers, attribution, and examples"],
+      ["Architecture", "/docs/integration-paths", "How metering and optimization run inline"],
     ],
   },
   {
     title: "Evaluate",
     links: [
       ["Security", "/security", "Fail-open design and data handling"],
-      ["FAQ", "/#faq", "Answers for engineering, finance, and procurement"],
+      ["FAQ", "/faq", "Answers for engineering, finance, and procurement"],
+      ["Proof", "/proof", "How verified savings are measured"],
       ["Status", "/status", "Service availability and health"],
       ["Changelog", "/changelog", "Recent product updates"],
     ],
@@ -49,6 +51,9 @@ export function Nav() {
 
   const openResources = () => {
     if (closeTimeout.current) clearTimeout(closeTimeout.current);
+    if (!resourcesOpen) {
+      trackMarketingEvent("resource nav opened", { menu: "resources" });
+    }
     setResourcesOpen(true);
   };
   const closeResourcesSoon = () => {
@@ -60,8 +65,8 @@ export function Nav() {
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-6 md:px-10">
         <div className="flex min-w-0 items-center gap-8">
-          <a
-            href="#top"
+          <Link
+            href="/"
             className="group/logo flex shrink-0 items-center"
             aria-label="Varsten home"
           >
@@ -82,7 +87,7 @@ export function Nav() {
                 className="object-contain opacity-0 transition-opacity duration-150 group-hover/logo:opacity-100"
               />
             </span>
-          </a>
+          </Link>
           <nav className="hidden items-center gap-7 md:flex" aria-label="Primary">
             <div
               className="group/resources"
@@ -131,12 +136,12 @@ export function Nav() {
                           <div className="mono mb-3 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
                             {group.title}
                           </div>
-                          <div className="grid gap-1">
+                          <div className="grid">
                             {group.links.map(([label, href, detail]) => (
                               <a
                                 key={label}
                                 href={href}
-                                className="block border-l-2 border-transparent px-3 py-2.5 transition-colors hover:border-blueprint hover:bg-secondary"
+                                className="block border-l-2 border-transparent px-3 py-2 transition-colors duration-75 ease-out hover:border-blueprint hover:bg-secondary"
                               >
                                 <span className="block text-[13px] font-medium text-ink">
                                   {label}
@@ -174,6 +179,16 @@ export function Nav() {
           </a>
           <Link
             href={START_TRIAL_HREF}
+            onClick={() =>
+              {
+                const properties = {
+                  cta: "nav start free trial",
+                  destination: START_TRIAL_HREF,
+                };
+                trackMarketingEvent("cta clicked", properties);
+                trackMarketingEvent("trial intent started", properties);
+              }
+            }
             className="inline-flex h-8 items-center gap-2 bg-ink px-3 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
           >
             Start free trial

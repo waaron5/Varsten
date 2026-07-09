@@ -1,72 +1,101 @@
 import type { Metadata } from "next";
+import { CONTACT_EMAIL, DPA_REQUEST_HREF } from "../site-links";
+import { pageMetadata } from "@/lib/seo";
 import {
-  CONTACT_EMAIL,
-  ContentCallout,
-  ContentCard,
-  ContentGrid,
-  ContentPage,
-  ContentSection,
-} from "../content-page";
+  CardGrid,
+  InfoCard,
+  NumberedList,
+  PageCta,
+  SecondaryHero,
+  SecondarySection,
+  SecondaryShell,
+} from "@/components/varsten/SecondaryPage";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Security — Varsten",
-  description: "Varsten security, data handling, access control, and reliability posture.",
-};
+  description: "Varsten security, data handling, access control, reliability, and enterprise review posture.",
+  path: "/security",
+});
 
 export default function SecurityPage() {
   return (
-    <ContentPage
-      eyebrow="Security"
-      title="Built for AI traffic that has to keep serving"
-      description="Varsten is an inline proxy with careful controls around data handling, access, provider routing, and reliability."
-    >
-      <ContentSection eyebrow="Data handling" title="Keep request data scoped to the route's purpose">
-        <ContentGrid>
-          <ContentCard title="Route-level policy">
-            <p>
-              Set reuse, retention, routing, and eval behavior per route. That way sensitive workloads can use stricter
-              controls than low-risk ones.
-            </p>
-          </ContentCard>
-          <ContentCard title="Provider-compatible traffic">
-            <p>
-              Varsten passes through provider-compatible requests and responses. You keep your current SDKs and add
-              savings and quality guardrails on top.
-            </p>
-          </ContentCard>
-          <ContentCard title="Proof records">
-            <p>
-              Each savings record holds enough detail to explain the avoided cost, the route, the model, and the quality
-              decision behind a billable optimization.
-            </p>
-          </ContentCard>
-        </ContentGrid>
-      </ContentSection>
-
-      <ContentSection eyebrow="Controls" title="Access and reliability controls stay clear">
-        <ul className="lp-content-list">
-          <li>Use scoped API keys for production traffic instead of shared personal credentials.</li>
-          <li>Pass requests through to the original provider when an internal optimization step fails, and use a circuit breaker with strict timeouts so a failing upstream cannot stall traffic.</li>
-          <li>Base-URL integration keeps Varsten in the request path; service-level fallback that calls your provider directly during a Varsten outage ships with the Varsten SDK, which is in development.</li>
-          <li>Use strict read and total timeouts so a hung upstream cannot tie up production connections.</li>
-          <li>Limit admin access to people who need billing, routing, eval, or security review.</li>
-        </ul>
-      </ContentSection>
-
-      <ContentSection eyebrow="Compliance" title="A clear posture, with no inflated claims">
-        <p>
-          Varsten does not claim SOC 2, ISO 27001, HIPAA, or other formal certifications on this page until signed
-          reports or agreements are in place. You can handle enterprise security reviews, DPA requests, and deployment
-          requirements directly with the Varsten team.
+    <SecondaryShell>
+      <SecondaryHero
+        eyebrow="Security"
+        title="Built for AI traffic that has to keep serving."
+        description="Varsten is designed around explicit route policies, metadata-first proof, direct fallback through the SDK path, and honest compliance boundaries."
+      >
+        <p className="mono text-[10px] uppercase tracking-[0.24em] text-ink-soft">Current posture</p>
+        <div className="mt-5 text-[34px] font-semibold tracking-[-0.02em] text-ink">SOC 2-compatible controls</div>
+        <p className="mt-2 text-[14px] leading-6 text-ink-soft">
+          Varsten does not claim SOC 2 certification until a signed report exists.
         </p>
-      </ContentSection>
+      </SecondaryHero>
 
-      <ContentCallout title="Report a vulnerability or request a security review">
-        <p>
-          Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> with a clear description, the affected route or
-          endpoint, steps to reproduce it, and the best way to reach you.
-        </p>
-      </ContentCallout>
-    </ContentPage>
+      <SecondarySection title="Security model" tone="muted">
+        <CardGrid columns={2}>
+          <InfoCard title="Metadata-first ledger">
+            <p>Savings proof records cost, attribution, pricing, and optimization decisions without making prompt text the default record.</p>
+          </InfoCard>
+          <InfoCard title="Bounded content stores">
+            <p>Semantic cache, replay, or batch staging content should be governed by route policy and retention boundaries.</p>
+          </InfoCard>
+          <InfoCard title="Fail-open SDK path">
+            <p>The SDK can call the provider directly when Varsten is unavailable before output starts.</p>
+          </InfoCard>
+          <InfoCard title="Access controls">
+            <p>Production access should use scoped API keys, tenant isolation, least privilege, and audit trails.</p>
+          </InfoCard>
+        </CardGrid>
+      </SecondarySection>
+
+      <SecondarySection title="Enterprise review checklist">
+        <NumberedList
+          items={[
+            {
+              title: "Data handling",
+              body: "Review route policies, retention, metadata fields, content stores, subprocessors, and DPA requirements.",
+            },
+            {
+              title: "Provider key handling",
+              body: "The production SDK path keeps provider fallback explicit; key storage and rotation should match your existing secret process.",
+            },
+            {
+              title: "Reliability",
+              body: "Test fallback, circuit breaker behavior, timeouts, and monitoring before the first production workload.",
+            },
+            {
+              title: "Compliance claims",
+              body: "Use current artifacts and roadmaps honestly. Do not treat roadmap controls as completed certifications.",
+            },
+          ]}
+        />
+      </SecondarySection>
+
+      <SecondarySection title="Security contacts" tone="muted">
+        <CardGrid columns={2}>
+          <InfoCard title="Security review">
+            <p>
+              Email <a className="text-blueprint underline underline-offset-4" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>{" "}
+              for security questionnaires, DPA requests, and enterprise review artifacts.
+            </p>
+          </InfoCard>
+          <InfoCard title="DPA">
+            <p>
+              <a className="text-blueprint underline underline-offset-4" href={DPA_REQUEST_HREF}>Request a DPA</a>{" "}
+              before sending regulated or contract-sensitive production traffic.
+            </p>
+          </InfoCard>
+        </CardGrid>
+      </SecondarySection>
+
+      <PageCta
+        title="Review the integration path before production traffic moves."
+        description="For sensitive workloads, start with metadata-only analysis or a narrow SDK rollout with explicit fallback tests."
+        href="/docs/data-handling"
+        label="Read data handling docs"
+        intent="sales"
+      />
+    </SecondaryShell>
   );
 }

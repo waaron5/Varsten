@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { captureServerEvent } from "@/lib/analytics/server";
 
 // Lead capture for the landing page CTAs. The destination is configured by
 // environment, in priority order:
@@ -16,6 +17,11 @@ type LeadPayload = {
   companyName: string;
   source: string;
   submittedAt: string;
+  anonymousId: string;
+  pagePath: string;
+  utmSource: string;
+  utmMedium: string;
+  utmCampaign: string;
 };
 
 type LeadDeliveryConfig =
@@ -47,6 +53,19 @@ function requiredEmail(body: Record<string, unknown>): string {
   throw new LeadValidationError("invalid email");
 }
 
+function safePath(path: string): string {
+  return path.startsWith("/") && !path.startsWith("//") ? path.slice(0, 180) : "";
+}
+
+function safeAttribution(value: string): string {
+  return value.replace(/[^\w .:/-]/g, "").slice(0, 180);
+}
+
+function anonymousIdFromBody(body: Record<string, unknown>): string {
+  const anonymousId = readString(body, "anonymousId");
+  return anonymousId || `lead-${crypto.randomUUID()}`;
+}
+
 function leadFromBody(body: Record<string, unknown>): LeadPayload | NextResponse {
   try {
     return {
@@ -55,6 +74,11 @@ function leadFromBody(body: Record<string, unknown>): LeadPayload | NextResponse
       companyName: requiredLeadString(body, "companyName", "company name"),
       source: readString(body, "source") || "landing",
       submittedAt: new Date().toISOString(),
+      anonymousId: anonymousIdFromBody(body),
+      pagePath: safePath(readString(body, "pagePath")),
+      utmSource: safeAttribution(readString(body, "utmSource")),
+      utmMedium: safeAttribution(readString(body, "utmMedium")),
+      utmCampaign: safeAttribution(readString(body, "utmCampaign")),
     };
   } catch (error) {
     return invalidLeadResponse(error instanceof Error ? error.message : "invalid lead");
@@ -196,12 +220,31 @@ async function leadResponse(lead: LeadPayload) {
   try {
     const failure = await deliverLead(lead);
     if (failure) return failure;
+    await captureLeadSubmitted(lead);
   } catch (err) {
     console.error("lead delivery failed:", err);
     return NextResponse.json({ error: "lead delivery failed" }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function captureLeadSubmitted(lead: LeadPayload) {
+  try {
+    await captureServerEvent({
+      event: "lead form submitted",
+      distinctId: lead.anonymousId,
+      properties: {
+        source: lead.source,
+        path: lead.pagePath,
+        utm_source: lead.utmSource || null,
+        utm_medium: lead.utmMedium || null,
+        utm_campaign: lead.utmCampaign || null,
+      },
+    });
+  } catch (error) {
+    console.error("lead analytics capture failed:", error);
+  }
 }
 
 async function leadFromRequest(request: Request): Promise<LeadPayload | NextResponse> {

@@ -1,69 +1,44 @@
 import type { Metadata } from "next";
-import { CONTACT_EMAIL, ContentCallout, ContentPage, ContentSection } from "../content-page";
+import { CONTACT_EMAIL } from "../site-links";
+import { CardGrid, InfoCard, SecondaryHero, SecondarySection, SecondaryShell } from "@/components/varsten/SecondaryPage";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Terms — Varsten",
-  description: "Varsten website, app, and proxy service terms.",
-};
+  description: "Varsten website, app, proxy, AI optimization, billing, and acceptable use terms.",
+  path: "/terms",
+});
 
 export default function TermsPage() {
   return (
-    <ContentPage
-      eyebrow="Terms"
-      title="The terms for using Varsten"
-      description="Last updated June 13, 2026. These terms set the basic rules for the Varsten website, app, proxy, and related services."
-    >
-      <ContentSection title="The service">
-        <p>
-          Varsten provides AI spend monitoring, proxy routing, response reuse, evals, quality guardrails, and savings
-          proof tools. Your configuration decides which routes are watched, optimized, retained, or billed.
+    <SecondaryShell>
+      <SecondaryHero
+        eyebrow="Terms"
+        title="The terms for using Varsten"
+        description="Last updated July 9, 2026. These terms summarize the basic rules for the Varsten website, app, proxy, and related services."
+      />
+      <SecondarySection title="Service terms">
+        <CardGrid columns={2}>
+          <InfoCard title="The service">
+            <p>Varsten provides AI spend monitoring, proxy routing, response reuse, evals, guardrails, and savings proof tools.</p>
+          </InfoCard>
+          <InfoCard title="Accounts and access">
+            <p>You are responsible for protecting credentials, limiting access, and reporting lost or stolen keys promptly.</p>
+          </InfoCard>
+          <InfoCard title="Fees and savings">
+            <p>Optimize plans may charge a percentage of verified savings. Estimates and recommendations are not invoices by themselves.</p>
+          </InfoCard>
+          <InfoCard title="Customer data">
+            <p>You keep rights to prompts, responses, configurations, and application data, and allow Varsten to process data as needed to run the service.</p>
+          </InfoCard>
+        </CardGrid>
+      </SecondarySection>
+      <SecondarySection title="Questions" tone="muted">
+        <p className="max-w-3xl text-[15px] leading-7 text-ink-soft">
+          For legal, procurement, or contract questions, email{" "}
+          <a className="text-blueprint underline underline-offset-4" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
-      </ContentSection>
-
-      <ContentSection title="Accounts and access">
-        <p>
-          You are responsible for keeping your account credentials and API keys safe, limiting access to authorized
-          users, and telling Varsten right away if credentials are lost, shared, or stolen.
-        </p>
-      </ContentSection>
-
-      <ContentSection title="Acceptable use">
-        <ul className="lp-content-list">
-          <li>Do not use Varsten to break laws, rights, provider terms, or security controls.</li>
-          <li>Do not try to get around rate limits, billing controls, authentication, or route policies.</li>
-          <li>Do not send workloads that need special legal terms unless you have signed those terms with Varsten.</li>
-          <li>Do not harm the availability, integrity, or security of the service.</li>
-        </ul>
-      </ContentSection>
-
-      <ContentSection title="Fees and savings">
-        <p>
-          Free plans may give you monitoring and proof features without inline optimization. Optimize plans may charge
-          a percentage of confirmed savings after any trial period. Estimates, recommendations, and changes you make on
-          your own side are not billable unless you accept them in a written agreement.
-        </p>
-      </ContentSection>
-
-      <ContentSection title="Customer data and providers">
-        <p>
-          You keep the rights to your prompts, responses, configurations, and application data. You allow Varsten to
-          process that data as needed to run the service and to route traffic to the model providers you set up.
-        </p>
-      </ContentSection>
-
-      <ContentSection title="Disclaimers and termination">
-        <p>
-          Varsten comes with the warranties, service levels, limits, and liability terms in your order form or written
-          agreement. Either party may stop using the service under that agreement, and Varsten may suspend access for
-          security, abuse, non-payment, or legal risk.
-        </p>
-      </ContentSection>
-
-      <ContentCallout title="Questions about these terms?">
-        <p>
-          Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> for legal, procurement, or contract questions.
-        </p>
-      </ContentCallout>
-    </ContentPage>
+      </SecondarySection>
+    </SecondaryShell>
   );
 }

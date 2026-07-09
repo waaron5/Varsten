@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { START_TRIAL_HREF, START_OBSERVE_HREF } from "@/app/site-links";
+import { CONTACT_EMAIL, START_TRIAL_HREF, START_OBSERVE_HREF } from "@/app/site-links";
 import { SectionIntro } from "./SectionIntro";
+
+const ENTERPRISE_HREF = `mailto:${CONTACT_EMAIL}?subject=Enterprise%20Inquiry`;
 
 const plans = [
   {
@@ -158,6 +160,33 @@ export function Pricing() {
           {plans.map((p, i) => (
             <PricingCard key={p.id} index={i} plan={p} />
           ))}
+        </div>
+
+        <div className="border-b border-t border-border p-8 md:flex md:items-center md:justify-between md:gap-10 md:p-12">
+          <div className="md:max-w-md">
+            <div className="mono mb-8 flex items-center gap-3 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
+              <span>Plan · 03</span>
+              <span className="text-blueprint">Custom</span>
+            </div>
+            <h3 className="text-[26px] font-medium tracking-[-0.01em] text-ink">
+              Enterprise
+            </h3>
+            <p className="mt-6 text-[14px] leading-[1.65] text-ink-soft">
+              For custom pricing that doesn&apos;t scale with your bill,
+              <br />
+              we negotiate a rate and fee cap.
+            </p>
+          </div>
+
+          <div className="mt-8 md:mt-0">
+            <Link
+              href={ENTERPRISE_HREF}
+              className="inline-flex h-11 shrink-0 items-center gap-3 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
+            >
+              Talk to sales
+              <span aria-hidden>→</span>
+            </Link>
+          </div>
         </div>
       </div>
     </section>

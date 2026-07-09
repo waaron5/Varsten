@@ -6,26 +6,29 @@ export function Footer() {
     {
       head: "Product",
       links: [
-        ["Levers", "#levers"],
-        ["Integrations", "#integrations"],
-        ["Pricing", "#pricing"],
+        ["Levers", "/#levers"],
+        ["Integrations", "/#integrations"],
+        ["Pricing", "/pricing"],
+        ["Proof", "/proof"],
         ["Changelog", "/changelog"],
       ],
     },
     {
       head: "Docs",
       links: [
-        ["Quickstart", "/docs#quickstart"],
-        ["SDK reference", "/docs#sdk-reference"],
-        ["Architecture", "/docs#architecture"],
+        ["Quickstart", "/docs/quickstart"],
+        ["OpenAI SDK", "/docs/openai-sdk"],
+        ["Architecture", "/docs/integration-paths"],
         ["Security", "/security"],
       ],
     },
     {
       head: "Company",
       links: [
+        ["Enterprise", "/enterprise"],
         ["About", "/about"],
         ["Contact", "/contact"],
+        ["FAQ", "/faq"],
         ["Terms", "/terms"],
         ["Privacy", "/privacy"],
       ],
