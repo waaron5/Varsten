@@ -21,7 +21,7 @@ import {
 } from "@/components/viewPrimitives";
 import { api } from "@/lib/api";
 import { compact, usd } from "@/lib/format";
-import { ENGINE_LEVER_ORDER, LEVER_MODEL_DOWNSHIFT } from "@/lib/levers";
+import { ENGINE_LEVER_ORDER, LEVER_MODEL_DOWNSHIFT, LEVER_PROMPT_COMPRESSION } from "@/lib/levers";
 import type {
   AutomationLever,
   AutomationMode,
@@ -33,8 +33,8 @@ import type {
 
 const ENGINE_TABS = [
   { href: "/engine/levers", label: "Levers" },
-  { href: "/engine/recommendations", label: "Recommendations" },
   { href: "/engine/automation", label: "Automation" },
+  { href: "/engine/recommendations", label: "Recommendations" },
 ];
 
 const LEVER_ORDER: readonly string[] = ENGINE_LEVER_ORDER;
@@ -63,8 +63,13 @@ const LEVER_META: Record<string, {
     stats: LEVER_STATS,
   },
   token_trim: {
-    description: "Compresses prompts and context before each call without changing the output.",
-    iconPath: "M6 6m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M6 18m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0 M8 7l12 10 M8 17L20 7",
+    description: "Removes duplicated context, drops low-value retrieval chunks, and rewrites verbose instructions into fewer tokens before the model call.",
+    iconPath: "M5 5h14v14H5z M8 9h8 M8 12h8 M8 15h5 M3 12h4 M17 12h4 M7 9l-3 3 3 3 M17 9l3 3-3 3",
+    stats: LEVER_STATS,
+  },
+  [LEVER_PROMPT_COMPRESSION]: {
+    description: "Uses an eval-cleared compressed rewrite of a stable system prompt, then substitutes it only on exact prompt-hash matches.",
+    iconPath: "M6 4h12v16H6z M9 8h6 M9 11h6 M9 14h4 M3 8l3 3-3 3 M21 8l-3 3 3 3 M10 18h4",
     stats: LEVER_STATS,
   },
   [LEVER_MODEL_DOWNSHIFT]: {
@@ -564,25 +569,6 @@ function LeverBadge({ enabled }: { enabled: boolean }) {
   return <span className={`lever-badge ${status}`}>{status}</span>;
 }
 
-function LeverActivityGears({ active }: { active: boolean }) {
-  return (
-    <div className={`lever-gears ${active ? "active" : "paused"}`} aria-hidden="true">
-      <svg className="gear gear-large" viewBox="0 0 24 24" fill="none">
-        <path d="M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M18.4 5.6l-2.1 2.1 M7.7 16.3l-2.1 2.1" />
-        <circle cx="12" cy="12" r="5" />
-        <circle cx="12" cy="12" r="1.8" />
-        <circle className="gear-marker" cx="12" cy="5.2" r="1.1" />
-      </svg>
-      <svg className="gear gear-small" viewBox="0 0 24 24" fill="none">
-        <path d="M12 4v2.5 M12 17.5V20 M4 12h2.5 M17.5 12H20 M6.4 6.4l1.8 1.8 M15.8 15.8l1.8 1.8 M17.6 6.4l-1.8 1.8 M8.2 15.8l-1.8 1.8" />
-        <circle cx="12" cy="12" r="4.2" />
-        <circle cx="12" cy="12" r="1.5" />
-        <circle className="gear-marker" cx="12" cy="6" r="0.9" />
-      </svg>
-    </div>
-  );
-}
-
 function LeverToggle({
   busy,
   item,
@@ -638,8 +624,6 @@ function LeverRow({
 }) {
   const meta = LEVER_META[item.lever];
   const description = meta?.description || "Controls one of Varsten's optimization mechanisms.";
-  // Effective, not raw: an observe-only lever is never active regardless of config.
-  const effectiveActive = !observeOnly && item.enabled;
   return (
     <div className="lever-row">
       <div className="lever-row-top">
@@ -647,7 +631,6 @@ function LeverRow({
         <div className="lever-copy">
           <div className="lever-name">{leverLabel(item.lever)}</div>
         </div>
-        <LeverActivityGears active={effectiveActive} />
         {observeOnly ? (
           <EffectiveStatusBadge observeOnly active={item.enabled} lockedLabel="Locked on Free" />
         ) : (

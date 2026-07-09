@@ -3,13 +3,15 @@ const LEVER_SEMANTIC_CACHE = "semantic_cache";
 const LEVER_TOKEN_TRIM = "token_trim";
 export const LEVER_MODEL_DOWNSHIFT = "model_downshift";
 const LEVER_BATCHING = "batching";
+export const LEVER_PROMPT_COMPRESSION = "prompt_compression";
 
 export const ENGINE_LEVER_ORDER = [
-  LEVER_SMART_ROUTING,
   LEVER_SEMANTIC_CACHE,
-  LEVER_TOKEN_TRIM,
   LEVER_MODEL_DOWNSHIFT,
   LEVER_BATCHING,
+  LEVER_TOKEN_TRIM,
+  LEVER_SMART_ROUTING,
+  LEVER_PROMPT_COMPRESSION,
 ] as const;
 
 export const LEVER_LABELS = {
@@ -18,4 +20,5 @@ export const LEVER_LABELS = {
   [LEVER_TOKEN_TRIM]: "Token trim",
   [LEVER_MODEL_DOWNSHIFT]: "Model downshift",
   [LEVER_BATCHING]: "Batching",
+  [LEVER_PROMPT_COMPRESSION]: "Prompt compression",
 } as const;

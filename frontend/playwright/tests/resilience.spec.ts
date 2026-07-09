@@ -16,7 +16,7 @@ test("upstream 502 chaos routes to a safe downshift path and leaves the UI stabl
         {
           key: "net_saved",
           label: "Net Realized Savings",
-          detail: "Verified savings retained after Varsten's performance fee.",
+          detail: "Verified savings retained after optimization fee.",
           value: "54.00",
           delta: { current: "54.00", previous: "0.00", delta_pct: "1.00" },
           tone: "brand",
@@ -119,9 +119,9 @@ test("upstream 502 chaos routes to a safe downshift path and leaves the UI stabl
   await installMockApi(page, state);
 
   await page.goto("/dashboard");
-  const downshiftLever = page.locator(".dash-lever-item").filter({ hasText: "Model downshift" });
+  const downshiftLever = page.locator(".lv-ranked-list li").filter({ hasText: "Model downshift" });
   await expect(downshiftLever).toBeVisible();
-  await expect(downshiftLever.locator(".dash-lever-badge")).toHaveText("Active");
+  await expect(downshiftLever.locator(".lv-status")).toContainText("Active");
 
   const proxyResult = await page.evaluate(async (apiBase) => {
     const response = await fetch(`${apiBase}/v1/chat/completions`, {

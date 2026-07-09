@@ -14,5 +14,22 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": [
+    "node_modules",
+    "../node_modules",
+    "dist",
+    "build",
+    "coverage",
+    "../../backend",
+    "../../backend/**/__pycache__",
+    "../../backend/.mypy_cache",
+    "../../backend/.pytest_cache",
+    "../../backend/.ruff_cache",
+    "../../backend/.venv",
+    "../../frontend/.next",
+    "../../frontend/node_modules",
+    "../../marketing/.next",
+    "../../marketing/node_modules"
+  ]
 }

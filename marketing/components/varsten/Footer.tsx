@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { SystemStatus } from "./SystemStatus";
 
 export function Footer() {
@@ -36,13 +37,14 @@ export function Footer() {
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
         <div className="grid gap-12 py-16 md:grid-cols-12 md:py-20">
           <div className="md:col-span-5">
-            <div className="flex items-center gap-2">
-              <span className="mono text-[11px] uppercase tracking-[0.28em] text-ink-soft">
-                V—001
-              </span>
-              <span className="text-[15px] font-semibold tracking-tight text-ink">
-                Varsten
-              </span>
+            <div className="flex items-center">
+              <Image
+                src="/varsten-logo.svg"
+                alt="Varsten"
+                width={445}
+                height={88}
+                className="h-4 w-auto"
+              />
             </div>
             <p className="mt-6 max-w-sm text-[14px] leading-[1.6] text-ink-soft">
               A drop-in optimization engine that captures, routes, and reprices

@@ -11,74 +11,85 @@ import { DashboardChromeProvider } from "./dashboardChrome";
 import { DashboardCrumb, DashboardTopbarControls } from "./dashboard/DashboardTopbarControls";
 import type { Project, UserProfile } from "@/lib/types";
 
-// Name of the cookie that persists the sidebar collapsed state. Read on the server
-// in the root layout (for a hydration-safe first paint) and written here on toggle.
+// Existing cookie name, new values. Old "collapsed" is read as closed and old
+// "expanded" is read as open by app/layout.tsx for a hydration-safe migration.
 export const SIDEBAR_COOKIE = "cc_sidebar";
 
-const NAV_GROUPS: {
-  label: string;
-  items: { href: string; match: string; label: string; icon: string; badge?: string }[];
-}[] = [
+type NavItem = { href: string; match: string; label: string; icon: string };
+type NavSection = { items: NavItem[] };
+
+const NAV_SECTIONS: NavSection[] = [
   {
-    label: "Operate",
     items: [
       { href: "/dashboard", match: "/dashboard", label: "Dashboard", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
       { href: "/engine/levers", match: "/engine", label: "Engine", icon: "M9 9h6v6H9z M9 2v3 M15 2v3 M9 19v3 M15 19v3 M2 9h3 M2 15h3 M19 9h3 M19 15h3 M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" },
       { href: "/guardrails/quality", match: "/guardrails", label: "Guardrails", icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" },
-      { href: "/proof/savings", match: "/proof", label: "Proof", icon: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8.5 12.5l2.5 2.5 4.5-5" },
     ],
   },
   {
-    label: "Explore",
     items: [
-      { href: "/analysis/spend", match: "/analysis", label: "Analysis", icon: "M3 3v18h18 M7 14l3-4 3 3 4-6" },
-      { href: "/reports", match: "/reports", label: "Reports", icon: "M7 3h7l5 5v13H7V3z M14 3v6h5 M10 13h6 M10 17h6" },
+      { href: "/proof/savings", match: "/proof", label: "Savings Proof", icon: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8.5 12.5l2.5 2.5 4.5-5" },
+      { href: "/analysis/spend", match: "/analysis", label: "Spend Analysis", icon: "M3 3v18h18 M7 14l3-4 3 3 4-6" },
       { href: "/admin/connections", match: "/admin", label: "Settings", icon: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15.08 4a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.2.63.78 1 1.51 1H21a2 2 0 1 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z" },
     ],
   },
 ];
 
 const ROUTE_LABELS: Record<string, { title: string; crumb: string }> = {
-  "/dashboard": { title: "Savings Overview", crumb: "Overview" },
-  "/engine": { title: "Engine", crumb: "Engine / Levers" },
-  "/engine/recommendations": { title: "Engine", crumb: "Engine / Recommendations" },
-  "/engine/levers": { title: "Engine", crumb: "Engine / Levers" },
-  "/engine/automation": { title: "Engine", crumb: "Engine / Automation" },
-  "/guardrails": { title: "Guardrails", crumb: "Guardrails / Quality" },
-  "/guardrails/quality": { title: "Guardrails", crumb: "Guardrails / Quality" },
-  "/guardrails/budgets": { title: "Guardrails", crumb: "Guardrails / Budgets" },
-  "/guardrails/alerts": { title: "Guardrails", crumb: "Guardrails / Alerts" },
-  "/proof": { title: "Proof", crumb: "Proof / Savings" },
-  "/proof/savings": { title: "Proof", crumb: "Proof / Savings" },
-  "/proof/attribution": { title: "Proof", crumb: "Proof / Attribution" },
-  "/proof/data-quality": { title: "Proof", crumb: "Proof / Data Quality" },
-  "/analysis": { title: "Analysis", crumb: "Analysis / Spend" },
-  "/analysis/spend": { title: "Analysis", crumb: "Analysis / Spend" },
-  "/analysis/customers": { title: "Analysis", crumb: "Analysis / Customers" },
-  "/analysis/models": { title: "Analysis", crumb: "Analysis / Models" },
+  "/dashboard": { title: "Dashboard", crumb: "Overview" },
+  "/engine": { title: "Engine", crumb: "Levers" },
+  "/engine/recommendations": { title: "Engine", crumb: "Recommendations" },
+  "/engine/levers": { title: "Engine", crumb: "Levers" },
+  "/engine/automation": { title: "Engine", crumb: "Automation" },
+  "/guardrails": { title: "Guardrails", crumb: "Quality" },
+  "/guardrails/quality": { title: "Guardrails", crumb: "Quality" },
+  "/guardrails/budgets": { title: "Guardrails", crumb: "Budgets" },
+  "/guardrails/alerts": { title: "Guardrails", crumb: "Alerts" },
+  "/proof": { title: "Savings Proof", crumb: "Savings" },
+  "/proof/savings": { title: "Savings Proof", crumb: "Savings" },
+  "/proof/attribution": { title: "Savings Proof", crumb: "Attribution" },
+  "/proof/data-quality": { title: "Savings Proof", crumb: "Data Quality" },
+  "/analysis": { title: "Spend Analysis", crumb: "Spend" },
+  "/analysis/spend": { title: "Spend Analysis", crumb: "Spend" },
+  "/analysis/customers": { title: "Spend Analysis", crumb: "Customers" },
+  "/analysis/models": { title: "Spend Analysis", crumb: "Models" },
   "/reports": { title: "Executive Report", crumb: "Reports" },
-  "/admin": { title: "Settings", crumb: "Settings / Connections" },
-  "/admin/connections": { title: "Settings", crumb: "Settings / Connections" },
-  "/admin/team": { title: "Settings", crumb: "Settings / Team" },
-  "/admin/billing-security": { title: "Settings", crumb: "Settings / Billing & Security" },
-  "/breakdowns": { title: "Breakdowns", crumb: "Explore / Breakdowns" },
-  "/explorer": { title: "Explorer", crumb: "Explore / Usage Events" },
+  "/admin": { title: "Settings", crumb: "Connections" },
+  "/admin/connections": { title: "Settings", crumb: "Connections" },
+  "/admin/team": { title: "Settings", crumb: "Team" },
+  "/admin/billing-security": { title: "Settings", crumb: "Billing & Security" },
+  "/breakdowns": { title: "Breakdowns", crumb: "Breakdowns" },
+  "/explorer": { title: "Explorer", crumb: "Usage Events" },
   "/onboarding": { title: "Setup", crumb: "Setup" },
-  "/setup": { title: "Setup", crumb: "Project / Setup" },
-  "/settings": { title: "Settings", crumb: "Project / Settings" },
+  "/setup": { title: "Setup", crumb: "Setup" },
+  "/settings": { title: "Settings", crumb: "Settings" },
 };
 
-type NavItem = { href: string; match: string; label: string; icon: string; badge?: string };
-
 function routeLabel(pathname: string): { title: string; crumb: string } {
-  if (pathname.startsWith("/reports/")) return { title: "Executive Report", crumb: "Reports / Shared View" };
+  if (pathname.startsWith("/reports/")) return { title: "Executive Report", crumb: "Shared View" };
   return ROUTE_LABELS[pathname] ?? { title: "Varsten", crumb: "Home" };
 }
 
 function Icon({ path }: { path: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={path} />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  );
+}
+
+function MoreHorizontalIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h.01M12 12h.01M19 12h.01" />
     </svg>
   );
 }
@@ -97,64 +108,31 @@ function isNavItemActive(item: NavItem, pathname: string): boolean {
   return pathname.startsWith(item.match);
 }
 
-function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
+function NavLink({ item, open, pathname }: { item: NavItem; open: boolean; pathname: string }) {
   const active = isNavItemActive(item, pathname);
   return (
     <Link
       href={item.href}
-      className={`nav-item${active ? " active" : ""}`}
-      aria-label={item.label}
-      data-label={item.label}
+      className={`lv-nav-item${active ? " active" : ""}`}
+      aria-current={active ? "page" : undefined}
+      tabIndex={open ? 0 : -1}
     >
       <Icon path={item.icon} />
       <span>{item.label}</span>
-      {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
     </Link>
   );
 }
 
-function NavGroup({ group, pathname }: { group: { label: string; items: NavItem[] }; pathname: string }) {
+function NavSection({ open, pathname, section }: { open: boolean; pathname: string; section: NavSection }) {
   return (
-    <div className="nav-group">
-      {group.items.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
-    </div>
-  );
-}
-
-function AccountPanel({
-  accountOpen,
-  displayName,
-  isSidebarCollapsed,
-  isLoading,
-  orgName,
-  setAccountOpen,
-  userReady,
-}: {
-  accountOpen: boolean;
-  displayName: string;
-  isSidebarCollapsed: boolean;
-  isLoading: boolean;
-  orgName: string;
-  setAccountOpen: Dispatch<SetStateAction<boolean>>;
-  userReady: boolean;
-}) {
-  const accountRef = useRef<HTMLDivElement | null>(null);
-  const { loading: entitlementsLoading, planTier, isPerformance, observeOnly } = useEntitlements();
-  const plan = accountPlanState({ entitlementsLoading, isPerformance, observeOnly, planTier });
-  useAccountMenuDismiss(accountOpen, accountRef, setAccountOpen);
-
-  if (isLoading) return null;
-  if (!userReady) return <a href="/auth/login" className="account-login">Log in</a>;
-  return (
-    <div className="account-wrap" ref={accountRef}>
-      <AccountButton
-        accountOpen={accountOpen}
-        displayName={displayName}
-        isSidebarCollapsed={isSidebarCollapsed}
-        onToggle={() => setAccountOpen((open) => !open)}
-        orgName={orgName}
-      />
-      {accountOpen ? <AccountMenu isPerformance={isPerformance} onClose={() => setAccountOpen(false)} plan={plan} /> : null}
+    <div className="lv-nav-section">
+      <ul className="lv-nav-list">
+        {section.items.map((item) => (
+          <li key={item.href}>
+            <NavLink item={item} open={open} pathname={pathname} />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -206,38 +184,49 @@ function useAccountMenuDismiss(
   }, [accountOpen, accountRef, setAccountOpen]);
 }
 
-function AccountButton({
+function AccountPanel({
   accountOpen,
   displayName,
-  isSidebarCollapsed,
-  onToggle,
-  orgName,
+  isLoading,
+  navOpen,
+  setAccountOpen,
+  userReady,
 }: {
   accountOpen: boolean;
   displayName: string;
-  isSidebarCollapsed: boolean;
-  onToggle: () => void;
-  orgName: string;
+  isLoading: boolean;
+  navOpen: boolean;
+  setAccountOpen: Dispatch<SetStateAction<boolean>>;
+  userReady: boolean;
 }) {
+  const accountRef = useRef<HTMLDivElement | null>(null);
+  const { loading: entitlementsLoading, planTier, isPerformance, observeOnly } = useEntitlements();
+  const plan = accountPlanState({ entitlementsLoading, isPerformance, observeOnly, planTier });
+  useAccountMenuDismiss(accountOpen, accountRef, setAccountOpen);
+
+  if (isLoading) return null;
+  if (!userReady) return <a href="/auth/login" className="lv-account-login" tabIndex={navOpen ? 0 : -1}>Log in</a>;
   return (
-    <button
-      className="account-button"
-      type="button"
-      aria-haspopup="menu"
-      aria-expanded={accountOpen}
-      aria-label={`Account: ${displayName}`}
-      title={isSidebarCollapsed ? `Account: ${displayName}` : undefined}
-      onClick={onToggle}
-    >
-      <span className="account-avatar">{initials(displayName)}</span>
-      <span className="account-copy">
-        <span className="account-name">{displayName}</span>
-        <span className="account-org">{orgName}</span>
-      </span>
-      <svg className="account-options-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
-      </svg>
-    </button>
+    <div className="lv-account-wrap" ref={accountRef}>
+      <button
+        className="lv-account-button"
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={accountOpen}
+        aria-label={`Account: ${displayName}`}
+        tabIndex={navOpen ? 0 : -1}
+        onClick={() => setAccountOpen((open) => !open)}
+      >
+        <span className="lv-account-avatar">{initials(displayName)}</span>
+        <span className="lv-account-copy">
+          <span className="lv-account-name">{displayName}</span>
+        </span>
+        <span className="lv-account-chevron" aria-hidden="true">
+          <MoreHorizontalIcon />
+        </span>
+      </button>
+      {accountOpen ? <AccountMenu isPerformance={isPerformance} onClose={() => setAccountOpen(false)} plan={plan} /> : null}
+    </div>
   );
 }
 
@@ -251,112 +240,121 @@ function AccountMenu({
   plan: ReturnType<typeof accountPlanState>;
 }) {
   return (
-    <div className="account-menu" role="menu">
-      {plan.show ? <AccountPlanMenuItem isPerformance={isPerformance} onClose={onClose} plan={plan} /> : null}
-      {/* Auth routes must use <a>, not <Link>, to avoid client-side routing. */}
-      <a href="/auth/logout" className="account-menu-item" role="menuitem">Log out</a>
+    <div className="lv-account-menu" role="menu">
+      {plan.show ? (
+        <>
+          <div className="lv-account-menu-section" role="group" aria-label="Workspace">
+            <div className="lv-account-menu-kicker">Workspace</div>
+            <div className="lv-account-plan">
+              <span>Plan: {plan.name}</span>
+              <small>{plan.detail}</small>
+            </div>
+          </div>
+          <Link
+            href={plan.actionHref}
+            className={`lv-account-menu-item${isPerformance ? "" : " upgrade"}`}
+            role="menuitem"
+            onClick={onClose}
+          >
+            {plan.actionLabel}
+          </Link>
+          <div className="lv-account-menu-divider" role="separator" />
+        </>
+      ) : null}
+      <a href="/auth/logout" className="lv-account-menu-item" role="menuitem">Log out</a>
     </div>
-  );
-}
-
-function AccountPlanMenuItem({
-  isPerformance,
-  onClose,
-  plan,
-}: {
-  isPerformance: boolean;
-  onClose: () => void;
-  plan: ReturnType<typeof accountPlanState>;
-}) {
-  return (
-    <>
-      <div className="account-menu-section" role="group" aria-label="Workspace">
-        <div className="account-menu-kicker">Workspace</div>
-        <div className="account-plan" role="presentation">
-          <span className="account-plan-label">Plan: {plan.name}</span>
-          <span className="account-plan-detail">{plan.detail}</span>
-        </div>
-      </div>
-      <Link
-        href={plan.actionHref}
-        className={`account-menu-item${isPerformance ? "" : " upgrade"}`}
-        role="menuitem"
-        onClick={onClose}
-      >
-        {plan.actionLabel}
-      </Link>
-      <div className="account-menu-divider" role="separator" />
-    </>
   );
 }
 
 function Sidebar({
   accountOpen,
   displayName,
-  isCollapsed,
   isLoading,
-  onToggleCollapse,
-  orgName,
+  navOpen,
   pathname,
+  projectName,
+  workspaceName,
   setAccountOpen,
   userReady,
 }: {
   accountOpen: boolean;
   displayName: string;
-  isCollapsed: boolean;
   isLoading: boolean;
-  onToggleCollapse: () => void;
-  orgName: string;
+  navOpen: boolean;
   pathname: string;
+  projectName: string;
+  workspaceName: string;
   setAccountOpen: Dispatch<SetStateAction<boolean>>;
   userReady: boolean;
 }) {
   return (
-    <aside className="sidebar">
-      <div className="brand">
-        <Link href="/dashboard" className="brand-link" aria-label="Go to Dashboard">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/varsten-logo.svg" alt="Varsten" className="brand-logo" />
-        </Link>
-        <button
-          type="button"
-          className="sidebar-toggle"
-          aria-label={isCollapsed ? "Expand navigation" : "Collapse navigation"}
-          aria-expanded={!isCollapsed}
-          title={isCollapsed ? "Expand navigation" : "Collapse navigation"}
-          onClick={onToggleCollapse}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" aria-hidden="true">
-            <path d="M5 7h14M5 12h14M5 17h14" />
-          </svg>
-        </button>
-      </div>
-      <nav className="nav">
-        {NAV_GROUPS.map((group) => <NavGroup key={group.label} group={group} pathname={pathname} />)}
-      </nav>
-      <div className="side-account">
-        <AccountPanel
-          accountOpen={accountOpen}
-          displayName={displayName}
-          isSidebarCollapsed={isCollapsed}
-          isLoading={isLoading}
-          orgName={orgName}
-          setAccountOpen={setAccountOpen}
-          userReady={userReady}
-        />
+    <aside className="lv-sidebar" aria-label="Primary" aria-hidden={!navOpen}>
+      <div className="lv-sidebar-inner">
+        <div className="lv-brand">
+          <div className="lv-brand-link" aria-label="Current workspace">
+            <span className="lv-brand-code">{workspaceName}</span>
+            <span className="lv-brand-name">{projectName}</span>
+          </div>
+        </div>
+        <nav className="lv-nav">
+          {NAV_SECTIONS.map((section) => (
+            <NavSection key={section.items[0]?.href} open={navOpen} pathname={pathname} section={section} />
+          ))}
+        </nav>
+        <div className="lv-side-account">
+          <AccountPanel
+            accountOpen={accountOpen}
+            displayName={displayName}
+            isLoading={isLoading}
+            navOpen={navOpen}
+            setAccountOpen={setAccountOpen}
+            userReady={userReady}
+          />
+        </div>
       </div>
     </aside>
   );
 }
 
-function Topbar({ route, isDashboard }: { route: { title: string; crumb: string }; isDashboard: boolean }) {
+function Topbar({
+  isDashboard,
+  navOpen,
+  onToggleNav,
+  route,
+}: {
+  isDashboard: boolean;
+  navOpen: boolean;
+  onToggleNav: () => void;
+  route: { title: string; crumb: string };
+}) {
   return (
-    <header className="topbar">
-      <div className="topbar-title">
-        <h1>{route.title}</h1>
-        {isDashboard ? <DashboardCrumb /> : <div className="crumb">{route.crumb}</div>}
+    <header className="lv-topbar">
+      <div className="lv-topbar-inner">
+        <div className="lv-topbar-left">
+          <button
+            type="button"
+            className="lv-nav-toggle"
+            aria-label={navOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={navOpen}
+            onClick={onToggleNav}
+          >
+            <MenuIcon />
+          </button>
+          <div className="lv-route-copy">
+            {isDashboard ? (
+              <div className="lv-route-eyebrow">
+                Dashboard <span aria-hidden="true">·</span> <DashboardCrumb />
+              </div>
+            ) : (
+              <>
+                <div className="lv-route-eyebrow">{route.title}</div>
+                <div className="lv-route-crumb">{route.crumb}</div>
+              </>
+            )}
+          </div>
+        </div>
+        {isDashboard ? <DashboardTopbarControls /> : null}
       </div>
-      {isDashboard && <DashboardTopbarControls />}
     </header>
   );
 }
@@ -375,7 +373,7 @@ function activeOrgName(profile: UserProfile | null, project: Project | null): st
   return organization?.name || null;
 }
 
-function accountNames({
+function shellNames({
   profile,
   project,
   userEmail,
@@ -387,8 +385,9 @@ function accountNames({
   userName?: string | null;
 }) {
   return {
-    displayName: profile?.name || userName || userEmail || "Varsten user",
-    orgName: activeOrgName(profile, project) || project?.name || "Varsten workspace",
+    displayName: userEmail || profile?.name || userName || "Varsten user",
+    projectName: project?.name || "Project",
+    workspaceName: activeOrgName(profile, project) || "Workspace",
   };
 }
 
@@ -403,21 +402,19 @@ export function AppShell({
   const { user, isLoading } = useUser();
   const { activeProjectId, profile, projects } = useSession();
   const [accountOpen, setAccountOpen] = useState(false);
-  // Seeded from the server-read cookie, so the first client render matches the SSR
-  // markup (no hydration mismatch, no expand-then-collapse flash).
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialCollapsed);
+  const [navOpen, setNavOpen] = useState(!initialCollapsed);
   const hasMounted = useRef(false);
   const currentRoute = routeLabel(pathname);
   const activeProject = activeProjectFor(projects, activeProjectId);
-  const { displayName, orgName } = accountNames({
+  const { displayName, projectName, workspaceName } = shellNames({
     profile,
     project: activeProject,
     userEmail: user?.email,
     userName: user?.name,
   });
-  const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((collapsed) => !collapsed);
-    setAccountOpen((open) => (open ? false : open));
+  const toggleNav = useCallback(() => {
+    setNavOpen((open) => !open);
+    setAccountOpen(false);
   }, []);
 
   useEffect(() => {
@@ -427,30 +424,33 @@ export function AppShell({
     }
 
     const timer = window.setTimeout(() => {
-      // Keep the synchronous cookie write out of the click frame and sidebar
-      // width transition; the server reads this on the following request.
-      document.cookie = `${SIDEBAR_COOKIE}=${sidebarCollapsed ? "collapsed" : "expanded"}; path=/; max-age=31536000; samesite=lax`;
-    }, 240);
+      document.cookie = `${SIDEBAR_COOKIE}=${navOpen ? "open" : "closed"}; path=/; max-age=31536000; samesite=lax`;
+    }, 180);
 
     return () => window.clearTimeout(timer);
-  }, [sidebarCollapsed]);
+  }, [navOpen]);
 
   return (
     <DashboardChromeProvider>
-      <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      <div className={`lv-app${navOpen ? " nav-open" : " nav-closed"}`}>
         <Sidebar
           accountOpen={accountOpen}
           displayName={displayName}
-          isCollapsed={sidebarCollapsed}
           isLoading={isLoading}
-          onToggleCollapse={toggleSidebar}
-          orgName={orgName}
+          navOpen={navOpen}
           pathname={pathname}
+          projectName={projectName}
           setAccountOpen={setAccountOpen}
           userReady={!!user}
+          workspaceName={workspaceName}
         />
-        <div className="main">
-          <Topbar route={currentRoute} isDashboard={pathname === "/dashboard"} />
+        <div className="lv-main">
+          <Topbar
+            isDashboard={pathname === "/dashboard"}
+            navOpen={navOpen}
+            onToggleNav={toggleNav}
+            route={currentRoute}
+          />
           <div className="content">{children}</div>
         </div>
       </div>

@@ -1,0 +1,11 @@
+node_modules
+.next
+dist
+build
+out
+coverage
+../backend
+../frontend/.next
+../frontend/node_modules
+../sdk/**/dist
+../sdk/**/node_modules

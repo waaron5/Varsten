@@ -1,0 +1,72 @@
+{
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.venv/**": true,
+    "**/venv/**": true,
+    "**/__pycache__/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.mypy_cache/**": true,
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/out/**": true,
+    "**/coverage/**": true,
+    "**/site-packages/**": true
+  },
+  "search.exclude": {
+    "**/.git/**": true,
+    "**/.venv/**": true,
+    "**/venv/**": true,
+    "**/__pycache__/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.mypy_cache/**": true,
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/out/**": true,
+    "**/coverage/**": true,
+    "**/site-packages/**": true
+  },
+  "python.analysis.exclude": [
+    "**/.venv",
+    "**/venv",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/.mypy_cache",
+    "**/node_modules",
+    "**/.next",
+    "**/dist",
+    "**/build",
+    "**/out",
+    "**/coverage",
+    "**/site-packages"
+  ],
+  "typescript.tsserver.watchOptions": {
+    "watchFile": "useFsEvents",
+    "watchDirectory": "useFsEvents",
+    "fallbackPolling": "dynamicPriority",
+    "synchronousWatchDirectory": false,
+    "excludeDirectories": [
+      "**/.git",
+      "**/.venv",
+      "**/venv",
+      "**/__pycache__",
+      "**/.pytest_cache",
+      "**/.ruff_cache",
+      "**/.mypy_cache",
+      "**/node_modules",
+      "**/.next",
+      "**/dist",
+      "**/build",
+      "**/out",
+      "**/coverage",
+      "**/site-packages"
+    ],
+    "excludeFiles": ["**/*.pyc"]
+  }
+}

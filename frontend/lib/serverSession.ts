@@ -14,12 +14,13 @@ interface ServerBootstrap {
 }
 
 // Must mirror pickActive in components/session.tsx so the server resolves the
-// same active project the client would, avoiding a hydration mismatch: prefer a
-// demo-tenant project, then the cookie choice, then the first project.
+// same active project the client would, avoiding a hydration mismatch: keep a
+// stored project choice first, then fall back to the seeded demo, then the first
+// project.
 function pickActiveProject(list: Project[], cookieId: string | undefined): Project | null {
   const stored = list.find((p) => p.id === cookieId);
   const demo = list.find((p) => p.is_demo);
-  return demo ?? stored ?? list[0] ?? null;
+  return stored ?? demo ?? list[0] ?? null;
 }
 
 // Resolves token + projects + active project on the server so the first paint

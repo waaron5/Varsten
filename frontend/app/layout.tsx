@@ -54,7 +54,8 @@ async function loadLayoutState() {
   // Read the persisted sidebar state on the server so the shell renders with the
   // correct collapsed class on first paint. The client seeds its useState from the
   // same value, so server and client agree and there is no hydration mismatch.
-  const sidebarCollapsed = cookieStore.get(SIDEBAR_COOKIE)?.value === "collapsed";
+  const sidebarCookie = cookieStore.get(SIDEBAR_COOKIE)?.value;
+  const sidebarCollapsed = sidebarCookie === "collapsed" || sidebarCookie === "closed";
   const e2eUser = e2eAuthBypassEnabled(cookieStore.get("varsten_e2e_auth")?.value) ? E2E_USER : null;
   const session = e2eUser ? null : await auth0.getSession();
   // Resolve projects + active project on the server so the client can skip its

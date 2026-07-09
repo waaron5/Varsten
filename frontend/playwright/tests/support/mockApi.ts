@@ -13,6 +13,8 @@ export interface MockState {
   onboarding: JsonObject;
   entitlements: JsonObject;
   dashboardSnapshot: JsonObject;
+  dashboardSnapshotsByPeriod?: Record<string, JsonObject>;
+  dashboardExportCsv: string;
   proofSavings: JsonObject;
   usageEvents: JsonObject;
   calls: Record<string, number>;
@@ -47,6 +49,18 @@ async function fulfillJson(route: Route, body: unknown, status = 200, headers: R
     status,
     headers: jsonHeaders(headers),
     body: JSON.stringify(body),
+  });
+}
+
+async function fulfillText(route: Route, body: string, status = 200, headers: Record<string, string> = {}) {
+  await route.fulfill({
+    status,
+    headers: {
+      "access-control-allow-origin": "*",
+      "content-type": "text/csv",
+      ...headers,
+    },
+    body,
   });
 }
 
@@ -216,8 +230,23 @@ async function handleApiKeys(ctx: MockRouteContext): Promise<boolean> {
 }
 
 async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
+  if (matches(ctx, "GET", "/v1/dashboard/snapshot")) {
+    increment(ctx.state, "dashboardSnapshot");
+    const url = new URL(ctx.request.url());
+    const period = url.searchParams.get("period") ?? "month";
+    increment(ctx.state, `dashboardSnapshot:${period}`);
+    await fulfillJson(ctx.route, ctx.state.dashboardSnapshotsByPeriod?.[period] ?? ctx.state.dashboardSnapshot);
+    return true;
+  }
+  if (matches(ctx, "GET", "/v1/dashboard/export")) {
+    increment(ctx.state, "dashboardExport");
+    const url = new URL(ctx.request.url());
+    increment(ctx.state, `dashboardExport:${url.searchParams.get("period") ?? "month"}`);
+    await fulfillText(ctx.route, ctx.state.dashboardExportCsv);
+    return true;
+  }
+
   const reads: Record<string, [keyof MockState, string]> = {
-    "/v1/dashboard/snapshot": ["dashboardSnapshot", "dashboardSnapshot"],
     "/v1/entitlements": ["entitlements", "entitlements"],
     "/v1/proof/savings": ["proofSavings", "proofSavings"],
     "/v1/usage-events": ["usageEvents", "usageEvents"],
@@ -447,11 +476,18 @@ export function createDashboardSnapshot(overrides: JsonObject = {}): JsonObject 
     mode: "measured",
     fee_percent: "0.25",
     gross_savings_usd: "2000.00",
+    verified_savings_usd: "2000.00",
+    verified_gross_savings_usd: "2000.00",
+    measurement_cost_usd: "0.00",
+    optimization_overhead_cost_usd: "0.00",
+    direct_measured_usd: "1200.00",
+    holdback_measured_usd: "800.00",
+    holdback_has_signal: true,
     kpis: [
       {
         key: "net_saved",
         label: "Net Realized Savings",
-        detail: "Verified savings retained after Varsten's performance fee.",
+        detail: "Verified savings retained after optimization fee.",
         value: "1500.00",
         delta: { current: "1500.00", previous: "1200.00", delta_pct: "0.25" },
         tone: "brand",
@@ -598,6 +634,7 @@ export function createMockState(overrides: Partial<MockState> = {}): MockState {
     onboarding: createOnboardingStatus(),
     entitlements: createEntitlements(),
     dashboardSnapshot: createDashboardSnapshot(),
+    dashboardExportCsv: "Varsten dashboard export\nperiod,month\n",
     proofSavings: createProofSavings(),
     usageEvents: {
       items: [],

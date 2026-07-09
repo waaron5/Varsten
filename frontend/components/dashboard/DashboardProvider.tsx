@@ -6,7 +6,7 @@
 // endpoints. Period state lives here; switching it re-keys the query (period is
 // part of the cache key) and refetches just the snapshot.
 
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useProjectResource } from "@/components/useProjectResource";
 import { useDashboardChrome } from "@/components/dashboardChrome";
@@ -33,17 +33,24 @@ export function DashboardProvider({
   // Period is owned by the top-navbar control (DashboardChrome); the page reacts to
   // it. Including it in the query key re-fetches the snapshot on a period switch.
   const { period } = useDashboardChrome();
+  const loadSnapshot = useCallback(
+    (token: string, projectId: string | undefined) => api.dashboardSnapshot(token, projectId, { period }),
+    [period],
+  );
   const snapshot = useProjectResource<DashboardSnapshot>(
     ["dashboardSnapshot", period],
-    (token, projectId) => api.dashboardSnapshot(token, projectId, { period }),
+    loadSnapshot,
     period === "month" ? initialMonthSnapshot : null,
   );
 
-  const value: DashboardData = {
-    snapshot: { data: snapshot.data, loading: snapshot.loading, error: snapshot.error },
-    period,
-    reload: snapshot.reload,
-  };
+  const value: DashboardData = useMemo(
+    () => ({
+      snapshot: { data: snapshot.data, loading: snapshot.loading, error: snapshot.error },
+      period,
+      reload: snapshot.reload,
+    }),
+    [period, snapshot.data, snapshot.error, snapshot.loading, snapshot.reload],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

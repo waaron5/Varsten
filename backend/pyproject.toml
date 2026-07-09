@@ -73,6 +73,15 @@ line-length = 120
 target-version = "py313"
 exclude = [
     "alembic/versions",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "site-packages",
+    "venv",
 ]
 
 [tool.ruff.lint]
@@ -116,12 +125,30 @@ warn_unreachable = false
 warn_unused_ignores = true
 exclude = [
     "alembic/versions/",
+    "\\.mypy_cache/",
+    "\\.pytest_cache/",
+    "\\.ruff_cache/",
+    "\\.venv/",
+    "__pycache__/",
+    "build/",
+    "dist/",
+    "site-packages/",
+    "venv/",
 ]
 
 [tool.bandit]
 exclude_dirs = [
     "alembic/versions",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "site-packages",
     "tests",
+    "venv",
 ]
 skips = [
     "B101",
@@ -131,6 +158,15 @@ skips = [
 [tool.deptry]
 exclude = [
     "alembic/versions",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "site-packages",
+    "venv",
 ]
 known_first_party = [
     "app",
@@ -150,6 +186,15 @@ DEP004 = [
 [tool.vulture]
 exclude = [
     "alembic/versions",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "site-packages",
+    "venv",
 ]
 ignore_decorators = [
     "@app.*",

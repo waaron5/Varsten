@@ -360,12 +360,12 @@ function useProjectSelection(initialProjects: Project[] | undefined, initialActi
 
   const pickActive = useCallback((list: Project[]) => {
     const storedProject = list.find((p) => p.id === readActiveProjectCookie());
-    // Prefer a demo-tenant project (org.is_demo) so the dashboard lands on the
-    // seeded narrative, keyed off the structural flag rather than a hard-coded
-    // project name. Falls through to the stored choice, then the first project.
+    // Keep an explicit project choice stable across refreshes. Without this, a
+    // workspace with multiple demo tenants can silently jump to whichever demo
+    // happens to sort first.
     // This must match pickActiveProject in lib/serverSession.ts.
     const demoProject = list.find((p) => p.is_demo);
-    const nextProject = demoProject ?? storedProject ?? list[0] ?? null;
+    const nextProject = storedProject ?? demoProject ?? list[0] ?? null;
     if (nextProject) writeActiveProjectCookie(nextProject.id);
     setActive(nextProject?.id ?? null);
   }, []);

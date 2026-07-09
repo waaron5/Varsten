@@ -1,0 +1,10 @@
+node_modules
+.next
+dist
+build
+out
+coverage
+varsten-dashboard-and-sidenav-lovable
+../backend
+../sdk/**/dist
+../sdk/**/node_modules

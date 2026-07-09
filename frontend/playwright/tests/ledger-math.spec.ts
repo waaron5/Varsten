@@ -25,7 +25,7 @@ test("verified and net savings reconcile after a high-volume proxy burst", async
         {
           key: "net_saved",
           label: "Net Realized Savings",
-          detail: "Verified savings retained after Varsten's performance fee.",
+          detail: "Verified savings retained after optimization fee.",
           value: String(netCustomerSavings),
           delta: { current: String(netCustomerSavings), previous: "0.00", delta_pct: "1.00" },
           tone: "brand",
@@ -162,8 +162,8 @@ test("verified and net savings reconcile after a high-volume proxy burst", async
   expect(statuses.every((status) => status === 200)).toBe(true);
   expect(state.calls.proxy).toBe(burstSize);
 
-  const verifiedDashboardMetric = page.locator(".dash-proof-metric").filter({ hasText: "Verified savings" });
-  await expect(verifiedDashboardMetric).toContainText("$2,000 of $2,000");
+  const verifiedDashboardMetric = page.locator(".lv-integrity-list li").filter({ hasText: "Verified savings" });
+  await expect(verifiedDashboardMetric).toContainText("$2,000 · $2,000 claimed");
 
   await page.goto("/proof/savings");
   const grossCard = page.locator(".card.kpi").filter({ hasText: "Gross saved" });

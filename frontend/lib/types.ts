@@ -198,6 +198,13 @@ export interface DashboardSnapshot {
   mode: string; // measured | estimated | spend_only | empty
   fee_percent: string;
   gross_savings_usd: string | null;
+  verified_savings_usd: string | null;
+  verified_gross_savings_usd: string | null;
+  measurement_cost_usd: string | null;
+  optimization_overhead_cost_usd: string | null;
+  direct_measured_usd: string | null;
+  holdback_measured_usd: string | null;
+  holdback_has_signal: boolean;
   kpis: DashboardKpi[];
   savings_trend: SavingsTrendBucket[];
   trend_stats: TrendStats;
