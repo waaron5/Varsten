@@ -7,11 +7,9 @@ type StatusResponse = {
   label: string;
   checked_at: string;
   configured: boolean;
-  status_page_url: string;
 };
 
 const endpointUrl = process.env.STATUS_ENDPOINT_URL || process.env.NEXT_PUBLIC_STATUS_ENDPOINT_URL;
-const statusPageUrl = process.env.STATUS_PAGE_URL || process.env.NEXT_PUBLIC_STATUS_PAGE_URL || "/status";
 const timeoutMs = 2_500;
 
 export const dynamic = "force-dynamic";
@@ -135,7 +133,6 @@ export async function GET() {
     label: labelForStatus(status),
     checked_at: new Date().toISOString(),
     configured: Boolean(endpointUrl),
-    status_page_url: statusPageUrl,
   };
 
   return NextResponse.json(body, {

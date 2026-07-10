@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { pageMetadata } from "@/lib/seo";
 import {
   CardGrid,
@@ -21,10 +22,17 @@ export default function AboutPage() {
     <SecondaryShell>
       <SecondaryHero
         eyebrow="About"
-        title="AI spend should be engineered, not hand-waved."
-        description="Varsten exists for teams whose AI usage is now large enough that cost, quality, and finance proof need production infrastructure."
-      />
-      <SecondarySection title="What Varsten builds">
+        title="You shouldn't have to ration AI usage."
+        description="Varsten exists to help you manage LLM costs so you can focus on growing your business in the era of AI."
+        align="stretch"
+        mediaClassName="relative"
+        eyebrowInGrid
+      >
+        <div className="absolute inset-y-0 left-0 aspect-square">
+          <Image src="/varsten-icon-blue.svg" alt="" aria-hidden="true" fill className="object-contain" priority />
+        </div>
+      </SecondaryHero>
+      <SecondarySection title="What we build">
         <CardGrid columns={3}>
           <InfoCard title="Observe">
             <p>Attribute AI spend by provider, model, team, feature, and environment without changing the product experience.</p>

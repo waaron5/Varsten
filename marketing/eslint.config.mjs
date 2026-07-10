@@ -13,6 +13,7 @@ const eslintConfig = defineConfig([
     "dist/**",
     "coverage/**",
     "next-env.d.ts",
+    "varsten-pricing-page-lovable/**",
     "../backend/**",
     "../frontend/.next/**",
     "../frontend/node_modules/**",

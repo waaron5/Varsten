@@ -1,15 +1,9 @@
 import type { Metadata } from "next";
-import { CONTACT_EMAIL, START_OBSERVE_HREF, START_TRIAL_HREF } from "../site-links";
+import { START_OBSERVE_HREF, START_TRIAL_HREF } from "../site-links";
 import { pageMetadata } from "@/lib/seo";
-import {
-  CardGrid,
-  InfoCard,
-  NumberedList,
-  PageCta,
-  SecondarySection,
-  SecondaryShell,
-} from "@/components/varsten/SecondaryPage";
+import { SecondaryShell } from "@/components/varsten/SecondaryPage";
 import { TrackedLink } from "@/components/varsten/TrackedLink";
+import { SavingsCalculator } from "@/components/varsten/pricing/SavingsCalculator";
 
 export const metadata: Metadata = pageMetadata({
   title: "Pricing — Varsten",
@@ -41,7 +35,7 @@ const plans = [
     id: "optimize",
     name: "Optimize",
     price: "25%",
-    priceNote: "of verified savings",
+    priceNote: "of savings",
     tag: "14-day trial",
     body: "Turn on approved savings levers and pay only from savings Varsten can prove.",
     features: [
@@ -60,7 +54,8 @@ const plans = [
     id: "enterprise",
     name: "Enterprise",
     price: "Custom",
-    tag: "Security review",
+    priceNote: "sales-led",
+    tag: "Custom",
     body: "For teams that need procurement, security review, and a guided rollout.",
     features: [
       "Everything in Optimize",
@@ -175,6 +170,43 @@ function PricingPlanCard({ index, plan }: { index: number; plan: PricingPlan }) 
   );
 }
 
+function PricingNextStep() {
+  return (
+    <section className="border-b border-border bg-background text-ink">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-8 px-6 py-12 md:flex-row md:items-center md:justify-between md:px-10">
+        <div>
+          <h2 className="max-w-3xl text-[30px] font-semibold leading-tight tracking-[-0.01em] md:text-[44px]">
+            Ready to start?
+          </h2>
+          <p className="mt-3 max-w-2xl text-[15px] leading-7 text-ink-soft">
+            Automatically reduce your AI bill with cost optimization.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <TrackedLink
+            href={START_TRIAL_HREF}
+            event="trial intent started"
+            eventProperties={{ cta: "Start a 14-day trial", source: "pricing_next_step" }}
+            className="inline-flex h-11 items-center gap-3 bg-ink px-5 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Start a 14-day trial
+            <span aria-hidden>→</span>
+          </TrackedLink>
+          <TrackedLink
+            href="/enterprise"
+            event="sales intent started"
+            eventProperties={{ cta: "Talk to sales", source: "pricing_next_step" }}
+            className="inline-flex h-11 items-center gap-3 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
+          >
+            Talk to sales
+            <span aria-hidden>→</span>
+          </TrackedLink>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function PricingPage() {
   return (
     <SecondaryShell>
@@ -193,86 +225,9 @@ export default function PricingPage() {
         </div>
       </section>
 
-      <SecondarySection
-        title="How much could you save?"
-        description="We should not put a broad savings percentage in the calculator until the number comes from measured simulations."
-        tone="muted"
-      >
-        <CardGrid columns={3}>
-          <InfoCard eyebrow="01" title="Replay real workload shapes">
-            <p>
-              Use support agents, agent loops, and high-variance chat as separate test sets. Each one should have a known
-              amount of waste planted in it.
-            </p>
-          </InfoCard>
-          <InfoCard eyebrow="02" title="Measure what Varsten captures">
-            <p>
-              Compare measured savings against the savings that were actually available. That gives us a capture rate,
-              not a marketing guess.
-            </p>
-          </InfoCard>
-          <InfoCard eyebrow="03" title="Publish conservative ranges">
-            <p>
-              The calculator should use low, typical, and high-fit ranges by workload type. If a workload has little to
-              save, the calculator should say that too.
-            </p>
-          </InfoCard>
-        </CardGrid>
-      </SecondarySection>
+      <SavingsCalculator />
 
-      <SecondarySection
-        title="How verified savings works"
-        description="Pricing follows proof. Estimates can help you decide what to try, but they are not invoices."
-      >
-        <NumberedList
-          items={[
-            {
-              title: "Agree the baseline",
-              body: "Use the original provider path, a holdback group, or a replay set as the comparison.",
-            },
-            {
-              title: "Measure the difference",
-              body: "Compare what the request would have cost with what it actually cost after optimization.",
-            },
-            {
-              title: "Bill only from verified savings",
-              body: "Varsten's fee is capped at 25% of verified savings. If there are no verified savings, there is no savings fee.",
-            },
-          ]}
-        />
-      </SecondarySection>
-
-      <SecondarySection title="Billing FAQ" description="The questions finance, engineering, and procurement usually ask.">
-        <CardGrid columns={2}>
-          <InfoCard title="What counts as verified savings?">
-            <p>
-              Savings supported by agreed evidence such as direct avoided cost, holdback comparison, replay evidence,
-              and overhead subtraction.
-            </p>
-          </InfoCard>
-          <InfoCard title="Do recommendations bill automatically?">
-            <p>No. Recommendations and estimates are planning inputs, not invoices.</p>
-          </InfoCard>
-          <InfoCard title="Can procurement review the methodology?">
-            <p>
-              Yes. Enterprise rollouts should document the baseline, proof method, reporting period, and dispute path.
-            </p>
-          </InfoCard>
-          <InfoCard title="Who should we contact for contracts?">
-            <p>
-              Email <a className="text-blueprint underline underline-offset-4" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
-            </p>
-          </InfoCard>
-        </CardGrid>
-      </SecondarySection>
-
-      <PageCta
-        title="Start with one workload and a clean measurement boundary."
-        description="The fastest path is usually Observe first, then one OpenAI workload with SDK fallback."
-        href={START_OBSERVE_HREF}
-        label="Start Observe"
-        intent="observe"
-      />
+      <PricingNextStep />
     </SecondaryShell>
   );
 }

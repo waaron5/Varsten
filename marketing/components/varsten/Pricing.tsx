@@ -162,7 +162,7 @@ export function Pricing() {
           ))}
         </div>
 
-        <div className="border-b border-t border-border p-8 md:flex md:items-center md:justify-between md:gap-10 md:p-12">
+        <div className="border-t border-border p-8 md:flex md:items-center md:justify-between md:gap-10 md:p-12">
           <div className="md:max-w-md">
             <div className="mono mb-8 flex items-center gap-3 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
               <span>Plan · 03</span>

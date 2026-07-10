@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { AI_COST_REPORT_HREF } from "@/app/site-links";
 import { SystemStatus } from "./SystemStatus";
 
 export function Footer() {
@@ -49,10 +50,39 @@ export function Footer() {
                 className="h-4 w-auto"
               />
             </div>
-            <p className="mt-6 max-w-sm text-[14px] leading-[1.6] text-ink-soft">
-              A drop-in optimization engine that captures, routes, and reprices
-              your LLM traffic in real-time.
-            </p>
+            <div className="mt-8 max-w-sm border-t border-border pt-6">
+              <div className="mono text-[10px] uppercase tracking-[0.28em] text-ink-soft">
+                The AI Cost Report
+              </div>
+              <p className="mt-3 text-[13px] leading-6 text-ink-soft">
+                Weekly updates on AI pricing and cost optimization.
+              </p>
+              <form
+                action={AI_COST_REPORT_HREF}
+                method="get"
+                target="_blank"
+                className="mt-4 flex max-w-sm flex-col gap-2 sm:flex-row"
+              >
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  placeholder="Email address"
+                  aria-label="Email address for The AI Cost Report"
+                  className="h-10 min-w-0 flex-1 border border-border bg-background px-3 text-[13px] text-ink outline-none placeholder:text-ink-soft/65 focus:border-ink"
+                />
+                <input type="hidden" name="r" value="59dimx" />
+                <input type="hidden" name="utm_source" value="varsten_footer" />
+                <input type="hidden" name="utm_medium" value="site" />
+                <input type="hidden" name="utm_campaign" value="footer_signup" />
+                <button
+                  type="submit"
+                  className="inline-flex h-10 shrink-0 items-center justify-center gap-2 bg-ink px-4 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  Subscribe
+                </button>
+              </form>
+            </div>
           </div>
 
           {cols.map((c) => (

@@ -30,7 +30,6 @@ const RESOURCE_GROUPS = [
       ["Security", "/security", "Fail-open design and data handling"],
       ["FAQ", "/faq", "Answers for engineering, finance, and procurement"],
       ["Proof", "/proof", "How verified savings are measured"],
-      ["Status", "/status", "Service availability and health"],
       ["Changelog", "/changelog", "Recent product updates"],
     ],
   },

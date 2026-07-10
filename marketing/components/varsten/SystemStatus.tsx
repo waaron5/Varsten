@@ -7,7 +7,6 @@ type ServiceStatus = "operational" | "degraded" | "outage" | "maintenance" | "un
 type StatusPayload = {
   status?: ServiceStatus;
   label?: string;
-  status_page_url?: string;
 };
 
 const labels: Record<ServiceStatus, string> = {
@@ -73,29 +72,24 @@ function statusLabel(payload: StatusPayload | null, status: ServiceStatus): stri
   return payload?.label ?? labels[status];
 }
 
-function statusHref(payload: StatusPayload | null): string {
-  return payload?.status_page_url ?? "/status";
-}
-
 function statusDisplay(payload: StatusPayload | null) {
   const status = statusFromPayload(payload);
   return {
     status,
     label: statusLabel(payload, status),
-    href: statusHref(payload),
   };
 }
 
 export function SystemStatus() {
-  const { href, label, status } = statusDisplay(useSystemStatusPayload());
+  const { label, status } = statusDisplay(useSystemStatusPayload());
   return (
-    <a
-      href={href}
-      className="flex items-center gap-2 transition-colors hover:text-ink"
+    <span
+      className="flex items-center gap-2"
+      role="status"
       aria-label={`System status: ${label}`}
     >
       <span className={`inline-block h-1.5 w-1.5 ${dotClass[status]}`} />
       <span>{label}</span>
-    </a>
+    </span>
   );
 }

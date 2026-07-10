@@ -12,6 +12,9 @@ type HeroProps = {
   title: string;
   description: string;
   children?: ReactNode;
+  align?: "start" | "end" | "stretch";
+  mediaClassName?: string;
+  eyebrowInGrid?: boolean;
 };
 
 type SectionProps = {
@@ -39,19 +42,36 @@ export function SecondaryShell({ children }: ShellProps) {
   );
 }
 
-export function SecondaryHero({ eyebrow, title, description, children }: HeroProps) {
+export function SecondaryHero({
+  eyebrow,
+  title,
+  description,
+  children,
+  align = "end",
+  mediaClassName = "border border-border bg-muted p-5",
+  eyebrowInGrid = false,
+}: HeroProps) {
+  const eyebrowEl = <p className="mono text-[11px] uppercase tracking-[0.28em] text-ink-soft">{eyebrow}</p>;
+
   return (
     <section className="border-b border-border bg-background">
       <div className="mx-auto max-w-[1400px] px-6 py-18 md:px-10 md:py-24">
-        <p className="mono text-[11px] uppercase tracking-[0.28em] text-ink-soft">{eyebrow}</p>
-        <div className="mt-6 grid gap-8 md:grid-cols-[minmax(0,0.92fr)_minmax(320px,0.48fr)] md:items-end">
+        {eyebrowInGrid ? null : eyebrowEl}
+        <div
+          className={`${eyebrowInGrid ? "" : "mt-6"} grid gap-8 md:grid-cols-[minmax(0,0.92fr)_minmax(320px,0.48fr)] ${
+            align === "start" ? "md:items-start" : align === "stretch" ? "md:items-stretch" : "md:items-end"
+          }`}
+        >
           <div>
-            <h1 className="max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.02em] text-ink md:text-[72px]">
+            {eyebrowInGrid ? eyebrowEl : null}
+            <h1
+              className={`${eyebrowInGrid ? "mt-6" : ""} max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.02em] text-ink md:text-[72px]`}
+            >
               {title}
             </h1>
             <p className="mt-6 max-w-2xl text-[17px] leading-8 text-ink-soft md:text-[19px]">{description}</p>
           </div>
-          {children ? <div className="border border-border bg-muted p-5">{children}</div> : null}
+          {children ? <div className={mediaClassName}>{children}</div> : null}
         </div>
       </div>
     </section>
