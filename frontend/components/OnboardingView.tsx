@@ -1194,7 +1194,7 @@ function ConnectAndVerifyStep({
             <FirstRequestDetails fr={fr} integration={status.integration} path={path} provider={provider} />
             <div className="onb-note" style={{ marginTop: 12 }}>
               As traffic builds, your <strong>Dashboard</strong> fills in live spend and the cuts worth
-              real money, and <strong>Proof</strong> starts a verified savings number you can take to
+              real money, and <strong>Savings</strong> starts a verified savings number you can take to
               finance.
             </div>
             {path.method === "sdk" ? <FailOpenSelfTest /> : null}

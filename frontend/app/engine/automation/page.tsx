@@ -1,5 +1,5 @@
-import { EngineAutomationView } from "@/components/EngineViews";
+import { redirect } from "next/navigation";
 
 export default function EngineAutomationPage() {
-  return <EngineAutomationView />;
+  redirect("/automation");
 }

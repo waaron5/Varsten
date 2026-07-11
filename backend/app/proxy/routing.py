@@ -29,6 +29,7 @@ from app.core.logging import get_logger
 from app.engine import bandit
 from app.engine.priors import candidate_stats_for_request
 from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
+from app.lever_controls import lever_enabled, lever_enabled_async
 from app.levers import LEVER_MODEL_DOWNSHIFT, LEVER_SMART_ROUTING
 from app.models import (
     CR_ACTIVE,
@@ -184,6 +185,8 @@ async def resolve_route(
         policy = await _routing_policy_for_model(db, project_id, requested_model, route_key=route_key)
         if policy is None or not policy.candidate_model:
             return None
+        if not await lever_enabled_async(db, project_id, policy.lever):
+            return None
         if policy.lever == SMART_ROUTING:
             pred = (policy.params or {}).get("predicate")
             if not predicate_mod.is_eligible(body or {}, pred):
@@ -290,6 +293,8 @@ def resolve_effective_model(db: Session, project_id: uuid.UUID, requested_model:
             .order_by(ProxyPolicy.activated_at.desc().nullslast())
             .limit(1)
         ).first()
+        if policy is not None and not lever_enabled(db, project_id, policy.lever):
+            return None
         return policy.candidate_model if policy is not None else None
     except Exception:
         logger.exception("routing lookup failed; forwarding original model", extra={"project_id": str(project_id)})

@@ -6,58 +6,167 @@ import { useRef, useState } from "react";
 import { APP_URL, START_TRIAL_HREF } from "@/app/site-links";
 import { trackMarketingEvent } from "./analytics/AnalyticsProvider";
 
-const RESOURCES_CLOSE_DELAY_MS = 250;
+const NAV_DROPDOWN_CLOSE_DELAY_MS = 250;
 
 const PRODUCT_LINKS = [
-  ["Levers", "/#levers"],
-  ["Integrations", "/#integrations"],
   ["Pricing", "/pricing"],
 ] as const;
 
-const RESOURCE_GROUPS = [
+type NavDropdownLink = { label: string; href: string | null; detail: string; soon?: boolean };
+type NavDropdownGroup = { title?: string; links: NavDropdownLink[] };
+
+const RESOURCE_GROUPS: NavDropdownGroup[] = [
   {
     title: "Build",
     links: [
-      ["Docs", "/docs", "Setup guide and integration notes"],
-      ["Quickstart", "/docs/quickstart", "Point existing AI traffic at Varsten"],
-      ["OpenAI SDK", "/docs/openai-sdk", "Headers, attribution, and examples"],
-      ["Architecture", "/docs/integration-paths", "How metering and optimization run inline"],
+      { label: "Docs", href: "/docs", detail: "Setup guide and integration notes" },
+      { label: "Quickstart", href: "/docs/quickstart", detail: "Point existing AI traffic at Varsten" },
+      { label: "OpenAI SDK", href: "/docs/openai-sdk", detail: "Headers, attribution, and examples" },
+      { label: "Architecture", href: "/docs/integration-paths", detail: "How metering and optimization run inline" },
     ],
   },
   {
     title: "Evaluate",
     links: [
-      ["Security", "/security", "Fail-open design and data handling"],
-      ["FAQ", "/faq", "Answers for engineering, finance, and procurement"],
-      ["Proof", "/proof", "How verified savings are measured"],
-      ["Changelog", "/changelog", "Recent product updates"],
+      { label: "Security", href: "/security", detail: "Fail-open design and data handling" },
+      { label: "FAQ", href: "/faq", detail: "Answers for engineering, finance, and procurement" },
+      { label: "Proof", href: "/proof", detail: "How verified savings are measured" },
+      { label: "Changelog", href: "/changelog", detail: "Recent product updates" },
     ],
   },
   {
     title: "Company",
     links: [
-      ["About", "/about", "Who Varsten is for and why it exists"],
-      ["Contact", "/contact", "Sales, support, security review, and pilots"],
-      ["Privacy", "/privacy", "How account and operational data are handled"],
-      ["Terms", "/terms", "Commercial and service terms"],
+      { label: "About", href: "/about", detail: "Who Varsten is for and why it exists" },
+      { label: "Contact", href: "/contact", detail: "Sales, support, security review, and pilots" },
+      { label: "Privacy", href: "/privacy", detail: "How account and operational data are handled" },
+      { label: "Terms", href: "/terms", detail: "Commercial and service terms" },
     ],
   },
-] as const;
+];
+
+const INTEGRATE_GROUPS: NavDropdownGroup[] = [
+  { links: [{ label: "Metadata only", href: "/#integrations", detail: "Zero content egress — async usage events after your own provider call." }] },
+  { links: [{ label: "Base URL change", href: "/#integrations", detail: "Point a stock OpenAI client at Varsten for the fastest proxy trial." }] },
+  { links: [{ label: "SDK", href: "/#integrations", detail: "Optimized and fail-open — the wrapper for production traffic." }] },
+  { links: [{ label: "Sidecar", href: null, detail: "In-VPC sidecar deployment, split from the control plane.", soon: true }] },
+];
+
+function NavDropdown({
+  columns,
+  groups,
+  label,
+  open,
+  onOpen,
+  onCloseSoon,
+}: {
+  columns: 3 | 4;
+  groups: NavDropdownGroup[];
+  label: string;
+  open: boolean;
+  onOpen: () => void;
+  onCloseSoon: () => void;
+}) {
+  return (
+    <div onMouseEnter={onOpen} onMouseLeave={onCloseSoon}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="true"
+        className="inline-flex h-9 items-center gap-1.5 text-[13px] text-ink-soft transition-colors hover:text-ink"
+        onFocus={onOpen}
+        onBlur={onCloseSoon}
+        type="button"
+      >
+        {label}
+        <svg
+          aria-hidden="true"
+          className={`h-3.5 w-3.5 translate-y-px transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+          viewBox="0 0 24 24"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      <div
+        className={`absolute inset-x-0 top-full z-50 opacity-0 transition duration-150 ${
+          open ? "visible opacity-100" : "invisible"
+        }`}
+        onMouseEnter={onOpen}
+        onMouseLeave={onCloseSoon}
+      >
+        <div className="mx-auto max-w-[1400px] px-6 md:px-10">
+          <div className="border border-border bg-background shadow-[0_16px_50px_rgba(17,17,17,0.10)]">
+            <div className={`grid ${columns === 4 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+              {groups.map((group, index) => (
+                <section
+                  key={group.title ?? index}
+                  className="border-t border-border p-4 first:border-t-0 md:border-l md:border-t-0 md:first:border-l-0"
+                >
+                  {group.title ? (
+                    <div className="mono mb-3 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
+                      {group.title}
+                    </div>
+                  ) : null}
+                  <div className="grid">
+                    {group.links.map((link) =>
+                      link.href ? (
+                        <a
+                          key={link.label}
+                          href={link.href}
+                          className="block border-l-2 border-transparent px-3 py-2 transition-colors duration-75 ease-out hover:border-blueprint hover:bg-secondary"
+                        >
+                          <span className="block text-[13px] font-medium text-ink">
+                            {link.label}
+                          </span>
+                          <span className="mt-0.5 block text-[12px] leading-5 text-ink-soft">
+                            {link.detail}
+                          </span>
+                        </a>
+                      ) : (
+                        <div key={link.label} className="block border-l-2 border-transparent px-3 py-2 opacity-60">
+                          <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                            {link.label}
+                            {link.soon ? (
+                              <span className="mono border border-border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.16em] text-ink-soft">
+                                Soon
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="mt-0.5 block text-[12px] leading-5 text-ink-soft">
+                            {link.detail}
+                          </span>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function Nav() {
-  const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const openResources = () => {
+  const openMenu = (groupId: string) => {
     if (closeTimeout.current) clearTimeout(closeTimeout.current);
-    if (!resourcesOpen) {
-      trackMarketingEvent("resource nav opened", { menu: "resources" });
+    if (openMenuId !== groupId) {
+      trackMarketingEvent("resource nav opened", { menu: groupId });
     }
-    setResourcesOpen(true);
+    setOpenMenuId(groupId);
   };
-  const closeResourcesSoon = () => {
+  const closeMenuSoon = () => {
     if (closeTimeout.current) clearTimeout(closeTimeout.current);
-    closeTimeout.current = setTimeout(() => setResourcesOpen(false), RESOURCES_CLOSE_DELAY_MS);
+    closeTimeout.current = setTimeout(() => setOpenMenuId(null), NAV_DROPDOWN_CLOSE_DELAY_MS);
   };
 
   return (
@@ -88,76 +197,22 @@ export function Nav() {
             </span>
           </Link>
           <nav className="hidden items-center gap-7 md:flex" aria-label="Primary">
-            <div
-              className="group/resources"
-              onMouseEnter={openResources}
-              onMouseLeave={closeResourcesSoon}
-            >
-              <button
-                aria-expanded={resourcesOpen}
-                aria-haspopup="true"
-                className="inline-flex h-9 items-center gap-1.5 text-[13px] text-ink-soft transition-colors hover:text-ink"
-                onFocus={openResources}
-                onBlur={closeResourcesSoon}
-                type="button"
-              >
-                Resources
-                <svg
-                  aria-hidden="true"
-                  className={`h-3.5 w-3.5 translate-y-px transition-transform group-hover/resources:rotate-180 group-focus-within/resources:rotate-180 ${
-                    resourcesOpen ? "rotate-180" : ""
-                  }`}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="1.8"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </button>
-              <div
-                className={`absolute inset-x-0 top-full z-50 -mt-px opacity-0 transition duration-150 group-hover/resources:visible group-hover/resources:opacity-100 group-focus-within/resources:visible group-focus-within/resources:opacity-100 ${
-                  resourcesOpen ? "visible opacity-100" : "invisible"
-                }`}
-                onMouseEnter={openResources}
-                onMouseLeave={closeResourcesSoon}
-              >
-                <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-                  <div className="border border-border bg-background shadow-[0_16px_50px_rgba(17,17,17,0.10)]">
-                    <div className="grid md:grid-cols-3">
-                      {RESOURCE_GROUPS.map((group) => (
-                        <section
-                          key={group.title}
-                          className="border-t border-border p-4 first:border-t-0 md:border-l md:border-t-0 md:first:border-l-0"
-                        >
-                          <div className="mono mb-3 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
-                            {group.title}
-                          </div>
-                          <div className="grid">
-                            {group.links.map(([label, href, detail]) => (
-                              <a
-                                key={label}
-                                href={href}
-                                className="block border-l-2 border-transparent px-3 py-2 transition-colors duration-75 ease-out hover:border-blueprint hover:bg-secondary"
-                              >
-                                <span className="block text-[13px] font-medium text-ink">
-                                  {label}
-                                </span>
-                                <span className="mt-0.5 block text-[12px] leading-5 text-ink-soft">
-                                  {detail}
-                                </span>
-                              </a>
-                            ))}
-                          </div>
-                        </section>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <NavDropdown
+              columns={3}
+              groups={RESOURCE_GROUPS}
+              label="Resources"
+              open={openMenuId === "resources"}
+              onOpen={() => openMenu("resources")}
+              onCloseSoon={closeMenuSoon}
+            />
+            <NavDropdown
+              columns={4}
+              groups={INTEGRATE_GROUPS}
+              label="Integrate"
+              open={openMenuId === "integrate"}
+              onOpen={() => openMenu("integrate")}
+              onCloseSoon={closeMenuSoon}
+            />
             {PRODUCT_LINKS.map(([label, href]) => (
               <a
                 key={label}

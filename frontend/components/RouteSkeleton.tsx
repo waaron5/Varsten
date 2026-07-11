@@ -2,7 +2,7 @@
 // structured page skeleton inside the persistent AppShell during route
 // transitions, so navigation reveals layout immediately instead of a blank pane
 // or a lone centered spinner. The shape (stat row + chart block + table block)
-// generically matches the Dashboard, Proof, Analysis, and Engine pages.
+// generically matches the Dashboard, Automation, Proof, and Analysis pages.
 
 function Bar({ width, height = 14 }: { width: string | number; height?: number }) {
   return <div className="sk" style={{ width, height }} />;

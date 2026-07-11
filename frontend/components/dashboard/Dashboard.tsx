@@ -2,7 +2,7 @@
 
 // Dashboard root. The home view is intentionally executive: savings,
 // proof status, and a single next action. Operational detail lives in the
-// dedicated Engine, Guardrails, Proof, and Analysis pages.
+// dedicated Automation, Guardrails, Proof, and Analysis pages.
 
 import { RequireSession } from "@/components/RequireSession";
 import type { DashboardSnapshot } from "@/lib/types";

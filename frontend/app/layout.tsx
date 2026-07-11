@@ -21,7 +21,7 @@ const E2E_USER = {
 };
 
 export const metadata: Metadata = {
-  title: "Varsten — AI Savings Engine",
+  title: "Varsten — AI Savings Automation",
   description: "Cut AI spend safely and prove the savings.",
   icons: {
     icon: [{ url: "/varsten-icon.svg", type: "image/svg+xml" }],

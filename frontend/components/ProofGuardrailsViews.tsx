@@ -182,7 +182,7 @@ function ProofSavingsBody() {
   return (
     <div className="view">
       <PageHeader
-        section="Proof"
+        section="Savings"
         title="Savings"
         description="Board-ready savings accounting: counterfactual spend, actual spend, Varsten fee, and net to customer."
       />
@@ -216,7 +216,7 @@ function ProofAttributionBody() {
   return (
     <div className="view">
       <PageHeader
-        section="Proof"
+        section="Savings"
         title="Attribution"
         description="Savings tied back to a lever and measurement method so finance can inspect the claim."
       />
@@ -234,7 +234,7 @@ function ProofAttributionBody() {
         ) : (
           <AttributionTable
             empty="No attribution rows yet"
-            emptyDetail="Applied engine actions will populate lever-level proof."
+            emptyDetail="Turn on automations to populate lever-level proof."
             rows={data.rows}
             showGross
           />
@@ -255,7 +255,7 @@ function ProofDataQualityBody() {
   return (
     <div className="view">
       <PageHeader
-        section="Proof"
+        section="Savings"
         title="Data Quality"
         description="Pricing and tagging coverage that determines whether the savings number is defensible."
       />
@@ -587,7 +587,7 @@ function GuardrailsQualityBody() {
       <PageHeader
         section="Guardrails"
         title="Quality"
-        description="Route-level floors the engine must respect before any savings cut goes live."
+        description="Route-level floors automation must respect before any savings cut goes live."
       />
       <Tabs tabs={GUARDRAIL_TABS} active="/guardrails/quality" />
       <div className="grid cols-2">

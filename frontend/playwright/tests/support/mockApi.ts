@@ -13,8 +13,14 @@ export interface MockState {
   onboarding: JsonObject;
   entitlements: JsonObject;
   dashboardSnapshot: JsonObject;
+  dashboard: JsonObject;
   dashboardSnapshotsByPeriod?: Record<string, JsonObject>;
   dashboardExportCsv: string;
+  engineLevers: JsonObject[];
+  engineRoutes: JsonObject[];
+  engineTrims: JsonObject[];
+  engineBatches: JsonObject[];
+  engineCompressions: JsonObject[];
   proofSavings: JsonObject;
   usageEvents: JsonObject;
   calls: Record<string, number>;
@@ -230,6 +236,11 @@ async function handleApiKeys(ctx: MockRouteContext): Promise<boolean> {
 }
 
 async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
+  if (matches(ctx, "GET", "/v1/dashboard")) {
+    increment(ctx.state, "dashboard");
+    await fulfillJson(ctx.route, ctx.state.dashboard);
+    return true;
+  }
   if (matches(ctx, "GET", "/v1/dashboard/snapshot")) {
     increment(ctx.state, "dashboardSnapshot");
     const url = new URL(ctx.request.url());
@@ -256,6 +267,43 @@ async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
   const [stateKey, callKey] = match;
   increment(ctx.state, callKey);
   await fulfillJson(ctx.route, ctx.state[stateKey]);
+  return true;
+}
+
+async function handleAutomation(ctx: MockRouteContext): Promise<boolean> {
+  const reads: Record<string, [keyof MockState, string]> = {
+    "/v1/engine/levers": ["engineLevers", "engineLevers"],
+    "/v1/engine/routes": ["engineRoutes", "engineRoutes"],
+    "/v1/engine/trims": ["engineTrims", "engineTrims"],
+    "/v1/engine/batches": ["engineBatches", "engineBatches"],
+    "/v1/engine/compressions": ["engineCompressions", "engineCompressions"],
+  };
+  const read = reads[ctx.pathname];
+  if (ctx.method === "GET" && read) {
+    const [stateKey, callKey] = read;
+    increment(ctx.state, callKey);
+    await fulfillJson(ctx.route, ctx.state[stateKey]);
+    return true;
+  }
+
+  const leverMatch = ctx.pathname.match(/^\/v1\/engine\/levers\/([^/]+)$/);
+  if (ctx.method !== "PATCH" || !leverMatch) return false;
+  increment(ctx.state, "updateLever");
+  const lever = decodeURIComponent(leverMatch[1]);
+  const body = await postJson(ctx.request);
+  const existing = ctx.state.engineLevers.find((item) => item.lever === lever);
+  if (!existing) {
+    await fulfillJson(ctx.route, { detail: "lever not found" }, 404);
+    return true;
+  }
+  const updated = {
+    ...existing,
+    ...(typeof body.enabled === "boolean" ? { enabled: body.enabled, paused_at: body.enabled ? null : NOW } : {}),
+    ...(typeof body.automation_mode === "string" ? { automation_mode: body.automation_mode } : {}),
+    updated_at: NOW,
+  };
+  ctx.state.engineLevers = ctx.state.engineLevers.map((item) => (item.lever === lever ? updated : item));
+  await fulfillJson(ctx.route, updated);
   return true;
 }
 
@@ -291,6 +339,7 @@ const MOCK_API_HANDLERS: MockApiHandler[] = [
   handleOnboarding,
   handleBilling,
   handleApiKeys,
+  handleAutomation,
   handleReadModels,
   handleProxy,
 ];
@@ -581,6 +630,184 @@ export function createDashboardSnapshot(overrides: JsonObject = {}): JsonObject 
   return { ...base, ...overrides };
 }
 
+function createAutomationLever(lever: string, overrides: JsonObject = {}): JsonObject {
+  return {
+    id: `lever_${lever}`,
+    organization_id: ORG_ID,
+    project_id: PROJECT_ID,
+    lever,
+    enabled: true,
+    automation_mode: "approve",
+    runtime_available: true,
+    runtime_reason: null,
+    savings_to_date_usd: "0.00",
+    quality_delta_percent: null,
+    paused_at: null,
+    created_at: NOW,
+    updated_at: NOW,
+    ...overrides,
+  };
+}
+
+export function createEngineLevers(overrides: Record<string, JsonObject> = {}): JsonObject[] {
+  const base: Record<string, JsonObject> = {
+    semantic_cache: createAutomationLever("semantic_cache", { savings_to_date_usd: "520.00" }),
+    model_downshift: createAutomationLever("model_downshift", { savings_to_date_usd: "800.00" }),
+    batching: createAutomationLever("batching", { savings_to_date_usd: "140.00" }),
+    token_trim: createAutomationLever("token_trim", { savings_to_date_usd: "220.00" }),
+    smart_routing: createAutomationLever("smart_routing", { enabled: false, savings_to_date_usd: "0.00", paused_at: NOW }),
+    prompt_compression: createAutomationLever("prompt_compression", { savings_to_date_usd: "90.00" }),
+  };
+  return Object.entries(base).map(([lever, row]) => ({ ...row, ...(overrides[lever] ?? {}) }));
+}
+
+export function createEngineRoutes(overrides: JsonObject[] = []): JsonObject[] {
+  const base = [
+    {
+      id: "route_model_downshift",
+      lever: "model_downshift",
+      incumbent_model: "gpt-4o",
+      candidate_model: "gpt-4o-mini",
+      predicate: { environment: "production" },
+      enabled: true,
+      holdback_percent: "10.00",
+      activated_at: NOW,
+      source_recommendation_id: "rec_downshift",
+      source_title: "Use gpt-4o-mini for support replies",
+      control_requests: 140,
+      treatment_requests: 1260,
+      control_avg_cost_usd: "0.0320",
+      treatment_avg_cost_usd: "0.0090",
+      savings_per_request_usd: "0.0230",
+      measured_savings_usd: "800.00",
+      measured_savings_ci_low_usd: "720.00",
+      measured_savings_ci_high_usd: "880.00",
+      has_signal: true,
+      control_ok_rate: 0.99,
+      treatment_ok_rate: 0.99,
+      quality_drop: 0,
+      drifted: false,
+    },
+  ];
+  return base.map((row, index) => ({ ...row, ...(overrides[index] ?? {}) }));
+}
+
+export function createEngineTrims(overrides: JsonObject[] = []): JsonObject[] {
+  const base = [
+    {
+      id: "trim_gpt_4o_mini",
+      model: "gpt-4o-mini",
+      enabled: true,
+      holdback_percent: "10.00",
+      activated_at: NOW,
+      source_recommendation_id: "rec_trim",
+      source_title: "Trim repeated support context",
+      control_requests: 180,
+      treatment_requests: 1620,
+      control_avg_cost_usd: "0.0120",
+      treatment_avg_cost_usd: "0.0080",
+      savings_per_request_usd: "0.0040",
+      measured_savings_usd: "220.00",
+      measured_savings_ci_low_usd: "180.00",
+      measured_savings_ci_high_usd: "260.00",
+      has_signal: true,
+      control_ok_rate: 0.98,
+      treatment_ok_rate: 0.98,
+      quality_drop: 0,
+      drifted: false,
+    },
+  ];
+  return base.map((row, index) => ({ ...row, ...(overrides[index] ?? {}) }));
+}
+
+export function createEngineBatches(overrides: JsonObject[] = []): JsonObject[] {
+  const base = [
+    {
+      id: "batch_support_digest",
+      status: "completed",
+      request_count: 240,
+      input_tokens: 420000,
+      output_tokens: 68000,
+      actual_cost_usd: "35.00",
+      naive_cost_usd: "175.00",
+      saved_usd: "140.00",
+      submitted_at: NOW,
+      completed_at: NOW,
+      created_at: NOW,
+    },
+  ];
+  return base.map((row, index) => ({ ...row, ...(overrides[index] ?? {}) }));
+}
+
+export function createEngineCompressions(overrides: JsonObject[] = []): JsonObject[] {
+  const base = [
+    {
+      id: "compression_support_system",
+      model: "gpt-4o-mini",
+      route_key: "support_reply",
+      recommendation_id: "rec_compress",
+      policy_id: "policy_compress",
+      policy_enabled: true,
+      holdback_percent: "10.00",
+      rollout_percent: 90,
+      original_chars: 3200,
+      compressed_chars: 1700,
+      compression_ratio: 0.5313,
+      generator: "gpt-4o-mini",
+      original_system_hash: "hash_support_system",
+      created_at: NOW,
+    },
+  ];
+  return base.map((row, index) => ({ ...row, ...(overrides[index] ?? {}) }));
+}
+
+export function createDashboard(overrides: JsonObject = {}): JsonObject {
+  return {
+    live_savings: {
+      spend_month: "6000.00",
+      saved_month: "2000.00",
+      net_saved_month: "1500.00",
+      estimated_impact_month: "2000.00",
+      verified_saved_month: "2000.00",
+      verified_net_saved_month: "1500.00",
+      annual_run_rate: "24000.00",
+      trust_score: "0.98",
+    },
+    decision_queue: [],
+    recent_actions: [
+      {
+        id: "action_downshift",
+        recommendation_id: "rec_downshift",
+        lever: "model_downshift",
+        action_type: "activate",
+        status: "applied",
+        source: "automation",
+        title: "Activated model downshift",
+        detail: "Support replies now use a verified lower-cost model when eligible.",
+        estimated_savings_usd: "800.00",
+        realized_savings_usd: "800.00",
+        occurred_at: NOW,
+      },
+      {
+        id: "action_trim",
+        recommendation_id: "rec_trim",
+        lever: "token_trim",
+        action_type: "activate",
+        status: "applied",
+        source: "automation",
+        title: "Activated token trim",
+        detail: "Repeated context is removed before eligible requests are forwarded.",
+        estimated_savings_usd: "220.00",
+        realized_savings_usd: "220.00",
+        occurred_at: NOW,
+      },
+    ],
+    top_waste_now: null,
+    requests_month: 4200,
+    ...overrides,
+  };
+}
+
 export function createProofSavings(overrides: JsonObject = {}): JsonObject {
   const direct = 1200;
   const holdback = 800;
@@ -634,7 +861,13 @@ export function createMockState(overrides: Partial<MockState> = {}): MockState {
     onboarding: createOnboardingStatus(),
     entitlements: createEntitlements(),
     dashboardSnapshot: createDashboardSnapshot(),
+    dashboard: createDashboard(),
     dashboardExportCsv: "Varsten dashboard export\nperiod,month\n",
+    engineLevers: createEngineLevers(),
+    engineRoutes: createEngineRoutes(),
+    engineTrims: createEngineTrims(),
+    engineBatches: createEngineBatches(),
+    engineCompressions: createEngineCompressions(),
     proofSavings: createProofSavings(),
     usageEvents: {
       items: [],

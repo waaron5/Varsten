@@ -104,7 +104,7 @@ export function Integrations() {
   return (
     <section id="integrations" className="border-b border-border">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <SectionIntro eyebrow="Section 03 · Integration" title="Match your security posture.">
+        <SectionIntro eyebrow="Section 03 · Integration" title="Match your security needs.">
           <p className="text-[16px] leading-[1.6] text-ink-soft">
             Three integration paths. Each preserves a different boundary
             between your infrastructure and the Varsten optimization layer —

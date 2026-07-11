@@ -320,7 +320,7 @@ function SavingsByLever({
           <div className="lv-section-kicker">Section 02 · Mechanism</div>
           <h3>Savings by Lever</h3>
         </div>
-        <Link href="/engine/levers" className="lv-panel-link">Engine →</Link>
+        <Link href="/automation" className="lv-panel-link">Automation →</Link>
       </header>
 
       <div className="lv-panel-tabs">
@@ -376,7 +376,7 @@ function SavingsByLever({
           </footer>
         </>
       ) : (
-        <PanelEmpty label="Lever status appears here once Engine configuration loads." />
+        <PanelEmpty label="Lever status appears here once Automation configuration loads." />
       )}
     </article>
   );
@@ -402,7 +402,7 @@ function SpendDrivers({
           <div className="lv-section-kicker">Section 03 · Allocation</div>
           <h3>Spend Drivers</h3>
         </div>
-        <Link href="/analysis/spend" className="lv-panel-link">Analysis →</Link>
+        <Link href="/analysis/spend" className="lv-panel-link">AI spend →</Link>
       </header>
 
       <div className="lv-panel-tabs" role="tablist" aria-label="Spend driver dimension">
@@ -490,7 +490,7 @@ function DataIntegrity({ data }: { data: ReturnType<typeof dashboardViewModel>["
     <article className="lv-panel lv-integrity-panel">
       <header className="lv-panel-head">
         <div>
-          <div className="lv-section-kicker">Section 04 · Proof</div>
+          <div className="lv-section-kicker">Section 04 · Savings</div>
           <h3>Data Integrity</h3>
         </div>
         <TrustBadge level={data.scoreLevel} />

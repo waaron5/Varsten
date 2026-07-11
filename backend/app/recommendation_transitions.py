@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.auth.entitlements import require_performance
 from app.engine import governance
 from app.eval.gate import EvalGateError, apply_measured_savings, assert_appliable
+from app.lever_controls import lever_enabled
 from app.models import Project, Recommendation, RecommendationAction, User
 from app.proxy.compression import TransformConflictError
 from app.proxy.execution import activate_execution, deactivate_execution
@@ -107,6 +108,11 @@ def _apply_recommendation(
     automated: bool,
 ) -> None:
     require_performance(db, project, action="Applying a recommendation")
+    if recommendation.lever and not lever_enabled(db, project.id, recommendation.lever):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{recommendation.lever} is turned off for this project.",
+        )
     try:
         gating_run = assert_appliable(db, recommendation, automated=automated)
     except EvalGateError as exc:

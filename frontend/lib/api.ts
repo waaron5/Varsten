@@ -29,6 +29,7 @@ import type {
   MetricsOverview,
   MonthlyReport,
   OnboardingStatus,
+  PromptCompressionArtifact,
   ProofAttribution,
   ProofDataQuality,
   ProviderConnection,
@@ -359,6 +360,9 @@ export const api = {
 
   engineBatches: (token: string, projectId: string | undefined) =>
     request<BatchJob[]>(readPath("/engine/batches", projectId), token),
+
+  engineCompressions: (token: string, projectId: string | undefined) =>
+    request<PromptCompressionArtifact[]>(readPath("/engine/compressions", projectId), token),
 
   updateLever: (
     token: string,

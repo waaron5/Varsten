@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
+from app.lever_controls import lever_enabled_async
 from app.models import Project, ProxyPolicy, Recommendation
 from app.proxy import canary
 
@@ -132,6 +133,8 @@ async def resolve_trim(
                 with _policy_lock:
                     _policy_cache[key] = policy
         if policy is None:
+            return None
+        if not await lever_enabled_async(db, project_id, LEVER):
             return None
         # Canary gate: outside the rollout the body is forwarded untrimmed as plain
         # passthrough (not an experiment arm), independent of the holdback draw.

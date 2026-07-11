@@ -37,6 +37,8 @@ from app.engine import (
 from app.engine.priors import outcome_priors_for_request
 from app.engine.route_identity import route_key_from_context
 from app.eval import capture as eval_capture
+from app.lever_controls import lever_enabled_async
+from app.levers import LEVER_SEMANTIC_CACHE
 from app.models import Project, ProxyCacheEntry
 from app.proxy import (
     budget_enforcement,
@@ -860,6 +862,22 @@ async def _maybe_serve_openai_cache(
             enforced=True,
         )
         return OpenAICacheProbe(None, None)
+    if not await lever_enabled_async(db, project.id, LEVER_SEMANTIC_CACHE):
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="exact_cache",
+            action="skipped",
+            reason_code="semantic_cache_paused",
+            enforced=True,
+        )
+        draft.add_runtime_trace(
+            stage="cache_lookup",
+            lever="semantic_cache",
+            action="skipped",
+            reason_code="semantic_cache_paused",
+            enforced=True,
+        )
+        return OpenAICacheProbe(None, None, False)
     exact_cache_allowed, exact_blockers, exact_enforced_blockers = _exact_cache_policy(draft)
     if exact_cache_allowed:
         draft.add_runtime_trace(

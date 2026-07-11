@@ -11,7 +11,7 @@ import type { Entitlements } from "@/lib/types";
 const CONTACT_HREF = "mailto:mail@varsten.ai?subject=Upgrade%20to%20Varsten%20Optimize";
 
 const OPTIMIZE_INCLUDES = [
-  "Apply recommendations one-click, with eval gates and rollback",
+  "Turn on savings automations with eval gates and rollback",
   "Smart routing and model-downshift substitution",
   "Response caching and token trimming",
   "Batch routing for non-urgent jobs",
@@ -196,8 +196,8 @@ function PlanSummary({
     return (
       <>
         <div className="es">
-          Optimization is enabled for this workspace. Recommendations, guardrails, and
-          measured savings proof are available across the Engine.
+          Optimization is enabled for this workspace. Automations, guardrails, and
+          measured savings are available across the app.
         </div>
         <BillingAction mode="portal" label="Manage billing" />
         <PricingNote />
@@ -399,8 +399,8 @@ function TrialValueChecklist({
       label: "Holdback proof volume",
       complete: progress.holdback_proof_ready,
       detail: holdbackDetail,
-      href: "/engine",
-      action: progress.holdback_policy_active ? "Watch proof" : "Apply a lever",
+      href: "/automation",
+      action: progress.holdback_policy_active ? "Watch proof" : "Turn on automation",
     },
     {
       label: "Payment method ready",

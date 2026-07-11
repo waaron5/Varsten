@@ -1,5 +1,5 @@
-import { EngineRecommendationsView } from "@/components/EngineViews";
+import { redirect } from "next/navigation";
 
 export default function EngineRecommendationsPage() {
-  return <EngineRecommendationsView />;
+  redirect("/automation");
 }

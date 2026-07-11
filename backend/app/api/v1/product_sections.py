@@ -27,11 +27,14 @@ from app.eval.gate import (
     is_gated,
     latest_run,
 )
+from app.lever_controls import lever_enabled
 from app.levers import (
     LEVER_DEFAULT_AUTOMATION,
     LEVER_DISPLAY_ORDER,
     LEVER_LABELS,
+    LEVER_BATCHING,
     LEVER_PROMPT_COMPRESSION,
+    LEVER_SEMANTIC_CACHE,
     ROUTING_LEVERS,
 )
 from app.models import (
@@ -278,7 +281,20 @@ def _action_payload(action: RecommendationAction) -> dict:
     }
 
 
+def _lever_runtime_status(config: LeverConfig) -> tuple[bool, str | None]:
+    if config.lever == LEVER_SEMANTIC_CACHE:
+        if not settings.proxy_cache_enabled:
+            return False, "Cache storage is not enabled on this deployment."
+        if not settings.semantic_cache_enabled:
+            return False, "Semantic cache is not enabled on this deployment."
+    if config.lever in {LEVER_BATCHING, LEVER_PROMPT_COMPRESSION}:
+        if not provider_key_for_project(config.project_id, "openai"):
+            return False, "Connect an OpenAI provider key before using this automation."
+    return True, None
+
+
 def _lever_payload(config: LeverConfig) -> dict:
+    runtime_available, runtime_reason = _lever_runtime_status(config)
     return {
         "id": config.id,
         "organization_id": config.organization_id,
@@ -286,6 +302,8 @@ def _lever_payload(config: LeverConfig) -> dict:
         "lever": config.lever,
         "enabled": config.enabled,
         "automation_mode": config.automation_mode,
+        "runtime_available": runtime_available,
+        "runtime_reason": runtime_reason,
         "savings_to_date_usd": config.savings_to_date_usd,
         "quality_delta_percent": config.quality_delta_percent,
         "paused_at": config.paused_at,
@@ -1312,6 +1330,8 @@ def engine_update_route(
     # Pausing is always allowed so a customer can stop optimization on any tier.
     if payload.enabled:
         require_performance(db, project, action="Enabling a routing policy")
+        if not lever_enabled(db, project.id, rule.lever):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This automation is turned off.")
     if payload.enabled is not None:
         rule.enabled = payload.enabled
     if payload.holdback_percent is not None:
@@ -1471,6 +1491,8 @@ def engine_update_compression_policy(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="compression policy not found")
     if payload.enabled:
         require_performance(db, project, action="Enabling a prompt-compression policy")
+        if not lever_enabled(db, project.id, LEVER_PROMPT_COMPRESSION):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Prompt compression is turned off.")
         if not (policy.params or {}).get("artifact_id"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -1583,6 +1605,8 @@ def engine_update_trim(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="trim policy not found")
     if payload.enabled:
         require_performance(db, project, action="Enabling a token-trim policy")
+        if not lever_enabled(db, project.id, TRIM_LEVER):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Token trim is turned off.")
     if payload.enabled is not None:
         policy.enabled = payload.enabled
     if payload.holdback_percent is not None:

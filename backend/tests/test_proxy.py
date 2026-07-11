@@ -22,7 +22,8 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.models import BudgetRule, Project, ProxyCacheEntry, UsageEvent
+from app.levers import LEVER_SEMANTIC_CACHE
+from app.models import BudgetRule, LeverConfig, Project, ProxyCacheEntry, UsageEvent
 from app.proxy import budget_enforcement, circuit, http_client
 from app.proxy import cache as proxy_cache
 from app.proxy import router as proxy_router
@@ -261,6 +262,42 @@ async def test_cache_hit_served_without_upstream(
     assert sources == {"miss", "hit"}
     hit = next(e for e in events if e.event_metadata["cache"] == "hit")
     assert hit.cost_usd == 0
+
+
+@pytest.mark.anyio
+async def test_cache_lever_off_forwards_repeats_and_does_not_store(
+    async_client, async_db_session, async_provision, mock_openai, monkeypatch
+):
+    ws = await async_provision(sub="auth0|cache-off", email="cache-off@example.com")
+    _configure_key(monkeypatch, ws["project_id"])
+    async_db_session.add(
+        LeverConfig(
+            organization_id=uuid.UUID(ws["org_id"]),
+            project_id=uuid.UUID(ws["project_id"]),
+            lever=LEVER_SEMANTIC_CACHE,
+            enabled=False,
+            automation_mode="auto",
+        )
+    )
+    await async_db_session.flush()
+    body = {"model": CHAT, "messages": [{"role": "user", "content": "hi"}]}
+
+    first = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+    second = await async_client.post("/v1/chat/completions", headers=_b(ws["api_key"]), json=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert mock_openai["completions"] == 2
+    cached = await async_db_session.scalar(
+        select(func.count()).select_from(ProxyCacheEntry).where(ProxyCacheEntry.project_id == ws["project_id"])
+    )
+    assert cached == 0
+    events = (
+        await async_db_session.scalars(
+            select(UsageEvent).where(UsageEvent.project_id == ws["project_id"]).order_by(UsageEvent.received_at.asc())
+        )
+    ).all()
+    assert [event.event_metadata["cache"] for event in events] == ["miss", "miss"]
 
 
 @pytest.mark.anyio

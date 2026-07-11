@@ -29,6 +29,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine.compression import artifact_for_recommendation, substitute_system_prompt
 from app.engine.route_identity import DEFAULT_ROUTE, route_key_from_recommendation
+from app.lever_controls import lever_enabled_async
 from app.levers import LEVER_PROMPT_COMPRESSION, LEVER_TOKEN_TRIM
 from app.models import Project, PromptCompression, ProxyPolicy, Recommendation
 from app.proxy import canary
@@ -144,6 +145,8 @@ async def resolve_compression(
                 with _policy_lock:
                     _policy_cache[key] = policy
         if policy is None:
+            return None
+        if not await lever_enabled_async(db, project_id, LEVER):
             return None
         if policy.artifact_id is None:
             return None

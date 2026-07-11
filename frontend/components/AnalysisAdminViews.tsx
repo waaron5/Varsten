@@ -66,7 +66,7 @@ function AnalysisSpendBody() {
   const total = useMemo(() => data?.rows.reduce((sum, row) => sum + numberValue(row.spend_usd), 0) ?? 0, [data]);
   return (
     <div className="view">
-      <PageHeader section="Analysis" title="Spend" description="Supporting investigation by team, feature, and provider." />
+      <PageHeader section="AI spend" title="Spend" description="Supporting investigation by team, feature, and provider." />
       <Tabs tabs={ANALYSIS_TABS} active="/analysis/spend" />
       <div className="card">
         <div className="card-head"><h3>Spend drivers</h3><div className="right"><span className="pill neutral">{usd(total, 0)} total</span></div></div>
@@ -107,7 +107,7 @@ function AnalysisCustomersBody() {
   const { data, loading, error } = useProjectResource<AnalysisCustomers>(["analysisCustomers"], api.analysisCustomers);
   return (
     <div className="view">
-      <PageHeader section="Analysis" title="Customers" description="Customer-level AI economics for margin and value decisions." />
+      <PageHeader section="AI spend" title="Customers" description="Customer-level AI economics for margin and value decisions." />
       <Tabs tabs={ANALYSIS_TABS} active="/analysis/customers" />
       <div className="card">
         <div className="card-head"><h3>Customer AI margin</h3></div>
@@ -145,7 +145,7 @@ function AnalysisModelsBody() {
   const { data, loading, error } = useProjectResource<AnalysisModels>(["analysisModels"], api.analysisModels);
   return (
     <div className="view">
-      <PageHeader section="Analysis" title="Models" description="Model cost, request volume, and average cost per request." />
+      <PageHeader section="AI spend" title="Models" description="Model cost, request volume, and average cost per request." />
       <Tabs tabs={ANALYSIS_TABS} active="/analysis/models" />
       <div className="card">
         <div className="card-head"><h3>Model economics</h3></div>
@@ -553,7 +553,7 @@ function AdminTeamBody() {
   const { data, loading, error } = useProjectResource<AdminTeam>(["adminTeam"], api.adminTeam);
   return (
     <div className="view">
-      <PageHeader section="Admin" title="Team" description="Organization members and roles, including finance-friendly Proof access." />
+      <PageHeader section="Admin" title="Team" description="Organization members and roles, including finance-friendly Savings access." />
       <Tabs tabs={ADMIN_TABS} active="/admin/team" />
       <div className="card">
         <div className="card-head"><h3>Members</h3><div className="right">{data?.roles.map((role) => <span className="pill neutral" key={role}>{titleize(role)}</span>)}</div></div>

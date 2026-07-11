@@ -18,6 +18,8 @@ from app.api.deps import ApiKeyContext, require_api_key_context
 from app.auth.entitlements import require_performance
 from app.core.config import settings
 from app.db.session import get_db
+from app.lever_controls import lever_enabled
+from app.levers import LEVER_BATCHING
 from app.models import BatchJob, Project
 from app.models.batch import STATUS_CREATED, STATUS_FINALIZED
 from app.proxy import batch as batch_service
@@ -125,6 +127,11 @@ async def create_batch(
     project = api_context.project
     # Submitting a batch is a behaviour-changing savings lever -> Optimize only.
     require_performance(db, project, action="Submitting a batch job")
+    if not lever_enabled(db, project.id, LEVER_BATCHING):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Batching is turned off for this project.",
+        )
     job = _get_job(db, project, payload.input_file_id)
     if job.status != STATUS_CREATED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="batch already submitted")

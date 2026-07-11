@@ -3,6 +3,7 @@ import { START_OBSERVE_HREF, START_TRIAL_HREF } from "../site-links";
 import { pageMetadata } from "@/lib/seo";
 import { SecondaryShell } from "@/components/varsten/SecondaryPage";
 import { TrackedLink } from "@/components/varsten/TrackedLink";
+import { NextStepCta } from "@/components/varsten/NextStepCta";
 import { SavingsCalculator } from "@/components/varsten/pricing/SavingsCalculator";
 
 export const metadata: Metadata = pageMetadata({
@@ -54,7 +55,7 @@ const plans = [
     id: "enterprise",
     name: "Enterprise",
     price: "Custom",
-    priceNote: "sales-led",
+    priceNote: "",
     tag: "Custom",
     body: "For teams that need procurement, security review, and a guided rollout.",
     features: [
@@ -170,43 +171,6 @@ function PricingPlanCard({ index, plan }: { index: number; plan: PricingPlan }) 
   );
 }
 
-function PricingNextStep() {
-  return (
-    <section className="border-b border-border bg-background text-ink">
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-8 px-6 py-12 md:flex-row md:items-center md:justify-between md:px-10">
-        <div>
-          <h2 className="max-w-3xl text-[30px] font-semibold leading-tight tracking-[-0.01em] md:text-[44px]">
-            Ready to start?
-          </h2>
-          <p className="mt-3 max-w-2xl text-[15px] leading-7 text-ink-soft">
-            Automatically reduce your AI bill with cost optimization.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <TrackedLink
-            href={START_TRIAL_HREF}
-            event="trial intent started"
-            eventProperties={{ cta: "Start a 14-day trial", source: "pricing_next_step" }}
-            className="inline-flex h-11 items-center gap-3 bg-ink px-5 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
-          >
-            Start a 14-day trial
-            <span aria-hidden>→</span>
-          </TrackedLink>
-          <TrackedLink
-            href="/enterprise"
-            event="sales intent started"
-            eventProperties={{ cta: "Talk to sales", source: "pricing_next_step" }}
-            className="inline-flex h-11 items-center gap-3 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
-          >
-            Talk to sales
-            <span aria-hidden>→</span>
-          </TrackedLink>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export default function PricingPage() {
   return (
     <SecondaryShell>
@@ -227,7 +191,7 @@ export default function PricingPage() {
 
       <SavingsCalculator />
 
-      <PricingNextStep />
+      <NextStepCta source="pricing_next_step" />
     </SecondaryShell>
   );
 }

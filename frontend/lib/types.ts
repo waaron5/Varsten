@@ -407,6 +407,23 @@ export interface BatchJob {
   created_at: string;
 }
 
+export interface PromptCompressionArtifact {
+  id: string;
+  model: string;
+  route_key: string | null;
+  recommendation_id: string | null;
+  policy_id: string | null;
+  policy_enabled: boolean | null;
+  holdback_percent: string | null;
+  rollout_percent: number | null;
+  original_chars: number;
+  compressed_chars: number;
+  compression_ratio: number | null;
+  generator: string | null;
+  original_system_hash: string;
+  created_at: string | null;
+}
+
 export interface EvalRouteCorpus {
   route_key: string;
   traffic_samples: number;
@@ -498,6 +515,8 @@ export interface LeverConfig {
   lever: LeverName | string;
   enabled: boolean;
   automation_mode: AutomationMode;
+  runtime_available?: boolean;
+  runtime_reason?: string | null;
   savings_to_date_usd: string | number;
   quality_delta_percent: string | number | null;
   paused_at: string | null;

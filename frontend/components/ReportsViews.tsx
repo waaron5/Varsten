@@ -65,7 +65,7 @@ function ReportSnapshot({ report }: { report: MonthlyReport }) {
           <div className="card-head"><h3>Attribution</h3></div>
           <AttributionTable
             empty="No attributed savings yet"
-            emptyDetail="Apply engine actions to build lever-level proof."
+            emptyDetail="Turn on automations to build lever-level proof."
             rows={report.attribution_rows}
           />
         </div>
@@ -191,7 +191,7 @@ function ReportsGate({ observeOnly }: { observeOnly: boolean }) {
   if (!observeOnly) return null;
   return (
     <LockedNotice title="Executive reports are an Optimize feature.">
-      Free includes the read-only Proof dashboards. Upgrade to generate and share board-ready reports.
+      Free includes the read-only Savings dashboards. Upgrade to generate and share board-ready reports.
     </LockedNotice>
   );
 }
