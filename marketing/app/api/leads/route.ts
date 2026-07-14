@@ -15,6 +15,11 @@ type LeadPayload = {
   email: string;
   fullName: string;
   companyName: string;
+  monthlySpendRange: string;
+  primaryProviders: string;
+  primaryProvidersOther: string;
+  mainGoal: string;
+  note: string;
   source: string;
   submittedAt: string;
   anonymousId: string;
@@ -22,6 +27,10 @@ type LeadPayload = {
   utmSource: string;
   utmMedium: string;
   utmCampaign: string;
+};
+
+type LeadDeliveryResult = {
+  buyerEmailSent: boolean;
 };
 
 type LeadDeliveryConfig =
@@ -61,6 +70,27 @@ function safeAttribution(value: string): string {
   return value.replace(/[^\w .:/-]/g, "").slice(0, 180);
 }
 
+function safeLeadField(value: string): string {
+  return value.replace(/[<>]/g, "").slice(0, 180);
+}
+
+function safeNote(value: string): string {
+  return value.replace(/[<>]/g, "").slice(0, 1200);
+}
+
+function requiredEnterpriseField(body: Record<string, unknown>, key: string, label: string, source: string): string {
+  const value = safeLeadField(readString(body, key));
+  if (source !== "enterprise" || value.length >= 2) return value;
+  throw new LeadValidationError(`invalid ${label}`);
+}
+
+function primaryProvidersOtherFromBody(body: Record<string, unknown>, source: string): string {
+  const primaryProviders = readString(body, "primaryProviders");
+  const value = safeLeadField(readString(body, "primaryProvidersOther"));
+  if (source !== "enterprise" || primaryProviders !== "Other" || value.length >= 2) return value;
+  throw new LeadValidationError("invalid provider details");
+}
+
 function anonymousIdFromBody(body: Record<string, unknown>): string {
   const anonymousId = readString(body, "anonymousId");
   return anonymousId || `lead-${crypto.randomUUID()}`;
@@ -68,11 +98,17 @@ function anonymousIdFromBody(body: Record<string, unknown>): string {
 
 function leadFromBody(body: Record<string, unknown>): LeadPayload | NextResponse {
   try {
+    const source = readString(body, "source") || "landing";
     return {
       email: requiredEmail(body),
       fullName: requiredLeadString(body, "fullName", "full name"),
       companyName: requiredLeadString(body, "companyName", "company name"),
-      source: readString(body, "source") || "landing",
+      monthlySpendRange: requiredEnterpriseField(body, "monthlySpendRange", "monthly spend range", source),
+      primaryProviders: requiredEnterpriseField(body, "primaryProviders", "primary providers", source),
+      primaryProvidersOther: primaryProvidersOtherFromBody(body, source),
+      mainGoal: requiredEnterpriseField(body, "mainGoal", "main goal", source),
+      note: safeNote(readString(body, "note")),
+      source,
       submittedAt: new Date().toISOString(),
       anonymousId: anonymousIdFromBody(body),
       pagePath: safePath(readString(body, "pagePath")),
@@ -153,21 +189,31 @@ async function deliverViaResend(
   lead: LeadPayload,
 ): Promise<void> {
   const buyerFirstName = lead.fullName.split(/\s+/, 1)[0] || lead.fullName;
+  const providerDetail =
+    lead.primaryProviders === "Other" && lead.primaryProvidersOther
+      ? `Other: ${lead.primaryProvidersOther}`
+      : lead.primaryProviders;
+  const requestDetails = [
+    lead.monthlySpendRange ? `Monthly AI/API spend: ${lead.monthlySpendRange}` : "",
+    providerDetail ? `Primary providers: ${providerDetail}` : "",
+    lead.mainGoal ? `Main goal: ${lead.mainGoal}` : "",
+  ].filter(Boolean);
+
   await sendResendEmail({
     apiKey,
     from: fromEmail,
     to: lead.email,
-    subject: "Varsten setup",
+    subject: "Varsten enterprise request received",
     text: `Hey ${buyerFirstName},
 
-Thanks for checking out Varsten.
+We received your Varsten enterprise request.
 
-We do the first setup manually because this touches production AI traffic. I want to make sure your tenant, API keys, provider routing, and isolation are correct from minute one.
+${requestDetails.length ? `${requestDetails.join("\n")}\n\n` : ""}We will review the details and follow up with the right next step for your rollout.
 
-Grab a 15-minute setup slot here:
+If you want to pick a time now, you can use this setup-call link:
 ${calendlyUrl}
 
-Calendly will ask for your framework and current request volume so I can come prepared.
+No prompt text, provider keys, or message content is needed before the call.
 
 -Aaron`,
   });
@@ -182,6 +228,10 @@ Calendly will ask for your framework and current request volume so I can come pr
 Name: ${lead.fullName}
 Company: ${lead.companyName}
 Email: ${lead.email}
+Monthly AI/API spend: ${lead.monthlySpendRange || "n/a"}
+Primary providers: ${providerDetail || "n/a"}
+Main goal: ${lead.mainGoal || "n/a"}
+Note: ${lead.note || "n/a"}
 Source: ${lead.source}
 Submitted: ${lead.submittedAt}
 
@@ -189,19 +239,19 @@ Buyer autoresponder: sent`,
   });
 }
 
-async function deliverLead(lead: LeadPayload): Promise<NextResponse | null> {
+async function deliverLead(lead: LeadPayload): Promise<LeadDeliveryResult | NextResponse> {
   const config = deliveryConfig();
   if (config.kind === "webhook") {
     await deliverToWebhook(config.url, lead);
-    return null;
+    return { buyerEmailSent: false };
   }
   if (config.kind === "resend") {
     await deliverViaResend(config.apiKey, config.notifyEmail, config.fromEmail, config.calendlyUrl, lead);
-    return null;
+    return { buyerEmailSent: true };
   }
   if (config.kind === "dev-log") {
     console.log("[dev] lead captured (no destination configured):", lead);
-    return null;
+    return { buyerEmailSent: false };
   }
 
   console.error(
@@ -217,16 +267,17 @@ export async function POST(request: Request) {
 }
 
 async function leadResponse(lead: LeadPayload) {
+  let delivery: LeadDeliveryResult | NextResponse;
   try {
-    const failure = await deliverLead(lead);
-    if (failure) return failure;
+    delivery = await deliverLead(lead);
+    if (delivery instanceof NextResponse) return delivery;
     await captureLeadSubmitted(lead);
   } catch (err) {
     console.error("lead delivery failed:", err);
     return NextResponse.json({ error: "lead delivery failed" }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, buyerEmailSent: delivery.buyerEmailSent });
 }
 
 async function captureLeadSubmitted(lead: LeadPayload) {

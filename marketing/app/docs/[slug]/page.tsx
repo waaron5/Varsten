@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     return pageMetadata({
       title: "Docs — Varsten",
       description: "Varsten technical documentation.",
-      path: "/docs",
+      path: "/docs/quickstart",
     });
   }
 
@@ -41,23 +41,22 @@ export default async function DocDetailPage({ params }: { params: Promise<{ slug
       <StructuredData
         data={breadcrumbList([
           { name: "Home", path: "/" },
-          { name: "Docs", path: "/docs" },
+          { name: "Docs", path: "/docs/quickstart" },
           { name: doc.title, path: `/docs/${doc.slug}` },
         ])}
       />
       <article className="border-b border-border bg-background">
         <div className="mx-auto grid max-w-[1400px] gap-10 px-6 py-12 md:grid-cols-[260px_minmax(0,1fr)] md:px-10 md:py-16">
           <aside className="md:sticky md:top-20 md:self-start">
-            <Link href="/docs" className="text-[13px] font-medium text-blueprint underline underline-offset-4">
-              Docs index
-            </Link>
-            <nav className="mt-6 grid border border-border bg-muted" aria-label="Docs">
+            <nav className="grid border border-border bg-muted" aria-label="Docs">
               {allDocs.map((entry) => (
                 <Link
                   key={entry.slug}
                   href={`/docs/${entry.slug}`}
                   className={`border-b border-border px-3 py-2.5 text-[13px] last:border-b-0 ${
-                    entry.slug === doc.slug ? "bg-background font-medium text-ink" : "text-ink-soft hover:text-ink"
+                    entry.slug === doc.slug
+                      ? "bg-border font-medium text-ink"
+                      : "text-ink-soft hover:bg-secondary hover:text-ink"
                   }`}
                 >
                   {entry.title}

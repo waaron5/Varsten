@@ -15,8 +15,8 @@ export default function ContactPage() {
     <SecondaryShell>
       <SecondaryHero
         eyebrow="Contact"
-        title="Tell us what you want to optimize first."
-        description="Send your provider, framework, and first route target. For most teams, the safest first step is metadata-only visibility or one OpenAI workload."
+        title="How can we help?"
+        description="Fill out the form below and we will get back to you as soon as possible. If you'd like to speak with our sales team, follow the link here."
       >
         <LeadForm source="contact" />
       </SecondaryHero>

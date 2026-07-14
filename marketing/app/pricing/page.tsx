@@ -174,14 +174,12 @@ function PricingPlanCard({ index, plan }: { index: number; plan: PricingPlan }) 
 export default function PricingPage() {
   return (
     <SecondaryShell>
-      <section className="flex min-h-[calc(100svh-3.5rem)] flex-col justify-between border-b border-border bg-background">
+      <section className="min-h-[calc(100svh-3.5rem)] border-b border-border bg-background">
         <div className="mx-auto w-full max-w-[1400px] px-6 py-16 md:px-10 md:py-20">
           <h1 className="text-[44px] font-semibold leading-none tracking-[-0.02em] text-ink md:text-[72px]">
             Pricing
           </h1>
-        </div>
-        <div className="mx-auto w-full max-w-[1400px] px-6 pb-12 md:px-10 md:pb-16">
-          <div className="grid min-w-0 grid-cols-1 border border-border lg:grid-cols-3">
+          <div className="mt-10 grid min-w-0 grid-cols-1 border border-border md:mt-12 lg:grid-cols-3">
             {plans.map((plan, index) => (
               <PricingPlanCard key={plan.id} index={index} plan={plan} />
             ))}

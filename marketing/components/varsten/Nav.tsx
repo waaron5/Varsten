@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
 import { APP_URL, START_TRIAL_HREF } from "@/app/site-links";
 import { trackMarketingEvent } from "./analytics/AnalyticsProvider";
@@ -12,26 +13,38 @@ const PRODUCT_LINKS = [
   ["Pricing", "/pricing"],
 ] as const;
 
+const PAGE_LABELS_BY_SEGMENT: Record<string, string> = {
+  about: "About",
+  changelog: "Changelog",
+  contact: "Contact",
+  docs: "Docs",
+  enterprise: "Enterprise",
+  faq: "FAQ",
+  pricing: "Pricing",
+  privacy: "Privacy",
+  proof: "Proof",
+  security: "Security",
+  terms: "Terms",
+};
+
 type NavDropdownLink = { label: string; href: string | null; detail: string; soon?: boolean };
 type NavDropdownGroup = { title?: string; links: NavDropdownLink[] };
 
 const RESOURCE_GROUPS: NavDropdownGroup[] = [
   {
-    title: "Build",
+    title: "Learn",
     links: [
-      { label: "Docs", href: "/docs", detail: "Setup guide and integration notes" },
-      { label: "Quickstart", href: "/docs/quickstart", detail: "Point existing AI traffic at Varsten" },
-      { label: "OpenAI SDK", href: "/docs/openai-sdk", detail: "Headers, attribution, and examples" },
-      { label: "Architecture", href: "/docs/integration-paths", detail: "How metering and optimization run inline" },
+      { label: "Docs", href: "/docs/quickstart", detail: "Guides, API notes, and integration reference" },
+      { label: "FAQ", href: "/faq", detail: "Answers for engineering, finance, and procurement" },
+      { label: "Changelog", href: "/changelog", detail: "Recent product updates" },
     ],
   },
   {
     title: "Evaluate",
     links: [
-      { label: "Security", href: "/security", detail: "Fail-open design and data handling" },
-      { label: "FAQ", href: "/faq", detail: "Answers for engineering, finance, and procurement" },
       { label: "Proof", href: "/proof", detail: "How verified savings are measured" },
-      { label: "Changelog", href: "/changelog", detail: "Recent product updates" },
+      { label: "Security", href: "/security", detail: "Fail-open design and data handling" },
+      { label: "Enterprise", href: "/enterprise", detail: "Deployment, procurement, and security review paths" },
     ],
   },
   {
@@ -51,6 +64,11 @@ const INTEGRATE_GROUPS: NavDropdownGroup[] = [
   { links: [{ label: "SDK", href: "/#integrations", detail: "Optimized and fail-open — the wrapper for production traffic." }] },
   { links: [{ label: "Sidecar", href: null, detail: "In-VPC sidecar deployment, split from the control plane.", soon: true }] },
 ];
+
+function pageLabelFromPathname(pathname: string) {
+  const firstSegment = pathname.split("/").filter(Boolean)[0];
+  return firstSegment ? PAGE_LABELS_BY_SEGMENT[firstSegment] ?? null : null;
+}
 
 function NavDropdown({
   columns,
@@ -154,6 +172,8 @@ function NavDropdown({
 }
 
 export function Nav() {
+  const pathname = usePathname();
+  const pageLabel = pageLabelFromPathname(pathname);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -173,29 +193,37 @@ export function Nav() {
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-6 md:px-10">
         <div className="flex min-w-0 items-center gap-8">
-          <Link
-            href="/"
-            className="group/logo flex shrink-0 items-center"
-            aria-label="Varsten home"
-          >
-            <span className="relative block h-4 aspect-[445/88]">
-              <Image
-                src="/varsten-logo.svg"
-                alt=""
-                aria-hidden="true"
-                fill
-                className="object-contain transition-opacity duration-150 group-hover/logo:opacity-0"
-                priority
-              />
-              <Image
-                src="/varsten-logo-blue.svg"
-                alt=""
-                aria-hidden="true"
-                fill
-                className="object-contain opacity-0 transition-opacity duration-150 group-hover/logo:opacity-100"
-              />
-            </span>
-          </Link>
+          <div className="flex min-w-0 items-center gap-3">
+            <Link
+              href="/"
+              className="group/logo flex shrink-0 items-center"
+              aria-label="Varsten home"
+            >
+              <span className="relative block h-4 aspect-[445/88]">
+                <Image
+                  src="/varsten-logo.svg"
+                  alt=""
+                  aria-hidden="true"
+                  fill
+                  className="object-contain transition-opacity duration-150 group-hover/logo:opacity-0"
+                  priority
+                />
+                <Image
+                  src="/varsten-logo-blue.svg"
+                  alt=""
+                  aria-hidden="true"
+                  fill
+                  className="object-contain opacity-0 transition-opacity duration-150 group-hover/logo:opacity-100"
+                />
+              </span>
+            </Link>
+            {pageLabel ? (
+              <div className="flex min-w-0 items-center gap-2 text-[16px] font-semibold leading-none" aria-label={`Current page: ${pageLabel}`}>
+                <span className="text-ink-soft" aria-hidden="true">/</span>
+                <span className="truncate text-ink">{pageLabel}</span>
+              </div>
+            ) : null}
+          </div>
           <nav className="hidden items-center gap-7 md:flex" aria-label="Primary">
             <NavDropdown
               columns={3}

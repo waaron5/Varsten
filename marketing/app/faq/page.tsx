@@ -14,14 +14,14 @@ export const metadata: Metadata = pageMetadata({
 export default function FaqPage() {
   return (
     <SecondaryShell>
-      <section className="flex min-h-[calc(100svh-3.5rem)] flex-col justify-between border-b border-border bg-background">
+      <section className="min-h-[calc(100svh-3.5rem)] border-b border-border bg-background">
         <div className="mx-auto w-full max-w-[1400px] px-6 py-16 md:px-10 md:py-20">
           <h1 className="text-[44px] font-semibold leading-none tracking-[-0.02em] text-ink md:text-[72px]">
             FAQ
           </h1>
-        </div>
-        <div className="mx-auto w-full max-w-[1400px] px-6 pb-12 md:px-10 md:pb-16">
-          <FaqAccordion />
+          <div className="mt-10 md:mt-12">
+            <FaqAccordion />
+          </div>
         </div>
       </section>
 
