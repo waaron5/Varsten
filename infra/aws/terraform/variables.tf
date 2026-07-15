@@ -100,21 +100,24 @@ variable "allow_disabled_self_serve_billing" {
   default     = false
 }
 
-variable "stripe_secret_key_secret_arn" {
-  description = "Secrets Manager ARN containing STRIPE_SECRET_KEY. Required when self_serve_billing_enabled=true."
+variable "stripe_secret_key" {
+  description = "Stripe live secret key. Stored in Secrets Manager and injected into App Runner as STRIPE_SECRET_KEY."
   type        = string
+  sensitive   = true
   default     = ""
 }
 
-variable "stripe_publishable_key_secret_arn" {
-  description = "Secrets Manager ARN containing STRIPE_PUBLISHABLE_KEY."
+variable "stripe_publishable_key" {
+  description = "Stripe live publishable key. Stored in Secrets Manager and injected into App Runner as STRIPE_PUBLISHABLE_KEY."
   type        = string
+  sensitive   = true
   default     = ""
 }
 
-variable "stripe_webhook_secret_secret_arn" {
-  description = "Secrets Manager ARN containing STRIPE_WEBHOOK_SECRET. Required when self_serve_billing_enabled=true."
+variable "stripe_webhook_secret" {
+  description = "Stripe webhook signing secret. Stored in Secrets Manager and injected into App Runner as STRIPE_WEBHOOK_SECRET."
   type        = string
+  sensitive   = true
   default     = ""
 }
 

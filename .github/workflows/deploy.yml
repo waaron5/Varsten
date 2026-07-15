@@ -21,8 +21,8 @@ name: Deploy
 #   secrets.DATABASE_URL            - the SAME connection string the service uses (the migration job connects directly)
 #   secrets.SENTRY_DSN              - TF var
 #   secrets.RATE_LIMIT_REDIS_URL    - TF var (optional; empty = per-instance limiter)
-#   secrets.STRIPE_SECRET_KEY_SECRET_ARN / STRIPE_PUBLISHABLE_KEY_SECRET_ARN / STRIPE_WEBHOOK_SECRET_SECRET_ARN
-#                                      - Secrets Manager ARNs for production self-serve billing
+#   secrets.STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY / STRIPE_WEBHOOK_SECRET
+#                                      - Stripe live values for production self-serve billing
 #   vars.CORS_ORIGINS / vars.AUTH0_DOMAIN / vars.AUTH0_AUDIENCE - TF vars
 # Prerequisite: the S3 + DynamoDB remote state backend (versions.tf) must be
 # bootstrapped ONCE per account via infra/aws/bootstrap_state.sh before the first
@@ -113,9 +113,9 @@ jobs:
           TF_VAR_auth0_audience: ${{ vars.AUTH0_AUDIENCE }}
           TF_VAR_self_serve_billing_enabled: ${{ inputs.environment == 'production' && 'true' || 'false' }}
           TF_VAR_allow_disabled_self_serve_billing: ${{ inputs.environment == 'production' && 'false' || 'true' }}
-          TF_VAR_stripe_secret_key_secret_arn: ${{ secrets.STRIPE_SECRET_KEY_SECRET_ARN }}
-          TF_VAR_stripe_publishable_key_secret_arn: ${{ secrets.STRIPE_PUBLISHABLE_KEY_SECRET_ARN }}
-          TF_VAR_stripe_webhook_secret_secret_arn: ${{ secrets.STRIPE_WEBHOOK_SECRET_SECRET_ARN }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
           terraform init -input=false
@@ -124,12 +124,15 @@ jobs:
           terraform show -json tfplan > plan.json
 
           adds=$(jq '[(.resource_changes // [])[] | select(.change.actions | index("create"))] | length' plan.json)
+          allowed_adds=$(jq '[(.resource_changes // [])[] | select(.change.actions | index("create")) | select(.address | test("^aws_secretsmanager_secret(_version)?\\.stripe_(secret_key|publishable_key|webhook_secret)\\[0\\]$"))] | length' plan.json)
+          blocked_adds=$((adds - allowed_adds))
           dels=$(jq '[(.resource_changes // [])[] | select(.change.actions | index("delete"))] | length' plan.json)
           upds=$(jq '[(.resource_changes // [])[] | select(.change.actions == ["update"])] | length' plan.json)
 
           {
             echo "## Terraform plan gate (${{ inputs.environment }})"
             echo "- to add:     $adds"
+            echo "- allowed adds: $allowed_adds (Stripe Secrets Manager bootstrap only)"
             echo "- to update:  $upds (in-place, allowed)"
             echo "- to destroy: $dels"
             echo ""
@@ -139,11 +142,11 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          if [ "$adds" -ne 0 ] || [ "$dels" -ne 0 ]; then
-            echo "::error::Plan wants to create ($adds) or destroy ($dels) infrastructure. Hard-failing before migrate/apply."
+          if [ "$blocked_adds" -ne 0 ] || [ "$dels" -ne 0 ]; then
+            echo "::error::Plan wants to create non-Stripe resources ($blocked_adds) or destroy ($dels) infrastructure. Hard-failing before migrate/apply."
             exit 1
           fi
-          echo "Plan gate passed: 0 to add, 0 to destroy ($upds in-place update(s))."
+          echo "Plan gate passed: $allowed_adds allowed Stripe secret add(s), 0 blocked add(s), 0 to destroy ($upds in-place update(s))."
 
   migrate:
     name: Migrate database (before promote)
@@ -206,9 +209,9 @@ jobs:
           TF_VAR_auth0_audience: ${{ vars.AUTH0_AUDIENCE }}
           TF_VAR_self_serve_billing_enabled: ${{ inputs.environment == 'production' && 'true' || 'false' }}
           TF_VAR_allow_disabled_self_serve_billing: ${{ inputs.environment == 'production' && 'false' || 'true' }}
-          TF_VAR_stripe_secret_key_secret_arn: ${{ secrets.STRIPE_SECRET_KEY_SECRET_ARN }}
-          TF_VAR_stripe_publishable_key_secret_arn: ${{ secrets.STRIPE_PUBLISHABLE_KEY_SECRET_ARN }}
-          TF_VAR_stripe_webhook_secret_secret_arn: ${{ secrets.STRIPE_WEBHOOK_SECRET_SECRET_ARN }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
           terraform init -input=false
           terraform workspace select "${{ inputs.environment }}" || terraform workspace new "${{ inputs.environment }}"

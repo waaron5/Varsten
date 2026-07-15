@@ -58,9 +58,9 @@ locals {
       SENTRY_DSN   = aws_secretsmanager_secret.sentry_dsn.arn
     },
     var.self_serve_billing_enabled ? {
-      STRIPE_SECRET_KEY      = var.stripe_secret_key_secret_arn
-      STRIPE_PUBLISHABLE_KEY = var.stripe_publishable_key_secret_arn
-      STRIPE_WEBHOOK_SECRET  = var.stripe_webhook_secret_secret_arn
+      STRIPE_SECRET_KEY      = aws_secretsmanager_secret.stripe_secret_key[0].arn
+      STRIPE_PUBLISHABLE_KEY = aws_secretsmanager_secret.stripe_publishable_key[0].arn
+      STRIPE_WEBHOOK_SECRET  = aws_secretsmanager_secret.stripe_webhook_secret[0].arn
     } : {},
     local.redis_enabled ? { RATE_LIMIT_REDIS_URL = aws_secretsmanager_secret.rate_limit_redis_url[0].arn } : {}
   )
@@ -138,12 +138,12 @@ resource "aws_apprunner_service" "api" {
       condition = (
         !var.self_serve_billing_enabled ||
         (
-          var.stripe_secret_key_secret_arn != "" &&
-          var.stripe_publishable_key_secret_arn != "" &&
-          var.stripe_webhook_secret_secret_arn != ""
+          var.stripe_secret_key != "" &&
+          var.stripe_publishable_key != "" &&
+          var.stripe_webhook_secret != ""
         )
       )
-      error_message = "Stripe secret ARNs must be set when self_serve_billing_enabled=true."
+      error_message = "Stripe keys/secrets must be set when self_serve_billing_enabled=true."
     }
   }
 }
