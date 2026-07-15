@@ -21,6 +21,8 @@ name: Deploy
 #   secrets.DATABASE_URL            - the SAME connection string the service uses (the migration job connects directly)
 #   secrets.SENTRY_DSN              - TF var
 #   secrets.RATE_LIMIT_REDIS_URL    - TF var (optional; empty = per-instance limiter)
+#   secrets.STRIPE_SECRET_KEY_SECRET_ARN / STRIPE_PUBLISHABLE_KEY_SECRET_ARN / STRIPE_WEBHOOK_SECRET_SECRET_ARN
+#                                      - Secrets Manager ARNs for production self-serve billing
 #   vars.CORS_ORIGINS / vars.AUTH0_DOMAIN / vars.AUTH0_AUDIENCE - TF vars
 # Prerequisite: the S3 + DynamoDB remote state backend (versions.tf) must be
 # bootstrapped ONCE per account via infra/aws/bootstrap_state.sh before the first
@@ -109,6 +111,11 @@ jobs:
           TF_VAR_cors_origins: ${{ vars.CORS_ORIGINS }}
           TF_VAR_auth0_domain: ${{ vars.AUTH0_DOMAIN }}
           TF_VAR_auth0_audience: ${{ vars.AUTH0_AUDIENCE }}
+          TF_VAR_self_serve_billing_enabled: ${{ inputs.environment == 'production' && 'true' || 'false' }}
+          TF_VAR_allow_disabled_self_serve_billing: ${{ inputs.environment == 'production' && 'false' || 'true' }}
+          TF_VAR_stripe_secret_key_secret_arn: ${{ secrets.STRIPE_SECRET_KEY_SECRET_ARN }}
+          TF_VAR_stripe_publishable_key_secret_arn: ${{ secrets.STRIPE_PUBLISHABLE_KEY_SECRET_ARN }}
+          TF_VAR_stripe_webhook_secret_secret_arn: ${{ secrets.STRIPE_WEBHOOK_SECRET_SECRET_ARN }}
         run: |
           set -euo pipefail
           terraform init -input=false
@@ -197,6 +204,11 @@ jobs:
           TF_VAR_cors_origins: ${{ vars.CORS_ORIGINS }}
           TF_VAR_auth0_domain: ${{ vars.AUTH0_DOMAIN }}
           TF_VAR_auth0_audience: ${{ vars.AUTH0_AUDIENCE }}
+          TF_VAR_self_serve_billing_enabled: ${{ inputs.environment == 'production' && 'true' || 'false' }}
+          TF_VAR_allow_disabled_self_serve_billing: ${{ inputs.environment == 'production' && 'false' || 'true' }}
+          TF_VAR_stripe_secret_key_secret_arn: ${{ secrets.STRIPE_SECRET_KEY_SECRET_ARN }}
+          TF_VAR_stripe_publishable_key_secret_arn: ${{ secrets.STRIPE_PUBLISHABLE_KEY_SECRET_ARN }}
+          TF_VAR_stripe_webhook_secret_secret_arn: ${{ secrets.STRIPE_WEBHOOK_SECRET_SECRET_ARN }}
         run: |
           terraform init -input=false
           terraform workspace select "${{ inputs.environment }}" || terraform workspace new "${{ inputs.environment }}"

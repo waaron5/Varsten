@@ -35,13 +35,17 @@ locals {
       # whenever app_max_instances > 1.
       SCHEDULER_ADVISORY_LOCK_ENABLED = "true"
       # Bound the per-instance database connection draw (see infra README).
-      DB_POOL_SIZE       = tostring(var.db_pool_size)
-      DB_MAX_OVERFLOW    = tostring(var.db_max_overflow)
-      CORS_ORIGINS       = var.cors_origins
-      AUTH0_DOMAIN       = var.auth0_domain
-      AUTH0_AUDIENCE     = var.auth0_audience
-      SENTRY_ENVIRONMENT = var.environment
-      LOG_JSON           = "true"
+      DB_POOL_SIZE                      = tostring(var.db_pool_size)
+      DB_MAX_OVERFLOW                   = tostring(var.db_max_overflow)
+      CORS_ORIGINS                      = var.cors_origins
+      AUTH0_DOMAIN                      = var.auth0_domain
+      AUTH0_AUDIENCE                    = var.auth0_audience
+      SELF_SERVE_BILLING_ENABLED        = tostring(var.self_serve_billing_enabled)
+      ALLOW_DISABLED_SELF_SERVE_BILLING = tostring(var.allow_disabled_self_serve_billing)
+      BILLING_SUCCESS_URL               = var.billing_success_url
+      BILLING_CANCEL_URL                = var.billing_cancel_url
+      SENTRY_ENVIRONMENT                = var.environment
+      LOG_JSON                          = "true"
     },
     # Shared rate limiter across instances only when Redis is configured; otherwise
     # the app keeps its in-memory limiter (per-instance, fail-open).
@@ -53,6 +57,11 @@ locals {
       DATABASE_URL = aws_secretsmanager_secret.database_url.arn
       SENTRY_DSN   = aws_secretsmanager_secret.sentry_dsn.arn
     },
+    var.self_serve_billing_enabled ? {
+      STRIPE_SECRET_KEY      = var.stripe_secret_key_secret_arn
+      STRIPE_PUBLISHABLE_KEY = var.stripe_publishable_key_secret_arn
+      STRIPE_WEBHOOK_SECRET  = var.stripe_webhook_secret_secret_arn
+    } : {},
     local.redis_enabled ? { RATE_LIMIT_REDIS_URL = aws_secretsmanager_secret.rate_limit_redis_url[0].arn } : {}
   )
 }
@@ -123,6 +132,20 @@ resource "aws_apprunner_service" "api" {
   }
 
   auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.main.arn
+
+  lifecycle {
+    precondition {
+      condition = (
+        !var.self_serve_billing_enabled ||
+        (
+          var.stripe_secret_key_secret_arn != "" &&
+          var.stripe_publishable_key_secret_arn != "" &&
+          var.stripe_webhook_secret_secret_arn != ""
+        )
+      )
+      error_message = "Stripe secret ARNs must be set when self_serve_billing_enabled=true."
+    }
+  }
 }
 
 resource "aws_apprunner_auto_scaling_configuration_version" "main" {

@@ -87,3 +87,45 @@ variable "sentry_dsn" {
   type        = string
   sensitive   = true
 }
+
+variable "self_serve_billing_enabled" {
+  description = "Enable Stripe-backed self-serve billing. Production should set this true once Stripe live keys/webhook are configured."
+  type        = bool
+  default     = false
+}
+
+variable "allow_disabled_self_serve_billing" {
+  description = "Intentional assisted-conversion launch mode. Only use when Stripe self-serve billing is deliberately disabled."
+  type        = bool
+  default     = false
+}
+
+variable "stripe_secret_key_secret_arn" {
+  description = "Secrets Manager ARN containing STRIPE_SECRET_KEY. Required when self_serve_billing_enabled=true."
+  type        = string
+  default     = ""
+}
+
+variable "stripe_publishable_key_secret_arn" {
+  description = "Secrets Manager ARN containing STRIPE_PUBLISHABLE_KEY."
+  type        = string
+  default     = ""
+}
+
+variable "stripe_webhook_secret_secret_arn" {
+  description = "Secrets Manager ARN containing STRIPE_WEBHOOK_SECRET. Required when self_serve_billing_enabled=true."
+  type        = string
+  default     = ""
+}
+
+variable "billing_success_url" {
+  description = "Stripe Checkout success redirect URL."
+  type        = string
+  default     = "https://app.varsten.ai/admin/billing-security?checkout=success"
+}
+
+variable "billing_cancel_url" {
+  description = "Stripe Checkout cancellation redirect URL."
+  type        = string
+  default     = "https://app.varsten.ai/admin/billing-security?checkout=cancel"
+}
