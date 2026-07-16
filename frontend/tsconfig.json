@@ -43,6 +43,7 @@
     "build",
     "dist",
     "coverage",
+    "design-onboarding",
     "../backend",
     "../backend/**/__pycache__",
     "../backend/.mypy_cache",

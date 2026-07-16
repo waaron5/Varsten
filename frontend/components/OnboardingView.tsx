@@ -39,16 +39,6 @@ const PROVIDER_KEY_PLACEHOLDERS: Record<ProviderId, string> = {
   gemini: "AIza...",
 };
 
-const CHECK_ICON = "M20 6L9 17l-5-5";
-
-function OnbIcon({ path }: { path: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={path} />
-    </svg>
-  );
-}
-
 function languageStorageKey(projectId: string): string {
   return `varsten:onboarding-language:${projectId}`;
 }
@@ -262,13 +252,7 @@ function WizardStepper({ steps, activeIndex }: { steps: StepMeta[]; activeIndex:
           className={`onb-step${step.done ? " done" : ""}${i === activeIndex ? " active" : ""}`}
           aria-current={i === activeIndex ? "step" : undefined}
         >
-          <span className="onb-step-num mono">
-            {step.done ? (
-              <span className="onb-step-check"><OnbIcon path={CHECK_ICON} /></span>
-            ) : (
-              `0${i + 1}`
-            )}
-          </span>
+          <span className="onb-step-num mono">{step.done ? "✓" : i + 1}</span>
           <span className="onb-step-label">
             {step.label}
             <span className="onb-sr-only"> — {stepStatus(step.done, i === activeIndex)}</span>
@@ -283,6 +267,7 @@ function WizardStepper({ steps, activeIndex }: { steps: StepMeta[]; activeIndex:
 
 interface PrimaryAction {
   label: string;
+  ariaLabel?: string;
   onClick: () => void;
   disabled?: boolean;
 }
@@ -302,7 +287,7 @@ function StepFooter({
         {onBack ? (
           <button className="btn onb-nav-back" onClick={onBack}>Back</button>
         ) : null}
-        <button className="btn primary onb-nav-primary" onClick={primary.onClick} disabled={primary.disabled}>
+        <button aria-label={primary.ariaLabel ?? primary.label} className="btn primary onb-nav-primary" onClick={primary.onClick} disabled={primary.disabled}>
           {primary.label}
         </button>
       </div>
@@ -448,14 +433,12 @@ function OnboardingWizard({
   const head = stepHead(openKey, status, path, selectedProvider);
 
   return (
-    <div className="view">
+    <div className="view onb-view">
       <div className="onb">
-        <div className="onb-meta mono">
-          <span>SETUP · {status.project_name.toUpperCase()}</span>
-          <span>{`0${currentIndex + 1} — 0${steps.length}`}</span>
+        <div className="onb-progress">
+          <WizardStepper steps={steps} activeIndex={currentIndex} />
+          <div className="onb-progress-copy mono">Stack → Keys → Verify</div>
         </div>
-
-        <WizardStepper steps={steps} activeIndex={currentIndex} />
 
         <div className="onb-head">
           <h2 className="onb-title">{head.title}</h2>
@@ -496,7 +479,6 @@ function OnboardingWizard({
               language={effectiveLanguage}
               onBack={goBack}
               onFinish={onFinish}
-              onLeave={onLeave}
               onSnippetViewed={onSnippetViewed}
               path={path}
               provider={selectedProvider}
@@ -506,8 +488,11 @@ function OnboardingWizard({
         </div>
 
         <div className="onb-help">
-          <a href={DOCS_HREF} target="_blank" rel="noreferrer">View docs</a>
-          <a href={SETUP_CALL_HREF}>Book a setup call</a>
+          <div>
+            <a href={DOCS_HREF} target="_blank" rel="noreferrer">View docs ↗</a>
+            <a href={SETUP_CALL_HREF}>Book a setup call</a>
+          </div>
+          {openKey === "verify" ? <button className="onb-linkbtn" onClick={onLeave}>Leave setup without finishing</button> : null}
         </div>
       </div>
     </div>
@@ -523,19 +508,16 @@ function Tag({ label, tone }: TagMeta) {
   return <span className={`onb-tag${tone === "pos" ? " pos" : tone === "neg" ? " neg" : ""}`}>{label}</span>;
 }
 
-const FAIL_OPEN_TAGS: Record<IntegrationPath["failOpen"], TagMeta> = {
-  yes: { label: "Fail-open", tone: "pos" },
-  no: { label: "Not fail-open", tone: "neg" },
-  "n/a": { label: "Nothing inline", tone: "pos" },
-};
-
 function pathTags(path: IntegrationPath): TagMeta[] {
-  return [
-    FAIL_OPEN_TAGS[path.failOpen],
-    path.seesContent ? { label: "Sees content", tone: "neutral" } : { label: "Metadata only", tone: "pos" },
-    { label: path.needsProviderKey ? "Provider key" : "No provider key", tone: "neutral" },
-    { label: path.unlocksOptimize ? "Can optimize" : "Measure only", tone: "neutral" },
-  ];
+  if (path.id === "sdk") return ["Fail-open", "Sees content", "All 6 levers"].map((label) => ({ label, tone: "neutral" }));
+  if (path.id === "base_url") return ["Base URL override", "No install", "Sees content"].map((label) => ({ label, tone: "neutral" }));
+  return ["No keys leave VPC", "Async events", "Analytics only"].map((label) => ({ label, tone: "neutral" }));
+}
+
+function pathMeta(path: IntegrationPath): string {
+  if (path.id === "sdk") return "Full optimization";
+  if (path.id === "base_url") return "One-line swap";
+  return "Zero content egress";
 }
 
 function SegRow<T extends string>({
@@ -594,13 +576,15 @@ function StackStep({
   const sdkLocked = !sdkSupportsLanguage(language);
   return (
     <>
-      <SegRow
-        label="PROVIDER"
-        options={(Object.keys(PROVIDER_LABELS) as ProviderId[]).map((id) => ({ id, label: PROVIDER_LABELS[id] }))}
-        value={provider}
-        onSelect={onSelectProvider}
-      />
-      <SegRow label="LANGUAGE" options={INTEGRATION_LANGUAGES} value={language} onSelect={onSelectLanguage} />
+      <div className="onb-stack-grid">
+        <SegRow
+          label="PROVIDER"
+          options={(Object.keys(PROVIDER_LABELS) as ProviderId[]).map((id) => ({ id, label: PROVIDER_LABELS[id] }))}
+          value={provider}
+          onSelect={onSelectProvider}
+        />
+        <SegRow label="LANGUAGE" options={INTEGRATION_LANGUAGES} value={language} onSelect={onSelectLanguage} />
+      </div>
 
       <div className="onb-field">
         <div className="onb-field-label mono">INTEGRATION PATH</div>
@@ -622,6 +606,9 @@ function StackStep({
       </div>
 
       {error ? <div className="onb-note neg">{error}</div> : null}
+      <div className="onb-stack-summary mono">
+        {PROVIDER_LABELS[provider]} · {INTEGRATION_LANGUAGES.find((item) => item.id === language)?.label} · {integrationPath(pathId).name.replace("Production ", "")}
+      </div>
       <StepFooter onBack={null} primary={{ label: busy ? "Saving…" : "Continue", onClick: onContinue, disabled: busy }} />
     </>
   );
@@ -646,22 +633,21 @@ function PathOption({
       aria-pressed={active}
       disabled={locked}
     >
+      {active ? <span className="onb-option-active-line" aria-hidden="true" /> : null}
       <span className="onb-option-main">
-        <span className="onb-option-name">
-          {path.name}
-          <span className="onb-option-bestfor">Best for {path.bestFor.toLowerCase()}</span>
+        <span className="onb-path-meta mono">
+          <span>PATH · {path.id === "base_url" ? "GATEWAY" : path.id}</span>
           {path.recommended ? <span className="onb-flag mono">RECOMMENDED</span> : null}
         </span>
-        <span className="onb-option-tagline">
-          {locked
-            ? "TypeScript today — an SDK for your stack is planned. Use the gateway URL or metadata ingestion meanwhile."
-            : path.tagline}
+        <span className="onb-option-name">
+          {path.name}
         </span>
+        <span className="onb-option-bestfor mono">{pathMeta(path)}</span>
         <span className="onb-tags">
           {pathTags(path).map((tag) => <Tag key={tag.label} label={tag.label} tone={tag.tone} />)}
         </span>
+        {locked ? <span className="onb-option-tagline">TypeScript today — an SDK for your stack is planned. Use the Gateway URL or metadata ingestion meanwhile.</span> : null}
       </span>
-      <span className="onb-radio" aria-hidden="true" />
     </button>
   );
 }
@@ -670,15 +656,14 @@ function SidecarPlannedCard() {
   return (
     <div className="onb-option planned" aria-disabled="true">
       <span className="onb-option-main">
+        <span className="onb-path-meta mono"><span>PATH · SIDECAR</span><span className="onb-flag mono muted">PLANNED</span></span>
         <span className="onb-option-name">
           {SIDECAR_PLANNED.name}
-          <span className="onb-option-bestfor">Best for {SIDECAR_PLANNED.bestFor.toLowerCase()}</span>
-          <span className="onb-flag mono muted">PLANNED</span>
         </span>
-        <span className="onb-option-tagline">{SIDECAR_PLANNED.tagline}</span>
+        <span className="onb-option-bestfor mono">DEPLOYED IN YOUR INFRA</span>
+        <span className="onb-tags"><span className="onb-tag">Self-hosted</span><span className="onb-tag">Enterprise</span><span className="onb-tag">SSO / audit</span></span>
         <span className="onb-option-tagline">
-          Not available yet. <a className="onb-inline-link" href={SIDECAR_PLANNED.contactHref}>Talk to us</a> if this is
-          your required deployment model — it moves it up the roadmap.
+          <a className="onb-inline-link" href={SIDECAR_PLANNED.contactHref}>Request access →</a>
         </span>
       </span>
     </div>
@@ -758,16 +743,18 @@ function KeysStep({
 
   return (
     <>
-      <VarstenKeyPanel createdKey={createdKey} onChanged={onChanged} onKeyCreated={onKeyCreated} status={status} />
-      {path.requiresProviderConnection ? (
-        <ProviderKeyPanel
-          connection={providerConnection}
-          isSdk={path.method === "sdk"}
-          onChanged={onChanged}
-          onUseMetadata={onUseMetadata}
-          provider={provider}
-        />
-      ) : null}
+      <div className={`onb-keys-grid${path.requiresProviderConnection ? "" : " single"}`}>
+        <VarstenKeyPanel createdKey={createdKey} onChanged={onChanged} onKeyCreated={onKeyCreated} status={status} />
+        {path.requiresProviderConnection ? (
+          <ProviderKeyPanel
+            connection={providerConnection}
+            isSdk={path.method === "sdk"}
+            onChanged={onChanged}
+            onUseMetadata={onUseMetadata}
+            provider={provider}
+          />
+        ) : null}
+      </div>
       <StepFooter
         onBack={onBack}
         primary={{ label: "Continue", onClick: onContinue, disabled: !keysReady }}
@@ -814,8 +801,9 @@ function VarstenKeyPanel({
 
   return (
     <section className="onb-panel">
+      <div className="onb-panel-kicker mono"><span>Varsten key</span><span>Required</span></div>
       <div className="onb-panel-head">
-        <div className="onb-panel-title">Varsten API key</div>
+        <div className="onb-panel-title">Your workspace key</div>
         {status.has_api_key ? <span className="onb-status pos"><span className="onb-dot-sq" />Created</span> : null}
       </div>
       {createdKey ? (
@@ -873,8 +861,9 @@ function ProviderKeyPanel({
 
   return (
     <section className="onb-panel onb-provider">
+      <div className="onb-panel-kicker mono"><span>{PROVIDER_LABELS[provider]} key</span><span>Required</span></div>
       <div className="onb-panel-head">
-        <div className="onb-panel-title">{PROVIDER_LABELS[provider]} key</div>
+        <div className="onb-panel-title">Connect {PROVIDER_LABELS[provider]}</div>
         <ProviderConnectedStatus connected={connected} connection={connection} />
       </div>
       <ProviderKeySetup connected={connected} isSdk={isSdk} provider={provider} providerKey={providerKey} />
@@ -1174,7 +1163,6 @@ function VerifyStep({
   language,
   onBack,
   onFinish,
-  onLeave,
   onSnippetViewed,
   path,
   provider,
@@ -1185,7 +1173,6 @@ function VerifyStep({
   language: LanguageId;
   onBack: (() => void) | null;
   onFinish: () => void;
-  onLeave: () => void;
   onSnippetViewed: () => void | Promise<void>;
   path: IntegrationPath;
   provider: ProviderId;
@@ -1198,34 +1185,33 @@ function VerifyStep({
   );
 
   return (
-    <>
-      <PathInstallNote path={path} />
-      <RecipeBlocks
-        hasApiKey={status.has_api_key}
-        hasFreshKey={Boolean(createdKey)}
-        onSnippetViewed={onSnippetViewed}
-        recipe={recipe}
-      />
-
-      <div className="onb-verify">
-        <VerificationResult fr={fr} path={path} provider={provider} status={status} />
+    <div className="onb-verify-grid">
+      <div className="onb-verify-left">
+        <PathInstallNote path={path} />
+        <RecipeBlocks
+          hasApiKey={status.has_api_key}
+          hasFreshKey={Boolean(createdKey)}
+          onSnippetViewed={onSnippetViewed}
+          recipe={recipe}
+        />
       </div>
-
-      {completionError ? <div className="onb-note neg">{completionError}</div> : null}
-      <StepFooter
-        onBack={onBack}
-        primary={{
-          label: status.can_complete ? "Finish setup" : "Waiting for verification",
-          onClick: onFinish,
-          disabled: !status.can_complete,
-        }}
-        secondary={
-          <button className="onb-linkbtn" onClick={onLeave}>
-            Leave setup without finishing
-          </button>
-        }
-      />
-    </>
+      <div className="onb-verify-right">
+        <div className="onb-verify">
+          <div className="onb-panel-kicker mono"><span>Connection status</span><span>{path.name}</span></div>
+          <VerificationResult fr={fr} path={path} provider={provider} status={status} />
+        </div>
+        {completionError ? <div className="onb-note neg">{completionError}</div> : null}
+        <StepFooter
+          onBack={onBack}
+          primary={{
+            label: status.can_complete ? "Go to dashboard" : "Waiting for verification",
+            ariaLabel: status.can_complete ? "Finish setup" : undefined,
+            onClick: onFinish,
+            disabled: !status.can_complete,
+          }}
+        />
+      </div>
+    </div>
   );
 }
 
