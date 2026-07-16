@@ -116,8 +116,8 @@ rollback/containment procedure.
 | --- | --- | --- | --- | --- |
 | Phase 0: baseline and evidence register | Engineering | Passed | This document; live state captured `2026-07-16T21:11:12Z` | Re-run read-only capture if production changes |
 | Backend dependency security | Engineering | Passed | `pip-audit`, backend static gates, 814 tests, 84.70% coverage, and image build passed at `2026-07-16T21:26:53Z` | Revert `cba4b0e`; retain prior image |
-| Dashboard dependency security | Engineering | Not started | Production-only npm audit reviewed; lint, typecheck, build, and browser suite pass | Revert dashboard dependency commit/deployment |
-| Marketing dependency security | Engineering | Not started | Production-only npm audit reviewed; lint, typecheck, and build pass | Revert marketing dependency commit/deployment |
+| Dashboard dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck/build, and 26 browser tests passed at `2026-07-16T21:36:45Z` | Revert `4d377ab`; no deployment was made |
+| Marketing dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck, and build passed at `2026-07-16T21:36:45Z` | Revert `32d5296`; no deployment was made |
 | Production pricing initialization | Engineering | Failed at baseline | Idempotent sync; nonzero catalog/price counts; representative models validated | Restore/checkpoint if sync is destructive; otherwise correct with versioned price rows |
 | Real cost derivation | Engineering | Not started | Real request reconciles tokens, versioned price, event cost, and dashboard aggregate | Disable affected model/route; mark events unpriced rather than inventing cost |
 | Public SDK availability | Engineering + npm owner | Failed at baseline | Clean registry installs and exact onboarding snippets pass for all advertised packages | Hide/disable unavailable SDK paths; retain gateway/metadata paths |
@@ -162,7 +162,40 @@ rollback/containment procedure.
   `varsten-api:phase1-backend-audit`; resolved production dependencies contain
   the four patched versions above.
 - Production impact: none. The image was not pushed or deployed.
-- Remaining Phase 1 work: dashboard and marketing dependency security gates.
+- Remaining Phase 1 work: none.
+
+### Dashboard dependency security
+
+- Timestamp: `2026-07-16T21:36:45Z`
+- Commit: `4d377ab168537e14530c502a4980ad64af8ee18e`
+- Next.js and its matching ESLint configuration were upgraded from 16.2.7 to
+  16.2.10, the latest stable patch available at verification time.
+- The current stable Next.js package still pins PostCSS 8.4.31. A narrowly scoped
+  npm override replaces only Next.js's internal PostCSS with 8.5.19, above the
+  advisory's fixed threshold of 8.5.10. No forced npm fix or framework downgrade
+  was used.
+- Resolved tree: Next.js 16.2.10, Auth0 Next.js SDK 4.22.0, PostCSS 8.5.19.
+- Production dependency audit: zero vulnerabilities.
+- ESLint: passed.
+- Production build and TypeScript compilation: passed for all 33 app routes.
+- Browser regression suite: 26 passed, covering onboarding, Auth0-facing session
+  behavior, dashboard integrity, billing states, resilience, ledger math, and
+  automation.
+- Production impact: none. The dashboard was not deployed.
+
+### Marketing dependency security
+
+- Timestamp: `2026-07-16T21:36:45Z`
+- Commit: `32d5296170eed3190737301b10b41a9f1cf6a0bb`
+- Next.js and its matching ESLint configuration were upgraded from 16.2.7 to
+  16.2.10.
+- The same narrowly scoped Next.js PostCSS override resolves to PostCSS 8.5.19;
+  the direct Tailwind/PostCSS path also deduplicates to that fixed version.
+- Production dependency audit: zero vulnerabilities.
+- ESLint: passed.
+- Production build and TypeScript compilation: passed for all 27 generated and
+  dynamic marketing routes.
+- Production impact: none. The marketing site was not deployed.
 
 ## Evidence update procedure
 

@@ -83,13 +83,13 @@ The launch gate is not “the deployment succeeded.” It is a real, fresh custo
 
 ---
 
-# Phase 1 — Patch dependency vulnerabilities
+# Phase 1 — Patch dependency vulnerabilities (Done. See PRODUCTION_READINESS_EVIDENCE.md)
 
 **Owner:** Me
 **Risk:** Medium
 **Must precede:** Final release build
 
-## 1.1 Backend security updates
+## 1.1 Backend security updates (Done)
 
 Update the affected packages to fixed versions:
 
@@ -129,7 +129,7 @@ Update the affected packages to fixed versions:
    - Streaming responses
    - WebSocket behavior, if applicable
 
-## 1.2 Frontend and marketing dependency findings
+## 1.2 Frontend and marketing dependency findings (Done)
 
 The PostCSS finding is transitive through Next.js. Do not run a blind forced downgrade or breaking `npm audit fix --force`.
 
