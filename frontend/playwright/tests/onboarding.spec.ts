@@ -25,40 +25,38 @@ test("signup, project creation, provider connection, and first proxy request act
   await expect.poll(() => state.projects.length).toBe(1);
   expect(state.projects[0].id).toBe(PROJECT_ID);
 
-  // A fresh workspace opens on the connection chooser — the first step is the
-  // user's choice, never pre-completed. The recommended Production SDK is
-  // pre-selected, so Continue advances to the API key step.
-  await expect(page.getByRole("heading", { name: "How do you want to connect?" })).toBeVisible();
+  // A fresh workspace opens on the stack chooser — the first step is the user's
+  // choice, never pre-completed. The recommended Production SDK is pre-selected,
+  // so Continue advances to the keys step.
+  await expect(page.getByRole("heading", { name: "Connect your stack" })).toBeVisible();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: "Create your Varsten key" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Connect your provider" })).toHaveCount(0);
+  // The keys step holds both the Varsten key and the provider key. It cannot be
+  // left until both exist.
+  await expect(page.getByRole("heading", { name: "Add your keys" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
 
   await page.getByRole("button", { name: "Create API key" }).click();
   await expect(page.getByText("vk_test_e2e_first_request")).toBeVisible();
 
-  // The plaintext key is shown exactly once; the wizard must not auto-advance
-  // past it. Only after the explicit Continue does the next step open.
-  await expect(page.getByRole("heading", { name: "Connect your provider" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Connect your provider" })).toBeVisible();
+  // The plaintext key is shown exactly once; creating it must not auto-advance
+  // the wizard while the provider key is still missing.
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
 
-  await expect(page.getByText("OpenAI", { exact: true })).toBeVisible();
-  await expect(page.getByText("Anthropic", { exact: true })).toBeVisible();
-  await expect(page.getByText("Gemini", { exact: true })).toBeVisible();
-
-  const openAiCard = page.locator(".onb-provider").filter({ has: page.getByText("OpenAI", { exact: true }) });
-  await openAiCard.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
-  await openAiCard.getByRole("button", { name: "Connect" }).click();
-
-  await expect(openAiCard.getByText("Verified")).toBeVisible();
+  await page.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByText(/Connected/)).toBeVisible();
   expect(state.calls.connectProvider).toBe(1);
 
-  // A successful provider connect enables Continue; advancing is an explicit
-  // click, not a magic auto-jump.
+  // Both keys exist -> Continue enables; advancing is an explicit click.
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Send your first request" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Install, then send a request" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Waiting for verification" })).toBeDisabled();
+
+  // The recipe is copy-paste complete: the plaintext key created this session is
+  // injected into the env block.
+  await expect(page.locator(".onb-code-body").filter({ hasText: "VARSTEN_API_KEY=vk_test_e2e_first_request" })).toBeVisible();
+
   await page.getByRole("button", { name: "Copy OpenAI SDK snippet" }).click();
   await expect.poll(() => state.calls["event:snippet_viewed"] ?? 0).toBe(1);
 
@@ -92,26 +90,26 @@ test("signup, project creation, provider connection, and first proxy request act
   expect(clientErrors).toEqual([]);
 });
 
-test("metadata-only path skips provider connection and shows the ingest snippet", async ({ page }) => {
+test("metadata-only path skips the provider key and shows the ingest snippet", async ({ page }) => {
   const state = createMockState();
   const clientErrors = watchClientErrors(page);
   await installMockApi(page, state);
 
   await page.goto("/onboarding");
 
-  // The wizard opens on the connection chooser. Pick the metadata-only path.
-  await expect(page.getByRole("heading", { name: "How do you want to connect?" })).toBeVisible();
+  // The wizard opens on the stack chooser. Pick the metadata-only path.
+  await expect(page.getByRole("heading", { name: "Connect your stack" })).toBeVisible();
   await page.getByRole("button", { name: /Metadata only/ }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  // The metadata path needs no provider key, so that step is skipped and the
-  // wizard lands back on the API key step.
+  // The metadata path needs no provider key, so the keys step only asks for the
+  // Varsten key.
   await expect(page.getByRole("heading", { name: "Create your Varsten key" })).toBeVisible();
+  await expect(page.getByPlaceholder("sk-...")).toHaveCount(0);
   await page.getByRole("button", { name: "Create API key" }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: "Connect your provider" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Send a usage record" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Send your first usage record" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy ingest snippet" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Waiting for verification" })).toBeDisabled();
   await page.getByRole("button", { name: "Copy ingest snippet" }).click();
@@ -138,25 +136,51 @@ test("metadata-only path skips provider connection and shows the ingest snippet"
   expect(clientErrors).toEqual([]);
 });
 
-test("base-url snippets render the configured proxy base", async ({ page }) => {
+test("gateway base-url snippets render the configured proxy base", async ({ page }) => {
   const state = createMockState();
   await installMockApi(page, state);
 
   await page.goto("/onboarding");
-  await page.getByRole("button", { name: /Quick eval/ }).click();
+  await page.getByRole("button", { name: /Gateway URL/ }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: "Create API key" }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-
-  const openAiCard = page.locator(".onb-provider").filter({ has: page.getByText("OpenAI", { exact: true }) });
-  await openAiCard.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
-  await openAiCard.getByRole("button", { name: "Connect" }).click();
+  await page.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
   const snippet = page.locator("pre").filter({ hasText: "baseURL" });
   await expect(snippet).toBeVisible();
   await expect(snippet).toContainText(/baseURL: "http:\/\/(localhost|127\.0\.0\.1):8000\/v1"/);
   await expect(snippet).not.toContainText("https://api.varsten.ai/v1");
+});
+
+test("language choice rewrites the gateway recipe and locks the SDK path honestly", async ({ page }) => {
+  const state = createMockState();
+  const clientErrors = watchClientErrors(page);
+  await installMockApi(page, state);
+
+  await page.goto("/onboarding");
+  await expect(page.getByRole("heading", { name: "Connect your stack" })).toBeVisible();
+
+  // Python has no fail-open SDK yet: picking it moves the selection to the
+  // gateway URL and the SDK card reads as planned, not silently broken.
+  await page.getByRole("radio", { name: "Python" }).click();
+  const sdkCard = page.getByRole("button", { name: /Production SDK/ });
+  await expect(sdkCard).toBeDisabled();
+  await expect(page.getByText(/TypeScript today — an SDK for your stack is planned/)).toBeVisible();
+  await expect.poll(() => String(state.onboarding.selected_path)).toBe("base_url");
+
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Create API key" }).click();
+  await page.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  // The generated recipe is Python, pointed at the local proxy base.
+  const snippet = page.locator("pre").filter({ hasText: "from openai import OpenAI" });
+  await expect(snippet).toBeVisible();
+  await expect(snippet).toContainText(/base_url="http:\/\/(localhost|127\.0\.0\.1):8000\/v1"/);
+  expect(clientErrors).toEqual([]);
 });
 
 test("sdk path stays locked and warns when only base-url traffic arrives", async ({ page }) => {
@@ -203,7 +227,7 @@ test("sdk path stays locked and warns when only base-url traffic arrives", async
 
   await page.goto("/onboarding");
 
-  await expect(page.getByRole("heading", { name: "Send your first request" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Install, then send a request" })).toBeVisible();
   await page.getByRole("button", { name: "Copy OpenAI SDK snippet" }).click();
   await expect.poll(() => state.calls["event:snippet_viewed"] ?? 0).toBe(1);
 
@@ -242,11 +266,8 @@ test("verified traffic can finish onboarding without clicking copy", async ({ pa
   await page.goto("/onboarding");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: "Create API key" }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-
-  const openAiCard = page.locator(".onb-provider").filter({ has: page.getByText("OpenAI", { exact: true }) });
-  await openAiCard.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
-  await openAiCard.getByRole("button", { name: "Connect" }).click();
+  await page.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
   await page.evaluate(async (apiBase) => {

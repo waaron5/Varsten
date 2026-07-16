@@ -1,5 +1,6 @@
 import { StartRedirect } from "@/components/StartRedirect";
 import { auth0 } from "@/lib/auth0";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 // Self-serve entry point linked from the marketing site's "Start free" CTA.
@@ -9,12 +10,20 @@ export default async function StartPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const session = await auth0.getSession();
   const params = (await searchParams) ?? {};
-  if (!session) {
+  // Honor the same e2e auth bypass the root layout uses, so mocked Playwright
+  // runs can exercise the funnel without a real Auth0 tenant.
+  const bypass = e2eAuthBypassEnabled((await cookies()).get("varsten_e2e_auth")?.value);
+  const session = bypass ? null : await auth0.getSession();
+  if (!bypass && !session) {
     redirect(`/auth/login?screen_hint=signup&returnTo=${encodeURIComponent(startReturnTo(params))}`);
   }
   return <StartRedirect />;
+}
+
+function e2eAuthBypassEnabled(cookieValue: string | undefined): boolean {
+  if (process.env.NEXT_PUBLIC_E2E_AUTH_BYPASS === "1") return true;
+  return process.env.NODE_ENV === "development" && cookieValue === "1";
 }
 
 function startReturnTo(params: Record<string, string | string[] | undefined>): string {

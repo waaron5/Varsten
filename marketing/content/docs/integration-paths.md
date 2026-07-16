@@ -22,6 +22,10 @@ Base URL mode is useful for quick evaluations. It does not provide the SDK's dir
 
 Metadata-only mode is analysis-only. It gives visibility and proof inputs without inline optimization.
 
+## Planned: in-VPC sidecar
+
+A sidecar data plane that runs inside your own cloud boundary is designed but not yet available. Prompt and completion content would never leave your VPC; only token counts and scores would reach the Varsten control plane. If this is your required deployment model, contact us — demand moves it up the roadmap.
+
 ## Practical rollout order
 
 1. Start with metadata-only or base URL mode if the team needs visibility first.

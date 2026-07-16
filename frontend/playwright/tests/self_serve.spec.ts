@@ -56,9 +56,6 @@ function expiredObserveOnly() {
   });
 }
 
-const openAiCardFor = (page: import("playwright/test").Page) =>
-  page.locator(".onb-provider").filter({ has: page.getByText("OpenAI", { exact: true }) });
-
 test("self-serve: /start lands on onboarding with an active project and reaches the trial dashboard", async ({
   page,
 }) => {
@@ -69,25 +66,23 @@ test("self-serve: /start lands on onboarding with an active project and reaches 
   await installMockApi(page, state);
 
   // 3-5. /start routes an unfinished onboarding straight into the funnel, which
-  // opens on the connection chooser because the project already exists.
+  // opens on the stack chooser because the project already exists.
   await page.goto("/start");
   await expect(page).toHaveURL(/\/onboarding/);
-  await expect(page.getByRole("heading", { name: "How do you want to connect?" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Connect your stack" })).toBeVisible();
   await expect(page.getByText("Create your first project")).toHaveCount(0);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  // 6. Varsten API key. The plaintext is shown exactly once, so the wizard
-  // waits for an explicit Continue before opening the next step.
-  await expect(page.getByRole("heading", { name: "Create your Varsten key" })).toBeVisible();
+  // 6-7. Keys step: Varsten API key (plaintext shown exactly once) plus the
+  // provider key. Continue stays locked until both exist.
+  await expect(page.getByRole("heading", { name: "Add your keys" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Create API key" }).click();
   await expect(page.getByText("vk_test_e2e_first_request")).toBeVisible();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  // 7. Provider key connect, then advance to the final step.
-  const openAiCard = openAiCardFor(page);
-  await openAiCard.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
-  await openAiCard.getByRole("button", { name: "Connect" }).click();
-  await expect(openAiCard.getByText("Connected")).toBeVisible();
+  await page.getByPlaceholder("sk-...").fill("sk-test-openai-provider-key");
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByText(/Connected/)).toBeVisible();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
   // 8. Copy the integration snippet -> onboarding event recorded. The default

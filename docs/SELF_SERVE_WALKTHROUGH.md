@@ -50,14 +50,18 @@ Then:
 
 1. Log in via Auth0 (your dev tenant). `/start` syncs the intent and redirects
    into `/onboarding?intent=…`.
-2. **Connect step** — choose a path. Production SDK is pre-selected. (Observe
-   intent defaults to Quick eval.)
-3. **API key** — create it; copy the `vk_…` shown once.
-4. **Provider** (SDK / Quick eval paths) — connect OpenAI with any string, e.g.
-   `sk-fake-local-test`. The stub's `GET /v1/models` accepts any key, and the key
-   is Fernet-vaulted locally.
-5. **Verify** — the step waits for the first request. Send it (next section). The
-   wizard flips to "Verified live", and **Finish setup** lands you on `/dashboard`.
+2. **Stack step** — pick provider, language, and integration path. Production SDK
+   is pre-selected. (Observe intent defaults to the Gateway URL; picking a
+   non-TypeScript language moves an SDK selection to the Gateway URL, since the
+   fail-open SDK is TypeScript-only today.)
+3. **Keys step** — create the Varsten key (copy the `vk_…` shown once), then
+   connect OpenAI with any string, e.g. `sk-fake-local-test` (skipped on the
+   metadata path). The stub's `GET /v1/models` accepts any key, and the key is
+   Fernet-vaulted locally.
+4. **Verify step** — shows the generated recipe (install, env vars with your real
+   `vk_` key if created this session, code) and waits for the first request. Send
+   it (next section). The step flips to "Verified live" with the first captured
+   request, and **Finish setup** lands you on `/dashboard`.
 
 The dashboard shows the "Waiting for your first request" state until traffic
 lands, then fills in.

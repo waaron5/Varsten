@@ -1,8 +1,14 @@
-// Single source of truth for the onboarding integration paths and their code
-// snippets. Keeping the strings here (not inline in the view) stops the in-app
-// funnel from drifting away from the marketing docs the way it did before, when
-// onboarding shipped a base-URL snippet as "production" while the docs correctly
-// pushed the fail-open SDK.
+// Single source of truth for the onboarding integration paths and the generated
+// setup recipes. Keeping the strings here (not inline in the view) stops the
+// in-app funnel from drifting away from the marketing docs the way it did
+// before, when onboarding shipped a base-URL snippet as "production" while the
+// docs correctly pushed the fail-open SDK.
+//
+// Base-URL correctness matters per provider and is verified by the live smoke
+// suite (backend/tests/test_sdk_smoke.py) and docs/PROVIDER_COMPATIBILITY.md:
+//   - OpenAI SDKs take `{host}/v1` (paths like /chat/completions are appended).
+//   - Anthropic SDKs take `{host}` — the SDK itself appends /v1/messages.
+//   - google-genai takes `{host}` plus api_version "v1beta".
 
 import type { IntegrationMethod } from "@/lib/types";
 
@@ -21,10 +27,16 @@ export const PROXY_BASE =
   normalizeProxyBase(process.env.NEXT_PUBLIC_VARSTEN_PROXY_BASE) ??
   normalizeProxyBase(process.env.NEXT_PUBLIC_API_BASE) ??
   PRODUCTION_PROXY_BASE;
+
+// Host root without /v1 — what the Anthropic and Gemini SDKs need, because they
+// append their own version segment (/v1/messages, /v1beta/models/...).
+const PROXY_HOST = PROXY_BASE.replace(/\/v1$/, "");
+
 export const DOCS_HREF = "https://varsten.ai/docs";
 
 export type IntegrationPathId = "metadata" | "base_url" | "sdk";
 export type IntegrationProviderId = "openai" | "anthropic" | "gemini";
+export type IntegrationLanguageId = "node" | "python" | "curl";
 
 export interface IntegrationPath {
   id: IntegrationPathId;
@@ -63,7 +75,7 @@ export const INTEGRATION_PATHS: IntegrationPath[] = [
   {
     id: "base_url",
     method: "base_url",
-    name: "Quick eval",
+    name: "Gateway URL",
     tagline: "One-line base-URL change. Fastest way to see traffic. Evaluation only — not fail-open.",
     bestFor: "A fast first look",
     failOpen: "no",
@@ -90,13 +102,105 @@ export function integrationPath(id: IntegrationPathId): IntegrationPath {
   return INTEGRATION_PATHS.find((p) => p.id === id) ?? INTEGRATION_PATHS[0];
 }
 
-// --- snippets ---------------------------------------------------------------
+// The in-VPC sidecar data plane is a designed deployment pattern, not a shipped
+// one. It is shown on the chooser as planned — never selectable — so the funnel
+// stays honest about what the backend supports today.
+export const SIDECAR_PLANNED = {
+  id: "sidecar" as const,
+  name: "Sidecar / in-VPC",
+  tagline:
+    "Run the Varsten data plane inside your own cloud boundary. Prompt and completion content never leaves your VPC; only token counts and scores reach the control plane.",
+  bestFor: "In-VPC deployments",
+  contactHref: "mailto:mail@varsten.ai?subject=Varsten%20in-VPC%20sidecar",
+};
 
-export const SDK_PROVIDER_SNIPPETS: Record<IntegrationProviderId, { label: string; install: string; snippet: string }> = {
-  openai: {
-    label: "OpenAI",
-    install: "npm install @varsten/openai openai",
-    snippet: `import { VarstenOpenAI } from "@varsten/openai";
+export const INTEGRATION_LANGUAGES: { id: IntegrationLanguageId; label: string }[] = [
+  { id: "node", label: "TypeScript" },
+  { id: "python", label: "Python" },
+  { id: "curl", label: "HTTP / other" },
+];
+
+// The fail-open SDK ships for TypeScript/Node today. Other stacks use the
+// gateway URL or metadata ingestion, which are language-agnostic HTTP.
+export function sdkSupportsLanguage(language: IntegrationLanguageId): boolean {
+  return language === "node";
+}
+
+export const PROVIDER_LABELS: Record<IntegrationProviderId, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  gemini: "Gemini",
+};
+
+export const EXAMPLE_MODELS: Record<IntegrationProviderId, string> = {
+  openai: "gpt-4o-mini",
+  anthropic: "claude-3-5-haiku-20241022",
+  gemini: "gemini-2.5-flash",
+};
+
+const PROVIDER_ENV_KEYS: Record<IntegrationProviderId, { name: string; placeholder: string }> = {
+  openai: { name: "OPENAI_API_KEY", placeholder: "sk-..." },
+  anthropic: { name: "ANTHROPIC_API_KEY", placeholder: "sk-ant-..." },
+  gemini: { name: "GEMINI_API_KEY", placeholder: "AIza..." },
+};
+
+// --- recipe model -------------------------------------------------------------
+
+export interface RecipeBlock {
+  id: "install" | "env" | "code" | "self-test";
+  // Mono header label, e.g. "TERMINAL", ".ENV", "APP / TYPESCRIPT".
+  label: string;
+  code: string;
+  copyLabel: string;
+  // Copying this block counts as "snippet viewed" for the funnel checklist.
+  countsAsSnippetViewed?: boolean;
+}
+
+export interface RecipeInput {
+  path: IntegrationPathId;
+  provider: IntegrationProviderId;
+  language: IntegrationLanguageId;
+  // Plaintext vk_ key when it was created in this session; injected into the env
+  // block so the recipe is copy-paste complete. Never persisted anywhere.
+  varstenKey?: string | null;
+}
+
+function languageBlockLabel(language: IntegrationLanguageId): string {
+  switch (language) {
+    case "node":
+      return "APP / TYPESCRIPT";
+    case "python":
+      return "APP / PYTHON";
+    case "curl":
+      return "TERMINAL / CURL";
+  }
+}
+
+function envBlock(input: RecipeInput): RecipeBlock {
+  const vk = input.varstenKey ?? "vk_...";
+  const lines = [`VARSTEN_API_KEY=${vk}`];
+  if (input.path === "sdk") {
+    const env = PROVIDER_ENV_KEYS[input.provider];
+    lines.push(`${env.name}=${env.placeholder}  # stays local — used only for direct fallback`);
+  }
+  return {
+    id: "env",
+    label: ".ENV",
+    code: lines.join("\n"),
+    copyLabel: "Copy env vars",
+  };
+}
+
+// --- SDK recipes (TypeScript only today) ---------------------------------------
+
+const SDK_INSTALL: Record<IntegrationProviderId, string> = {
+  openai: "npm install @varsten/openai openai",
+  anthropic: "npm install @varsten/anthropic @anthropic-ai/sdk",
+  gemini: "npm install @varsten/gemini @google/genai",
+};
+
+const SDK_CODE: Record<IntegrationProviderId, string> = {
+  openai: `import { VarstenOpenAI } from "@varsten/openai";
 
 const client = new VarstenOpenAI({
   varstenApiKey: process.env.VARSTEN_API_KEY, // vk_...  (identifies you to Varsten)
@@ -111,11 +215,7 @@ const res = await client.chat.completions.create({
 });
 
 console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`,
-  },
-  anthropic: {
-    label: "Anthropic",
-    install: "npm install @varsten/anthropic @anthropic-ai/sdk",
-    snippet: `import { VarstenAnthropic } from "@varsten/anthropic";
+  anthropic: `import { VarstenAnthropic } from "@varsten/anthropic";
 
 const client = new VarstenAnthropic({
   varstenApiKey: process.env.VARSTEN_API_KEY,     // vk_...
@@ -130,11 +230,7 @@ const res = await client.messages.create({
 });
 
 console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`,
-  },
-  gemini: {
-    label: "Gemini",
-    install: "npm install @varsten/gemini @google/genai",
-    snippet: `import { VarstenGemini } from "@varsten/gemini";
+  gemini: `import { VarstenGemini } from "@varsten/gemini";
 
 const client = new VarstenGemini({
   varstenApiKey: process.env.VARSTEN_API_KEY, // vk_...
@@ -148,7 +244,6 @@ const res = await client.models.generateContent({
 });
 
 console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`,
-  },
 };
 
 export const SDK_FAILOPEN_TEST = `# In a non-production shell only:
@@ -157,41 +252,90 @@ VARSTEN_BASE_URL=http://127.0.0.1:1 npm run your-ai-test
 # The request should still complete through the provider,
 # and your onFallback handler should log the reason code.`;
 
-export const BASE_URL_PROVIDER_SNIPPETS: Record<IntegrationProviderId, { label: string; endpoint: string; snippet: string }> = {
+// --- gateway base-URL recipes ---------------------------------------------------
+// The Varsten API key replaces the provider key in the client; the real provider
+// key is vaulted server-side. Base URLs differ per provider because each official
+// SDK appends its own version segment.
+
+const BASE_URL_CODE: Record<IntegrationProviderId, Record<IntegrationLanguageId, string>> = {
   openai: {
-    label: "OpenAI",
-    endpoint: `baseURL: "${PROXY_BASE}"`,
-    snippet: `import OpenAI from "openai";
+    node: `import OpenAI from "openai";
 
 const client = new OpenAI({
-  apiKey: process.env.VARSTEN_API_KEY,
+  apiKey: process.env.VARSTEN_API_KEY, // vk_... — your OpenAI key stays vaulted with Varsten
   baseURL: "${PROXY_BASE}",
 });`,
+    python: `import os
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.environ["VARSTEN_API_KEY"],  # vk_... — your OpenAI key stays vaulted with Varsten
+    base_url="${PROXY_BASE}",
+)`,
+    curl: `curl ${PROXY_BASE}/chat/completions \\
+  -H "Authorization: Bearer $VARSTEN_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "Say hello from Varsten"}]
+  }'`,
   },
   anthropic: {
-    label: "Anthropic",
-    endpoint: `baseURL: "${PROXY_BASE}"`,
-    snippet: `import Anthropic from "@anthropic-ai/sdk";
+    node: `import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({
-  apiKey: process.env.VARSTEN_API_KEY,
-  baseURL: "${PROXY_BASE}",
+  apiKey: process.env.VARSTEN_API_KEY, // vk_... — your Anthropic key stays vaulted with Varsten
+  baseURL: "${PROXY_HOST}", // no /v1 — the SDK appends /v1/messages itself
 });`,
+    python: `import os
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key=os.environ["VARSTEN_API_KEY"],  # vk_... — your Anthropic key stays vaulted with Varsten
+    base_url="${PROXY_HOST}",  # no /v1 — the SDK appends /v1/messages itself
+)`,
+    curl: `curl ${PROXY_BASE}/messages \\
+  -H "x-api-key: $VARSTEN_API_KEY" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "claude-3-5-haiku-20241022",
+    "max_tokens": 256,
+    "messages": [{"role": "user", "content": "Say hello from Varsten"}]
+  }'`,
   },
   gemini: {
-    label: "Gemini",
-    endpoint: `baseUrl: "${PROXY_BASE}/v1beta"`,
-    snippet: `import { GoogleGenAI } from "@google/genai";
+    node: `import { GoogleGenAI } from "@google/genai";
 
 const client = new GoogleGenAI({
-  apiKey: process.env.VARSTEN_API_KEY,
-  httpOptions: { baseUrl: "${PROXY_BASE}/v1beta" },
+  apiKey: process.env.VARSTEN_API_KEY, // vk_... — your Gemini key stays vaulted with Varsten
+  httpOptions: { baseUrl: "${PROXY_HOST}", apiVersion: "v1beta" },
 });`,
+    python: `import os
+from google import genai
+from google.genai import types
+
+client = genai.Client(
+    api_key=os.environ["VARSTEN_API_KEY"],  # vk_... — your Gemini key stays vaulted with Varsten
+    http_options=types.HttpOptions(base_url="${PROXY_HOST}", api_version="v1beta"),
+)`,
+    curl: `curl ${PROXY_HOST}/v1beta/models/gemini-2.5-flash:generateContent \\
+  -H "x-goog-api-key: $VARSTEN_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "contents": [{"parts": [{"text": "Say hello from Varsten"}]}]
+  }'`,
   },
 };
 
-// Metadata ingestion: token counts + labels only, never prompt/completion text.
-export const METADATA_SNIPPET = `// After each LLM call, send a usage record. Metadata only — never prompt or
+// --- metadata ingestion recipes --------------------------------------------------
+// Token counts + labels only, never prompt/completion text. No provider key.
+
+function metadataCode(provider: IntegrationProviderId, language: IntegrationLanguageId): string {
+  const model = EXAMPLE_MODELS[provider];
+  switch (language) {
+    case "node":
+      return `// After each LLM call, send a usage record. Metadata only — never prompt or
 // completion text. No provider key needed; nothing sits in your request path.
 await fetch("${PROXY_BASE}/usage-events", {
   method: "POST",
@@ -200,8 +344,8 @@ await fetch("${PROXY_BASE}/usage-events", {
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    provider: "openai",
-    model: "gpt-4o-mini",
+    provider: "${provider}",
+    model: "${model}",
     request_type: "chat_completion",
     input_tokens: usage.prompt_tokens,
     output_tokens: usage.completion_tokens,
@@ -212,3 +356,92 @@ await fetch("${PROXY_BASE}/usage-events", {
     occurred_at: new Date().toISOString(),
   }),
 });`;
+    case "python":
+      return `# After each LLM call, send a usage record. Metadata only — never prompt or
+# completion text. No provider key needed; nothing sits in your request path.
+import os
+from datetime import UTC, datetime
+
+import requests
+
+requests.post(
+    "${PROXY_BASE}/usage-events",
+    headers={"Authorization": f"Bearer {os.environ['VARSTEN_API_KEY']}"},
+    json={
+        "provider": "${provider}",
+        "model": "${model}",
+        "request_type": "chat_completion",
+        "input_tokens": usage.prompt_tokens,
+        "output_tokens": usage.completion_tokens,
+        "feature": "support_agent",   # optional labels for workload-level savings
+        "customer_id": "cust_123",
+        "environment": "production",
+        "idempotency_key": request_id,  # retries never double-count
+        "occurred_at": datetime.now(UTC).isoformat(),
+    },
+    timeout=5,
+)`;
+    case "curl":
+      return `curl ${PROXY_BASE}/usage-events \\
+  -H "Authorization: Bearer $VARSTEN_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "provider": "${provider}",
+    "model": "${model}",
+    "request_type": "chat_completion",
+    "input_tokens": 1200,
+    "output_tokens": 340,
+    "feature": "support_agent",
+    "environment": "production",
+    "idempotency_key": "req_abc123",
+    "occurred_at": "2026-07-16T12:00:00Z"
+  }'`;
+  }
+}
+
+// --- recipe builder ---------------------------------------------------------------
+
+export function buildRecipe(input: RecipeInput): RecipeBlock[] {
+  const providerLabel = PROVIDER_LABELS[input.provider];
+  const blocks: RecipeBlock[] = [];
+
+  if (input.path === "sdk") {
+    blocks.push({
+      id: "install",
+      label: "TERMINAL",
+      code: SDK_INSTALL[input.provider],
+      copyLabel: "Copy install command",
+    });
+    blocks.push(envBlock(input));
+    blocks.push({
+      id: "code",
+      label: languageBlockLabel("node"),
+      code: SDK_CODE[input.provider],
+      copyLabel: `Copy ${providerLabel} SDK snippet`,
+      countsAsSnippetViewed: true,
+    });
+    return blocks;
+  }
+
+  if (input.path === "base_url") {
+    blocks.push(envBlock(input));
+    blocks.push({
+      id: "code",
+      label: languageBlockLabel(input.language),
+      code: BASE_URL_CODE[input.provider][input.language],
+      copyLabel: `Copy ${providerLabel} snippet`,
+      countsAsSnippetViewed: true,
+    });
+    return blocks;
+  }
+
+  blocks.push(envBlock(input));
+  blocks.push({
+    id: "code",
+    label: languageBlockLabel(input.language),
+    code: metadataCode(input.provider, input.language),
+    copyLabel: "Copy ingest snippet",
+    countsAsSnippetViewed: true,
+  });
+  return blocks;
+}
