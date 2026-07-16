@@ -12,7 +12,7 @@ Anthropic SDK at the Varsten host) is great for evaluation, but it keeps Varsten
 your request path with no way around it if Varsten is down. Use this SDK for
 anything production-critical.
 
-> Status: v0.1.0. Messages (streaming and non-streaming) have direct-to-provider
+> Status: v0.1.0 beta. Messages (streaming and non-streaming) have direct-to-provider
 > fallback. Streaming falls back only *before the first token*; once a stream has
 > started, a mid-stream error surfaces to you and is never restarted. Every request
 > carries an idempotency key so a fallback retry can't double-bill at the provider.
@@ -65,3 +65,7 @@ Identical to the other Varsten wrappers, because they share `@varsten/core`:
 - **Read timeout** → surfaced by default (opt in with `fallbackOnReadTimeout`).
 
 See `docs/design/SDK_FAILOPEN_DESIGN_FREEZE.md` for the full frozen contract.
+
+## License
+
+Apache-2.0.

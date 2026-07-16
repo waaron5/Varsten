@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "description": "Fail-open wrapper around the Google Gen AI SDK. Optimize through Varsten when it is healthy; fall back directly to Gemini when Varsten is unavailable, so an outage costs you savings, not uptime.",
   "type": "module",
+  "homepage": "https://varsten.ai/docs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/waaron5/Varsten.git",
+    "directory": "sdk/gemini"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,16 +18,19 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "keywords": ["varsten", "gemini", "google", "genai", "llm", "fail-open", "fallback"],
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "dependencies": {
-    "@varsten/core": "*"
+    "@varsten/core": "^0.1.0"
   },
   "peerDependencies": {
     "@google/genai": ">=1.0.0 <3"

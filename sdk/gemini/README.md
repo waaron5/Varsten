@@ -12,7 +12,7 @@ AI SDK at the Varsten host) is great for evaluation, but it keeps Varsten in you
 request path with no way around it if Varsten is down. Use this SDK for anything
 production-critical.
 
-> Status: v0.1.0. `generateContent` and `generateContentStream` have
+> Status: v0.1.0 beta. `generateContent` and `generateContentStream` have
 > direct-to-provider fallback. Streaming falls back only *before the first token*;
 > once a stream has started, a mid-stream error surfaces to you and is never
 > restarted. Shares the `@varsten/core` fail-open engine with `@varsten/openai` and
@@ -66,3 +66,7 @@ OpenAI and Anthropic. Instead:
   rare bare-crash fallback for a guarantee of no duplicate billing.
 
 See `docs/design/SDK_FAILOPEN_DESIGN_FREEZE.md` for the full frozen contract.
+
+## License
+
+Apache-2.0.

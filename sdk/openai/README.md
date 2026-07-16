@@ -160,3 +160,7 @@ After `breakerThreshold` consecutive Varsten failures the SDK opens a local circ
 breaker and goes straight to the provider for a cooldown, so you do not pay a
 Varsten timeout on every request. It then lets a single probe through to detect
 recovery.
+
+## License
+
+Apache-2.0.
