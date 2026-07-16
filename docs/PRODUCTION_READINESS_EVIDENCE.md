@@ -12,13 +12,14 @@ links to separately access-controlled evidence only.
 
 Baseline captured at `2026-07-16T21:11:12Z` using read-only repository, public
 endpoint, AWS control-plane, Stripe account-metadata, and production database
-checks.
+checks. The application-code baseline was `024f565`; Phase 0 subsequently added
+documentation only and did not change the application release candidate.
 
 | Item | Observed state | Status | Verification procedure | Relevant SHA |
 | --- | --- | --- | --- | --- |
-| Repository branch | `main` | Verified | `git branch --show-current` | `024f56559f9265e1130bbec3e46a2dbeec87a9d3` |
-| Local and remote revision | `HEAD` equals `origin/main` | Verified | Compare `git rev-parse HEAD` and `git rev-parse origin/main` | `024f56559f9265e1130bbec3e46a2dbeec87a9d3` |
-| Release candidate | Remediation will continue from current `main`; no production release candidate is frozen yet | Established | Freeze the final candidate only after Phases 1–11 pass | `024f56559f9265e1130bbec3e46a2dbeec87a9d3` |
+| Repository branch | `main` | Verified | `git branch --show-current` | Application baseline `024f56559f9265e1130bbec3e46a2dbeec87a9d3` |
+| Local and remote revision | `HEAD` equaled `origin/main` at capture and was rechecked after the Phase 0 push | Verified | Compare `git rev-parse HEAD` and `git rev-parse origin/main` | Phase 0 documentation begins at `da8f7aa` |
+| Release candidate | Remediation will continue from `main`; no production release candidate is frozen yet | Established | Freeze the final candidate only after Phases 1–11 pass | Application baseline `024f56559f9265e1130bbec3e46a2dbeec87a9d3` |
 | Production API image | ECR `varsten-api:cf334bdbcac5fd6c7ea730616c1c3712947a45f0` | Verified; behind `main` | Read App Runner image identifier | `cf334bdbcac5fd6c7ea730616c1c3712947a45f0` |
 | Production API service | App Runner `varsten-production`, status `RUNNING` | Verified | `aws apprunner describe-service` in `us-east-1` | Production image SHA above |
 | Production API domain | `api.varsten.ai`, App Runner custom-domain status `active` | Verified | App Runner custom-domain query, DNS lookup, and readiness request | Production image SHA above |
@@ -149,8 +150,8 @@ For each gate:
 
 ## Phase 0 exit assessment
 
-- `main` and `origin/main` are synchronized at
-  `024f56559f9265e1130bbec3e46a2dbeec87a9d3`.
+- `main` and `origin/main` are synchronized. The captured application baseline is
+  `024f56559f9265e1130bbec3e46a2dbeec87a9d3`; Phase 0 adds documentation only.
 - Remediation work is established to continue from current `main`; the final
   immutable release candidate will be frozen only after earlier phases pass.
 - Current production state and architecture are documented above.
