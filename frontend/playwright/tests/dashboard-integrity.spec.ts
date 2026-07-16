@@ -270,8 +270,8 @@ test("dashboard renders custom backend snapshot values, not Lovable fixtures", a
   await expect(page.locator(".lv-kpi-strip").getByText("$1,234", { exact: true })).toBeVisible();
   await expect(page.getByText("Ada Lovelace")).toHaveCount(0);
   await expect(page.getByText("$42.2k")).toHaveCount(0);
-  await expect(page.getByText("Maya Chen")).toBeVisible();
-  await expect(page.getByText(/Maya AI Co · Optimize/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Account: maya@enterprise.example" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Project: Production" })).toBeVisible();
   expect(clientErrors).toEqual([]);
 });
 
