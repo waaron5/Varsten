@@ -12,19 +12,19 @@ and idempotency values prevent duplicate demo records.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TypedDict
+from uuid import UUID
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_api_key
-from app.db.session import AsyncSessionLocal, SessionLocal
+from app.db.session import SessionLocal
 from app.levers import LEVER_DEFAULT_AUTOMATION
 from app.models import (
     AlertRule,
@@ -36,6 +36,7 @@ from app.models import (
     ModelPrice,
     Organization,
     OrgMembership,
+    OrgModelPriceOverride,
     Project,
     ProviderConnection,
     QualityGuardrail,
@@ -45,7 +46,7 @@ from app.models import (
     UsageEvent,
     User,
 )
-from app.pricing.service import price_usage_event
+from app.pricing.service import ResolvedPrice, compute_cost
 from app.recommendations import refresh_recommendations
 from app.savings import record_applied_savings
 
@@ -319,6 +320,83 @@ def _seed_prices(db: Session) -> None:
     db.flush()
 
 
+def _resolved_override(row: OrgModelPriceOverride) -> ResolvedPrice:
+    return ResolvedPrice(
+        input_cost_per_token=row.input_cost_per_token,
+        output_cost_per_token=row.output_cost_per_token,
+        cache_read_input_token_cost=row.cache_read_input_token_cost,
+        source="override",
+        price_version_id=None,
+    )
+
+
+def _resolved_catalog(row: ModelPrice) -> ResolvedPrice:
+    return ResolvedPrice(
+        input_cost_per_token=row.input_cost_per_token,
+        output_cost_per_token=row.output_cost_per_token,
+        cache_read_input_token_cost=row.cache_read_input_token_cost,
+        source="catalog",
+        price_version_id=row.id,
+    )
+
+
+def _resolve_price_sync(
+    db: Session,
+    org: Organization,
+    *,
+    model: str,
+    provider: str,
+    occurred_at: datetime,
+) -> ResolvedPrice | None:
+    override = db.scalar(
+        select(OrgModelPriceOverride)
+        .where(
+            OrgModelPriceOverride.organization_id == org.id,
+            OrgModelPriceOverride.model_key == model,
+            (OrgModelPriceOverride.provider == provider) | (OrgModelPriceOverride.provider.is_(None)),
+            OrgModelPriceOverride.effective_at <= occurred_at,
+        )
+        .order_by(OrgModelPriceOverride.effective_at.desc())
+        .limit(1)
+    )
+    if override is not None:
+        return _resolved_override(override)
+
+    base = select(ModelPrice).where(ModelPrice.model_key == model, ModelPrice.effective_at <= occurred_at)
+    for stmt in (
+        base.where(ModelPrice.provider == provider),
+        base,
+    ):
+        catalog = db.scalar(stmt.order_by(ModelPrice.effective_at.desc()).limit(1))
+        if catalog is not None:
+            return _resolved_catalog(catalog)
+    return None
+
+
+def _price_usage_event_sync(
+    db: Session,
+    org: Organization,
+    *,
+    model: str,
+    provider: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_input_tokens: int,
+    reported_cost_usd: Decimal | None,
+    occurred_at: datetime,
+) -> tuple[Decimal | None, str, str, UUID | None]:
+    if input_tokens == 0 and output_tokens == 0 and reported_cost_usd is None:
+        return None, "unknown", "missing_token_counts", None
+
+    price = _resolve_price_sync(db, org, model=model, provider=provider, occurred_at=occurred_at)
+    if price is not None:
+        cost = compute_cost(price, input_tokens, output_tokens, cached_input_tokens)
+        return cost, price.source, "priced", price.price_version_id
+    if reported_cost_usd is not None:
+        return reported_cost_usd, "reported", "model_not_in_catalog", None
+    return None, "unknown", "model_not_in_catalog", None
+
+
 def _event(
     db: Session,
     org: Organization,
@@ -350,23 +428,17 @@ def _event(
         )
     )
 
-    # pricing is async-only; this seed script is synchronous, so bridge with
-    # asyncio.run over a scoped async session (caller-level bridge for a sync script).
-    async def _price() -> tuple:
-        async with AsyncSessionLocal() as adb:
-            return await price_usage_event(
-                adb,
-                organization_id=org.id,
-                model_key=model,
-                provider=provider,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cached_input_tokens=0,
-                reported_cost_usd=None,
-                at=occurred_at,
-            )
-
-    cost, cost_source, pricing_status, price_version_id = asyncio.run(_price())
+    cost, cost_source, pricing_status, price_version_id = _price_usage_event_sync(
+        db,
+        org,
+        model=model,
+        provider=provider,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_input_tokens=0,
+        reported_cost_usd=None,
+        occurred_at=occurred_at,
+    )
     values = {
         "organization_id": org.id,
         "project_id": project.id,

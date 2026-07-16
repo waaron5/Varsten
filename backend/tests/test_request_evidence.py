@@ -388,7 +388,11 @@ async def test_evidence_routed_treatment(async_client, async_provision, async_db
     assert _money(proof["gross_savings_usd"]) == d.realized_savings_usd
     assert proof["optimization_overhead_cost_usd"] is None
     assert proof["net_savings_usd"] is None
-    assert proof["confidence"] in {"measured_priced", "measured_pricing_uncertain", "unmeasured"}
+    if d.realized_savings_usd is None:
+        assert proof["confidence"] == "requires_aggregate_holdback"
+        assert "aggregate_holdback_required" in proof["reason_codes"]
+    else:
+        assert proof["confidence"] in {"measured_priced", "measured_pricing_uncertain"}
     assert proof["quality_status"] == "passed"
     assert proof["pricing_status"] == d.pricing_status
 
