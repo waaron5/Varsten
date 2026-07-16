@@ -1,4 +1,7 @@
 {
+  "ignorePatterns": [
+    "design-onboarding/**"
+  ],
   "entry": [
     "playwright/tests/**/*.ts"
   ],

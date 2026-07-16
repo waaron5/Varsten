@@ -1,79 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useEntitlements } from "@/components/entitlements";
 import { useTimedPolling } from "@/components/useTimedPolling";
 import { DOCS_HREF } from "@/lib/integrationSnippets";
 import { PanelEmpty, PanelSkeleton } from "./primitives";
 import { useDashboard } from "./DashboardProvider";
+import { DailySavingsChart } from "./DailySavingsChart";
+import { useDashboardPreviewEnabled } from "./dashboardPreview";
 import {
-  compactMoneyDisplay,
   dashboardViewModel,
-  shortChartDate,
-  type DashboardDailyPointView,
   type DashboardDriverView,
   type DashboardFallbackCoverageView,
   type DashboardIntegrityMetricView,
   type DashboardKpiView,
   type DashboardLeverView,
-  type DashboardStatView,
   type TrustLevel,
 } from "./viewModel";
 
-const DASHBOARD_PREVIEW_STORAGE_KEY = "varsten:dashboard-preview";
 const LEVER_OPACITY = [1, 0.78, 0.58, 0.42, 0.3, 0.22];
 const DRIVER_OPACITY = [1, 0.78, 0.58, 0.42, 0.3, 0.22];
-
-type DrawableDailyPoint = DashboardDailyPointView & {
-  actual: number;
-  savings: number;
-  total: number;
-};
-
-function hasChartValues(point: DashboardDailyPointView): point is DrawableDailyPoint {
-  return point.actual !== null && point.savings !== null && point.total !== null;
-}
-
-function readDashboardPreviewEnabled(): boolean {
-  if (process.env.NODE_ENV !== "development" || typeof window === "undefined") return false;
-
-  const params = new URLSearchParams(window.location.search);
-  const queryValue = params.get("dashboard_preview");
-  if (queryValue === "1") return true;
-  if (queryValue === "0") return false;
-  return window.localStorage.getItem(DASHBOARD_PREVIEW_STORAGE_KEY) === "1";
-}
-
-function subscribeDashboardPreview(onStoreChange: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-
-  window.addEventListener("storage", onStoreChange);
-  window.addEventListener("popstate", onStoreChange);
-  return () => {
-    window.removeEventListener("storage", onStoreChange);
-    window.removeEventListener("popstate", onStoreChange);
-  };
-}
-
-function useDashboardPreviewEnabled(): boolean {
-  const enabled = useSyncExternalStore(subscribeDashboardPreview, readDashboardPreviewEnabled, () => false);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
-    const params = new URLSearchParams(window.location.search);
-    const queryValue = params.get("dashboard_preview");
-    if (queryValue === "1") {
-      window.localStorage.setItem(DASHBOARD_PREVIEW_STORAGE_KEY, "1");
-      return;
-    }
-    if (queryValue === "0") {
-      window.localStorage.removeItem(DASHBOARD_PREVIEW_STORAGE_KEY);
-    }
-  }, []);
-
-  return enabled;
-}
 
 function DashboardLoading() {
   return (
@@ -196,98 +143,6 @@ function KpiStrip({ kpis }: { kpis: DashboardKpiView[] }) {
         <KpiCard key={kpi.key} kpi={kpi} />
       ))}
     </section>
-  );
-}
-
-function Stat({ stat, bordered }: { stat: DashboardStatView; bordered?: boolean }) {
-  return (
-    <div className={bordered ? "bordered" : undefined}>
-      <span>{stat.label}</span>
-      <b className={stat.positive ? "positive" : undefined}>{stat.value}</b>
-    </div>
-  );
-}
-
-function DailySavingsChart({ data, stats }: { data: DashboardDailyPointView[]; stats: DashboardStatView[] }) {
-  const chartData = data.filter(hasChartValues);
-  const width = 1400;
-  const height = 340;
-  const padL = 56;
-  const padR = 16;
-  const padT = 16;
-  const padB = 32;
-  const innerW = width - padL - padR;
-  const innerH = height - padT - padB;
-  const max = Math.max(...chartData.map((point) => point.total), 0) * 1.1 || 1;
-  const step = chartData.length ? innerW / chartData.length : innerW;
-  const barW = Math.max(3, step * 0.7);
-  const ticks = Array.from({ length: 5 }, (_, i) => (max / 4) * i);
-  const showLabelEvery = Math.max(1, Math.ceil(chartData.length / 10));
-
-  return (
-    <article className="lv-panel lv-daily-panel">
-      <header className="lv-panel-head">
-        <div>
-          <div className="lv-section-kicker">Section 01 · Trend</div>
-          <h3>Daily Savings</h3>
-        </div>
-        <ul className="lv-chart-legend" aria-label="Chart legend">
-          <li><span className="actual" aria-hidden="true" />Actual spend</li>
-          <li><span className="savings" aria-hidden="true" />Savings</li>
-        </ul>
-      </header>
-
-      {chartData.length ? (
-        <>
-          <div className="lv-svg-chart">
-            <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Daily stacked spend and savings">
-              {ticks.map((value, index) => {
-                const y = padT + innerH - (value / max) * innerH;
-                return (
-                  <g key={index}>
-                    <line x1={padL} x2={width - padR} y1={y} y2={y} />
-                    <text x={padL - 8} y={y + 3} textAnchor="end">
-                      {compactMoneyDisplay(value)}
-                    </text>
-                  </g>
-                );
-              })}
-
-              {chartData.map((point, index) => {
-                const x = padL + step * index + (step - barW) / 2;
-                const actualH = (point.actual / max) * innerH;
-                const savingsH = (point.savings / max) * innerH;
-                const totalH = (point.total / max) * innerH;
-                const yTop = padT + innerH - totalH;
-                return (
-                  <g key={point.date}>
-                    <rect x={x} y={padT + innerH - actualH} width={barW} height={actualH} className="actual">
-                      <title>{`${point.date} · Actual ${point.actualDisplay}`}</title>
-                    </rect>
-                    <rect x={x} y={yTop} width={barW} height={savingsH} className="savings">
-                      <title>{`${point.date} · Savings ${point.savingsDisplay}`}</title>
-                    </rect>
-                    {index % showLabelEvery === 0 ? (
-                      <text x={x + barW / 2} y={height - 10} textAnchor="middle">
-                        {shortChartDate(point.date)}
-                      </text>
-                    ) : null}
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-
-          <div className="lv-daily-stats">
-            {stats.map((stat, index) => (
-              <Stat key={stat.label} stat={stat} bordered={index > 0} />
-            ))}
-          </div>
-        </>
-      ) : (
-        <PanelEmpty label={data.length ? "Savings trend is unavailable for this period." : "Send traffic through Varsten to build your savings trend."} />
-      )}
-    </article>
   );
 }
 
