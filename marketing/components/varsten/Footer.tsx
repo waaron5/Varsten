@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { AI_COST_REPORT_HREF } from "@/app/site-links";
+import { AI_COST_REPORT_HREF, CONTACT_HREF } from "@/app/site-links";
 import { SystemStatus } from "./SystemStatus";
 
 export function Footer() {
@@ -28,7 +28,7 @@ export function Footer() {
       links: [
         ["Enterprise", "/enterprise"],
         ["About", "/about"],
-        ["Contact", "/contact"],
+        ["Contact", CONTACT_HREF],
         ["FAQ", "/faq"],
         ["Terms", "/terms"],
         ["Privacy", "/privacy"],

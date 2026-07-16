@@ -1,4 +1,4 @@
-import { START_TRIAL_HREF } from "@/app/site-links";
+import { ENTERPRISE_FORM_HREF, START_TRIAL_HREF } from "@/app/site-links";
 import { TrackedLink } from "@/components/varsten/TrackedLink";
 
 export function NextStepCta({ invert, source }: { invert?: boolean; source: string }) {
@@ -32,7 +32,7 @@ export function NextStepCta({ invert, source }: { invert?: boolean; source: stri
             <span aria-hidden>→</span>
           </TrackedLink>
           <TrackedLink
-            href="/enterprise"
+            href={ENTERPRISE_FORM_HREF}
             event="sales intent started"
             eventProperties={{ cta: "Talk to sales", source }}
             className={[

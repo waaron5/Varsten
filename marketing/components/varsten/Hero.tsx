@@ -1,6 +1,6 @@
 import { FlowDiagram } from "./FlowDiagram";
 import Link from "next/link";
-import { START_TRIAL_HREF, CONTACT_EMAIL } from "@/app/site-links";
+import { ENTERPRISE_FORM_HREF, START_TRIAL_HREF } from "@/app/site-links";
 
 export function Hero() {
   return (
@@ -36,12 +36,12 @@ export function Hero() {
                   14 days
                 </span>
               </Link>
-              <a
-                href={`mailto:${CONTACT_EMAIL}?subject=Sales%20Inquiry`}
+              <Link
+                href={ENTERPRISE_FORM_HREF}
                 className="inline-flex h-11 items-center gap-2 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
               >
                 Book a sales call
-              </a>
+              </Link>
             </div>
 
             <dl className="mono mt-16 grid max-w-lg grid-cols-3 gap-x-6 border-t border-border pt-6 text-[11px] uppercase tracking-[0.2em] text-ink-soft">

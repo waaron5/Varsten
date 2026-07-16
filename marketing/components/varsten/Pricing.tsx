@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { CONTACT_EMAIL, START_TRIAL_HREF, START_OBSERVE_HREF } from "@/app/site-links";
+import { ENTERPRISE_FORM_HREF, START_TRIAL_HREF, START_OBSERVE_HREF } from "@/app/site-links";
 import { SectionIntro } from "./SectionIntro";
-
-const ENTERPRISE_HREF = `mailto:${CONTACT_EMAIL}?subject=Enterprise%20Inquiry`;
 
 const plans = [
   {
@@ -180,7 +178,7 @@ export function Pricing() {
 
           <div className="mt-8 md:mt-0">
             <Link
-              href={ENTERPRISE_HREF}
+              href={ENTERPRISE_FORM_HREF}
               className="inline-flex h-11 shrink-0 items-center gap-3 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
             >
               Talk to sales

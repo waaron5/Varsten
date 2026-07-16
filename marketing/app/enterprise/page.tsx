@@ -18,7 +18,7 @@ export default function EnterprisePage() {
           <h1 className="text-[44px] font-semibold leading-none tracking-[-0.02em] text-ink md:text-[72px]">
             Enterprise
           </h1>
-          <div className="mt-10 grid min-w-0 md:mt-12">
+          <div id="enterprise-form" className="mt-10 grid min-w-0 scroll-mt-20 md:mt-12">
             <LeadForm source="enterprise" mode="enterprise" submitLabel="Book a call" />
           </div>
         </div>

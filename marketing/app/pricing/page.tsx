@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { START_OBSERVE_HREF, START_TRIAL_HREF } from "../site-links";
+import { ENTERPRISE_FORM_HREF, START_OBSERVE_HREF, START_TRIAL_HREF } from "../site-links";
 import { pageMetadata } from "@/lib/seo";
 import { SecondaryShell } from "@/components/varsten/SecondaryPage";
 import { TrackedLink } from "@/components/varsten/TrackedLink";
@@ -66,7 +66,7 @@ const plans = [
       "Procurement support",
     ],
     cta: "Talk to sales",
-    href: "/enterprise",
+    href: ENTERPRISE_FORM_HREF,
     event: "sales intent started" as const,
   },
 ] as const;

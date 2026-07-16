@@ -4,6 +4,8 @@
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://app.varsten.ai";
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://varsten.ai").replace(/\/+$/, "");
 export const CONTACT_EMAIL = "mail@varsten.ai";
+export const CONTACT_HREF = "/contact";
+export const ENTERPRISE_FORM_HREF = "/enterprise#enterprise-form";
 export const DPA_REQUEST_HREF = `mailto:${CONTACT_EMAIL}?subject=DPA%20request`;
 export const AI_COST_REPORT_HREF = "https://aaronwoodcs.substack.com/subscribe";
 // Self-serve entries preserve buyer intent through auth and account provisioning:

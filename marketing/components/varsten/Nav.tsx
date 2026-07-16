@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
-import { APP_URL, START_TRIAL_HREF } from "@/app/site-links";
+import { APP_URL, CONTACT_HREF, START_TRIAL_HREF } from "@/app/site-links";
 import { trackMarketingEvent } from "./analytics/AnalyticsProvider";
 
 const NAV_DROPDOWN_CLOSE_DELAY_MS = 250;
@@ -51,7 +51,7 @@ const RESOURCE_GROUPS: NavDropdownGroup[] = [
     title: "Company",
     links: [
       { label: "About", href: "/about", detail: "Who Varsten is for and why it exists" },
-      { label: "Contact", href: "/contact", detail: "Sales, support, security review, and pilots" },
+      { label: "Contact", href: CONTACT_HREF, detail: "Sales, support, security review, and pilots" },
       { label: "Privacy", href: "/privacy", detail: "How account and operational data are handled" },
       { label: "Terms", href: "/terms", detail: "Commercial and service terms" },
     ],
