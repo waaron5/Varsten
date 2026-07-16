@@ -103,7 +103,19 @@ def test_readiness_probe_ok(client):
     assert resp.json() == {"ok": True, "database": "ok"}
 
 
+def test_readiness_probe_accepts_head(client):
+    resp = client.head("/health/ready")
+    assert resp.status_code == 200
+    assert resp.content == b""
+
+
 def test_liveness_probe_ok(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
+
+
+def test_liveness_probe_accepts_head(client):
+    resp = client.head("/health")
+    assert resp.status_code == 200
+    assert resp.content == b""

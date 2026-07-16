@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -66,6 +66,12 @@ def health() -> dict:
     return {"ok": True}
 
 
+@app.head("/health")
+def health_head() -> Response:
+    """HEAD liveness for uptime monitors that do not issue GET requests."""
+    return Response(status_code=200)
+
+
 @app.get("/health/ready")
 async def health_ready(db: AsyncSession = Depends(get_async_db)) -> JSONResponse:
     """Readiness: the instance can actually serve requests, i.e. the database is
@@ -77,3 +83,14 @@ async def health_ready(db: AsyncSession = Depends(get_async_db)) -> JSONResponse
         logger.exception("readiness check failed: database unreachable")
         return JSONResponse({"ok": False, "database": "unreachable"}, status_code=503)
     return JSONResponse({"ok": True, "database": "ok"})
+
+
+@app.head("/health/ready")
+async def health_ready_head(db: AsyncSession = Depends(get_async_db)) -> Response:
+    """HEAD readiness for uptime monitors. It performs the same DB check as GET."""
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("readiness check failed: database unreachable")
+        return Response(status_code=503)
+    return Response(status_code=200)
