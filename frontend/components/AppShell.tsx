@@ -8,7 +8,7 @@ import { useUser } from "@auth0/nextjs-auth0";
 import { useSession } from "./session";
 import { useEntitlements } from "./entitlements";
 import { DashboardChromeProvider } from "./dashboardChrome";
-import { DashboardCrumb, DashboardTopbarControls } from "./dashboard/DashboardTopbarControls";
+import { DashboardTopbarControls } from "./dashboard/DashboardTopbarControls";
 import { api } from "@/lib/api";
 import type { Project, UserProfile } from "@/lib/types";
 
@@ -36,40 +36,40 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-const ROUTE_LABELS: Record<string, { title: string; crumb: string }> = {
-  "/dashboard": { title: "Dashboard", crumb: "Overview" },
-  "/automation": { title: "Automation", crumb: "Levers" },
-  "/engine": { title: "Automation", crumb: "Levers" },
-  "/engine/recommendations": { title: "Automation", crumb: "Levers" },
-  "/engine/levers": { title: "Automation", crumb: "Levers" },
-  "/engine/automation": { title: "Automation", crumb: "Levers" },
-  "/guardrails": { title: "Guardrails", crumb: "Quality" },
-  "/guardrails/quality": { title: "Guardrails", crumb: "Quality" },
-  "/guardrails/budgets": { title: "Guardrails", crumb: "Budgets" },
-  "/guardrails/alerts": { title: "Guardrails", crumb: "Alerts" },
-  "/proof": { title: "Savings", crumb: "Savings" },
-  "/proof/savings": { title: "Savings", crumb: "Savings" },
-  "/proof/attribution": { title: "Savings", crumb: "Attribution" },
-  "/proof/data-quality": { title: "Savings", crumb: "Data Quality" },
-  "/analysis": { title: "AI spend", crumb: "Spend" },
-  "/analysis/spend": { title: "AI spend", crumb: "Spend" },
-  "/analysis/customers": { title: "AI spend", crumb: "Customers" },
-  "/analysis/models": { title: "AI spend", crumb: "Models" },
-  "/reports": { title: "Executive Report", crumb: "Reports" },
-  "/admin": { title: "Settings", crumb: "Connections" },
-  "/admin/connections": { title: "Settings", crumb: "Connections" },
-  "/admin/team": { title: "Settings", crumb: "Team" },
-  "/admin/billing-security": { title: "Settings", crumb: "Billing & Security" },
-  "/breakdowns": { title: "Breakdowns", crumb: "Breakdowns" },
-  "/explorer": { title: "Explorer", crumb: "Usage Events" },
-  "/onboarding": { title: "Setup", crumb: "Setup" },
-  "/setup": { title: "Setup", crumb: "Setup" },
-  "/settings": { title: "Settings", crumb: "Settings" },
+const ROUTE_LABELS: Record<string, string> = {
+  "/dashboard": "Dashboard",
+  "/automation": "Automation",
+  "/engine": "Automation",
+  "/engine/recommendations": "Automation",
+  "/engine/levers": "Automation",
+  "/engine/automation": "Automation",
+  "/guardrails": "Guardrails",
+  "/guardrails/quality": "Guardrails",
+  "/guardrails/budgets": "Guardrails",
+  "/guardrails/alerts": "Guardrails",
+  "/proof": "Savings",
+  "/proof/savings": "Savings",
+  "/proof/attribution": "Savings",
+  "/proof/data-quality": "Savings",
+  "/analysis": "AI spend",
+  "/analysis/spend": "AI spend",
+  "/analysis/customers": "AI spend",
+  "/analysis/models": "AI spend",
+  "/reports": "Executive Report",
+  "/admin": "Settings",
+  "/admin/connections": "Settings",
+  "/admin/team": "Settings",
+  "/admin/billing-security": "Settings",
+  "/breakdowns": "Breakdowns",
+  "/explorer": "Explorer",
+  "/onboarding": "Setup",
+  "/setup": "Setup",
+  "/settings": "Settings",
 };
 
-function routeLabel(pathname: string): { title: string; crumb: string } {
-  if (pathname.startsWith("/reports/")) return { title: "Executive Report", crumb: "Shared View" };
-  return ROUTE_LABELS[pathname] ?? { title: "Varsten", crumb: "Home" };
+function routeLabel(pathname: string): string {
+  if (pathname.startsWith("/reports/")) return "Executive Report";
+  return ROUTE_LABELS[pathname] ?? "Varsten";
 }
 
 function Icon({ path }: { path: string }) {
@@ -636,7 +636,7 @@ function Topbar({
   isDashboard: boolean;
   navOpen: boolean;
   onToggleNav: () => void;
-  route: { title: string; crumb: string };
+  route: string;
 }) {
   return (
     <header className="lv-topbar">
@@ -652,16 +652,7 @@ function Topbar({
             <MenuIcon />
           </button>
           <div className="lv-route-copy">
-            {isDashboard ? (
-              <div className="lv-route-eyebrow">
-                Dashboard <span aria-hidden="true">·</span> <DashboardCrumb />
-              </div>
-            ) : (
-              <>
-                <div className="lv-route-eyebrow">{route.title}</div>
-                <div className="lv-route-crumb">{route.crumb}</div>
-              </>
-            )}
+            <div className="lv-route-eyebrow">{route}</div>
           </div>
         </div>
         {isDashboard ? <DashboardTopbarControls /> : null}
