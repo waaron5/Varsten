@@ -115,7 +115,7 @@ rollback/containment procedure.
 | Gate | Owner | Status | Verification / required evidence | Rollback or containment |
 | --- | --- | --- | --- | --- |
 | Phase 0: baseline and evidence register | Engineering | Passed | This document; live state captured `2026-07-16T21:11:12Z` | Re-run read-only capture if production changes |
-| Backend dependency security | Engineering | Not started | `pip-audit`, backend static gates, full tests, coverage, and image build pass for release SHA | Revert dependency commit; retain prior image |
+| Backend dependency security | Engineering | Passed | `pip-audit`, backend static gates, 814 tests, 84.70% coverage, and image build passed at `2026-07-16T21:26:53Z` | Revert `cba4b0e`; retain prior image |
 | Dashboard dependency security | Engineering | Not started | Production-only npm audit reviewed; lint, typecheck, build, and browser suite pass | Revert dashboard dependency commit/deployment |
 | Marketing dependency security | Engineering | Not started | Production-only npm audit reviewed; lint, typecheck, and build pass | Revert marketing dependency commit/deployment |
 | Production pricing initialization | Engineering | Failed at baseline | Idempotent sync; nonzero catalog/price counts; representative models validated | Restore/checkpoint if sync is destructive; otherwise correct with versioned price rows |
@@ -136,6 +136,33 @@ rollback/containment procedure.
 | Security and marketing claims | Founder + Engineering + counsel | Not started | Every reliability, data, pricing, savings, and compliance claim maps to evidence | Remove or qualify unsupported claim |
 | Operational documentation | Engineering | Not started | Deployment, Neon recovery, incident, monitoring, billing, SDK, and rollback docs match production | Treat observed control-plane state as authoritative during correction |
 | Final immutable release | Engineering + Founder approval | Not started | All P0 gates passed; exact SHA deployed; smoke/funnel/soak evidence complete | App Runner rollback plus project/global bypass |
+
+## Phase 1 evidence
+
+### Backend dependency security
+
+- Timestamp: `2026-07-16T21:26:53Z`
+- Commit: `cba4b0ec6f191c857c84f0a0d1359cb06d6523b9`
+- Package changes:
+  - `cryptography` 48.0.0 to 48.0.1
+  - `msgpack` 1.1.2 to 1.2.1
+  - `pydantic-settings` 2.14.1 to 2.14.2
+  - `starlette` 1.2.0 to 1.3.1
+- Resolution policy: direct dependency minimums were raised for direct
+  dependencies; uv constraints enforce security floors for transitive
+  dependencies without misclassifying them as direct application dependencies.
+- Dependency consistency: passed (`deptry`, 160 files).
+- Vulnerability audit: passed (`pip-audit`: no known vulnerabilities).
+- Database migration check: passed at Alembic head.
+- Static gates: Ruff check and format, compilation, mypy, complexity budget, and
+  Bandit passed.
+- Regression suite: 814 passed, 4 opt-in tests skipped, 7 deprecation warnings.
+- Coverage: 84.70%, above the required 80% threshold.
+- Image gate: local production Docker image built successfully as
+  `varsten-api:phase1-backend-audit`; resolved production dependencies contain
+  the four patched versions above.
+- Production impact: none. The image was not pushed or deployed.
+- Remaining Phase 1 work: dashboard and marketing dependency security gates.
 
 ## Evidence update procedure
 

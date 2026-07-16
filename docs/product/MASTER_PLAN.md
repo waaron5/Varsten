@@ -30,7 +30,7 @@ The launch gate is not “the deployment succeeded.” It is a real, fresh custo
 
 ---
 
-# Phase 0 — Establish the release baseline
+# Phase 0 — Establish the release baseline (Done. See PRODUCTION_READINESS_EVIDENCE.md)
 
 **Owner:** Me
 **Production changes:** None
