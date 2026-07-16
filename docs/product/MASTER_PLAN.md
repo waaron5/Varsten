@@ -1,185 +1,937 @@
-# Varsten Master Plan
+# Varsten Production-Readiness Implementation Plan
 
-Written 2026-07-12, from a full-codebase assessment. This is the shipping plan: current state, target identity, architecture, engine roadmap, compatibility, safety, first customer, enterprise readiness, competition, and execution order.
+## Goal
 
----
+Make Varsten safe and credible for its first enterprise customer, with:
 
-## 1. Current state, honestly
+- A tested release running in production
+- A completely functional customer onboarding funnel
+- Accurate model pricing and cost attribution
+- Installable production SDKs
+- Patched dependencies
+- Proven backup and recovery
+- Actionable monitoring and incident response
+- Production-grade identity, billing, and secrets handling
+- Accurate operational, security, legal, and marketing claims
 
-**The code is ahead of the company.** The engine is real and unusually complete for a solo build:
+The launch gate is not “the deployment succeeded.” It is a real, fresh customer account generating correctly priced production traffic while monitoring, recovery, billing, and fallback controls are proven.
 
-- Six levers execute inline with fail-open on every lookup. Three provider dialects (OpenAI GA, Anthropic and Gemini beta). Holdback A/B on always-valid sequential inference, drift auto-rollback, eval/replay harness, planner authorization, governance objects, canary ramp, circuit breakers, budget caps.
-- 783 tests passing, 80.7% coverage, the adversarial validation plan (V0 to V8) complete.
-- Self-serve billing implemented end to end (trial, entitlements, Stripe checkout, expiry sweep).
-- A fail-open TypeScript SDK (core plus OpenAI/Anthropic/Gemini wrappers) with a frozen origin-header contract that solves the base-URL fail-open problem correctly.
+## Operating rules
 
-**What is at zero:**
-
-- **Deployment.** The Terraform under `infra/aws/terraform/` has never been applied. No staging, no production, no request has ever been served off the development laptop. "Production-grade" is currently a claim about code, not about operations.
-- **Customers and traffic.** Zero design partners, zero real traffic, zero revenue. Every quality and savings mechanism has been proven against mocks and replays, never against a customer's live distribution.
-- **Secrets hygiene.** Live values sit in `.env` files in the repo (per CLAUDE.md). Must be rotated and moved before anything touches a remote or a customer.
-
-**Real weaknesses in the built thing:**
-
-- **Hot-path latency.** At 100 RPS locally, passthrough added p99 is +397ms against a +9ms target; at 200 RPS the proxy drops over half the scheduled sends. The cache-hit path beat the direct baseline (-5.5ms), so the machinery can be fast; passthrough, the path that must be near-zero-added, is not. The cause is per-request work against the database (auth resolve, entitlements, planning reads, ledger contention). Opt-in snapshot caches were added but are not the default path.
-- **The benchmark itself is suspect.** Load generator, eight backend workers, and the mock provider all share one Mac. That conflates machine contention with product capacity. The numbers are directional signal, not gate-grade evidence. See §10 for the replacement gate.
-- **Hot-path concentration.** `app/proxy/router.py` is ~3,000 lines. Both the capacity fix and the future data-plane split require untangling per-request dependencies out of it.
-- **Provider maturity is uneven.** Only OpenAI is GA. Anthropic and Gemini are founder-supervised beta. Cross-provider routing is the least-travelled code.
-- **No OpenAI Responses API support.** The OpenAI dialect is chat completions only. OpenAI is steering new development (and its Agents SDK) toward `/v1/responses`. This is a looming compatibility cliff for exactly the AI-native ICP Varsten targets.
-- **Gain-share billing is manual.** Stripe metering for gain-share is explicitly out of scope so far. Fine for customer #1 (invoice by hand), but it is a gap between the pricing page and the billing system.
-- **Solo operator, inline product.** Being in a customer's request path with one person on call is the single largest business risk. The SDK's client-side fallback is the correct structural mitigation and should be treated as the default install, not an option.
-
-Net: the engine deserves more confidence than the docs give it, and the operation deserves less. The binding constraint is not features. It is that Varsten has never run anywhere real.
+- Work in small, categorized commits.
+- Do not combine application fixes, infrastructure changes, documentation, or dependency upgrades unnecessarily.
+- Promote one immutable commit SHA through testing, migration, and deployment.
+- Never expose production credentials in terminal output, commits, messages, or screenshots.
+- Use expand-only database migrations before deploying dependent code.
+- Back up or confirm recovery capability before changing production data.
+- Test every material production change immediately after deployment.
+- Keep a written evidence record for every launch gate.
+- Do not route a customer’s meaningful production traffic until all P0 gates pass.
 
 ---
 
-## 2. What Varsten should be
+# Phase 0 — Establish the release baseline
 
-One sentence: **Varsten is the infrastructure-neutral AI savings engine: it attaches to whatever stack a customer already runs, cuts spend with quality-gated levers, and produces a finance-grade verified savings number that no gateway, observability tool, or provider can produce.**
+**Owner:** Me
+**Production changes:** None
+**Purpose:** Create a stable, auditable starting point.
 
-Three claims define the product. Everything else is subordinate:
+### Tasks
 
-1. **Attach, don't replace.** Never ask a customer to swap a gateway, a provider, or a framework. Varsten interposes (SDK, base URL, sidecar) or ingests (metadata mode). The moment Varsten demands a migration, it is competing with LiteLLM and Vercel on their turf and losing.
-2. **Safe by construction.** Fail open at every layer including the client. The honest pitch: "worst case, we stop saving; we never stop your traffic."
-3. **Proof, not estimates.** The concurrent randomized holdback is the only counterfactual a CFO cannot argue with, and it is what makes gain-share pricing possible at all.
+1. Record the current state:
 
-What Varsten is **not**: a gateway (commodity, already free), an observability dashboard (commodity, already crowded), or a model-routing point solution (a feature, not a company).
+   - Current `main` SHA
+   - Current production backend image SHA
+   - Current Vercel dashboard and marketing deployments
+   - Production database migration revision
+   - App Runner configuration
+   - Production domains and DNS
+   - Auth0 tenant and application identifiers
+   - Stripe mode and webhook endpoint
+   - Current production data counts
 
-**The moat, in order of durability:**
+2. Create a production-readiness checklist/evidence document containing:
 
-1. **The proof machinery plus the business model it enables.** Sequential-inference holdbacks, strict verified-vs-estimated vocabulary, and 25%-of-verified-savings pricing form a loop competitors structurally cannot copy: Vercel, LiteLLM hosts, and providers all monetize traffic volume, so charging on savings is against their own book.
-2. **Cross-customer priors.** Content-free task classification plus persisted outcome priors means every customer's evidence about which downshifts and compressions hold quality accrues to the engine. This compounds from customer #1, but only if priors are keyed by task class and route shape, not by tenant. Verify the schema generalizes cross-tenant now, while it is cheap to change.
-3. **The eval/replay harness.** Routing is a config change. Knowing a change is safe on traffic you have never seen is the IP.
+   - Gate
+   - Owner
+   - Status
+   - Verification command or procedure
+   - Result
+   - Timestamp
+   - Relevant release SHA
+   - Rollback procedure
 
----
+3. Reconcile the intended production architecture:
 
-## 3. Target architecture and packaging
+   - App Runner
+   - Neon Postgres
+   - AWS Secrets Manager
+   - Vercel
+   - Auth0
+   - Stripe
+   - Sentry
+   - External uptime monitoring
 
-**Verdict: hybrid, staged. No single packaging wins, and the sequencing matters more than the taxonomy.**
+4. Establish the release candidate branch or exact `main` commit that will receive remediation work.
 
-| Tier | Packaging | When | Role |
-|---|---|---|---|
-| Wedge | **Fail-open SDK wrapper** pointing at hosted Varsten | Now | The first-customer install. True client-side fail-open (direct-to-provider fallback), 15-minute integration, zero infra change. |
-| Universal | **Base-URL proxy** | Now | Anything that can set a base URL: LiteLLM upstreams, frameworks, agents, curl. Honest caveat: not fail-open if Varsten is unreachable. |
-| On-ramp | **Metadata/observe mode** (ingestion API) | Now | Works with any stack including Bedrock, Foundry, and every gateway. Zero risk, powers analysis and recommendations, top of funnel. |
-| Enterprise | **In-VPC sidecar data plane** + hosted control plane | Post-revenue | Content never leaves the boundary; only hashes, counts, and scores flow out. Same codebase. |
+### Exit criteria
 
-**The architectural imperative that unifies everything: the hot path must require zero synchronous database round trips.** Policy snapshots, entitlements, API-key resolution, and circuit state live in memory (Redis-refreshed); every write is async. The opt-in snapshot caches built during capacity remediation become the only path, and the synchronous variants get deleted. This one piece of work simultaneously (a) closes the latency gate, (b) is the prerequisite for the sidecar (a sidecar cannot call home per request), and (c) reduces blast radius when the control plane degrades. It is not a performance patch; it is the data-plane/control-plane split CLAUDE.md already names as load-bearing, executed inside the current monolith.
-
-**Do not build:** gateway feature parity (provider failover matrices, unified-API ergonomics), a Foundry-native app, a Kubernetes operator, or any second deployment topology before the first one has a paying customer on it.
-
----
-
-## 4. Engine roadmap: levers, quality, learning, observability, moat
-
-The six levers are the right six. The gaps are in what comes next and in operator-grade visibility.
-
-**Lever roadmap (strictly post-pilot; new engine surface competes with shipping, per CLAUDE.md):**
-
-1. **Reasoning-effort / thinking-budget tuning.** Per-route caps on `reasoning_effort` (OpenAI o-series) and thinking budgets (Claude). Reasoning tokens are the fastest-growing cost surface in 2025-26 and nobody optimizes them systematically. Mechanically cheap: it is a request-parameter policy that rides the existing routing/eval/holdback machinery. This should be lever seven.
-2. **Output discipline.** `max_tokens` tuning, verbosity control, structured-output enforcement. Output tokens price at 4 to 8x input; a lever that detects and caps overlong outputs is missing from the current set.
-3. **Promote prompt-cache prefix restructure** from detect-only to guided apply. Provider-side prompt caching is frequently the single largest real-world saving, it is provider-blessed, and quality risk is zero when the prefix is byte-identical.
-4. **Batch auto-detection.** Classify latency-tolerant traffic and propose batch migration (the batch mirror exists; the detection-to-proposal loop does not).
-5. **Semantic vector cache default-on** only after in-process embeddings remove the miss-path round trip and per-route thresholds are tuned. Current default-off posture is correct.
-
-**Quality controls:** keep the two inviolable rules as written: judge-scored routes never auto-apply, and prompt compression never auto-applies regardless of evidence. Add per-route quality budgets to reporting so a customer sees "quality spend" the way they see holdback cost.
-
-**Learning loop:** persist savings variance so the bandit graduates from mean-exploit to real Thompson sampling (already a disclosed backlog item). Then the moat work: cross-tenant task-class priors, so customer #2 starts warmer than customer #1 did. That is the compounding asset; treat its schema as a first-class design review, not a byproduct.
-
-**Observability (pre-pilot requirement, not post):** the engine has evidence trails but not operator eyes. Before customer #1: dashboards and alerts for added-latency SLO per path, error rates split by origin (`varsten` vs `provider`), fail-open event stream, per-lever savings counters, and holdback health. Sentry plus CloudWatch logs exist; the dashboards and paging thresholds do not.
+- Clean working tree
+- `main` synchronized with the remote
+- Current production state documented
+- Every later gate has an explicit test and owner
 
 ---
 
-## 5. Compatibility strategy
+# Phase 1 — Patch dependency vulnerabilities
 
-- **Providers.** OpenAI stays the GA spearhead. **Add `/v1/responses` support next** on the OpenAI dialect; the ICP's new builds are moving there. Harden **Anthropic to GA second** (AI-native startups skew heavily Claude), Gemini third. Cross-provider routing stays founder-approved until traffic proves it.
-- **LiteLLM:** do not compete; interpose and ingest. Ship two documented recipes: Varsten as a LiteLLM upstream (base URL), and a log-ingestion adapter for observe mode. The pitch to LiteLLM shops is "keep LiteLLM; add the savings engine behind it."
-- **Vercel AI Gateway:** observe-mode ingestion of its cost data; interpose only where a customer wants it.
-- **AWS Bedrock:** metadata mode now (invocation logs / CUR ingestion). Inline later only via the in-VPC sidecar, which is the only credible inline story inside AWS anyway.
-- **Foundry / Palantir estates:** observe mode only. Never build platform-native apps pre-revenue.
-- Publish the compatibility matrix as a living public doc, with the same honesty as `PROVIDER_COMPATIBILITY.md`. Stated boundaries are a sales asset against competitors who overclaim.
+**Owner:** Me
+**Risk:** Medium
+**Must precede:** Final release build
+
+## 1.1 Backend security updates
+
+Update the affected packages to fixed versions:
+
+- `cryptography` ≥ 48.0.1
+- `msgpack` ≥ 1.2.1
+- `pydantic-settings` ≥ 2.14.2
+- `starlette` ≥ 1.3.1
+
+### Implementation procedure
+
+1. Review dependency constraints and the FastAPI/Starlette compatibility range.
+2. Upgrade the smallest safe dependency set.
+3. Regenerate the lockfile.
+4. Review transitive dependency changes.
+5. Run:
+
+   - Dependency consistency check
+   - Ruff
+   - Formatting check
+   - Mypy
+   - Bandit
+   - Complexity gate
+   - Alembic migration test
+   - Full backend suite
+   - Coverage gate
+   - `pip-audit`
+   - Docker image build
+
+6. Pay special attention to:
+
+   - Middleware behavior
+   - Request parsing
+   - Authentication errors
+   - CORS handling
+   - Stripe webhook body/signature processing
+   - Exception handling
+   - Streaming responses
+   - WebSocket behavior, if applicable
+
+## 1.2 Frontend and marketing dependency findings
+
+The PostCSS finding is transitive through Next.js. Do not run a blind forced downgrade or breaking `npm audit fix --force`.
+
+### Implementation procedure
+
+1. Identify the first patched stable Next.js/PostCSS combination.
+2. Review Next.js and Auth0 compatibility.
+3. Upgrade frontend and marketing independently if appropriate.
+4. Regenerate each lockfile.
+5. Run lint, TypeScript, build, browser tests, and production dependency audits.
+6. Verify Auth0 middleware, redirects, cookies, callback handling, CSP, and proxy routes.
+
+### Commit structure
+
+- `security: patch backend dependency vulnerabilities`
+- `security: update frontend production dependencies`
+- `security: update marketing production dependencies`
+
+### Exit criteria
+
+- Backend `pip-audit` passes or every remaining finding has a documented, accepted mitigation
+- Frontend and marketing audits contain no actionable high/critical findings
+- Full test and build gates remain green
+- Dependency changes are independently reviewable
 
 ---
 
-## 6. Production-safety strategy
+# Phase 2 — Repair and verify production pricing
 
-1. **Deploy staging this week, production next.** The Terraform is written; apply it. Nothing else on this list is real until this happens.
-2. **Single instance, scale up not out**, until the live Redis smoke passes against staging Redis, exactly as the runbook already states. One scheduler instance is a hard rule.
-3. **SLOs, stated:** added p50 ≤ 5ms and added p99 ≤ 25ms on passthrough at pilot traffic; an availability target with the fail-open definition attached (Varsten down does not mean customer down when the SDK path is used).
-4. **Drills with the customer, not just internally:** run the kill-switch and project-bypass drill live during onboarding week so the customer has pulled the lever themselves once.
-5. **Status page.** One was removed from the marketing site; a paying inline customer requires one, even a manually updated one, plus external uptime monitoring (a $10/month synthetic check, not self-hosted).
-6. **Solo-operator honesty:** written support expectations (business hours plus best-effort), aggressive auto-rollback defaults, and the SDK fallback positioned as the structural answer to "what happens while you sleep."
-7. **Secrets:** rotate everything currently in `.env`, move to Secrets Manager, add a secret scanner to CI. Before any pilot, no exceptions.
-8. **Backups proven, not configured:** one full restore test of RDS PITR on staging, logged in the runbook.
+**Owner:** Me
+**Risk:** High to product correctness
+**Current blocker:** Production has zero catalog and price records
 
----
+## 2.1 Inspect the pricing sync path
 
-## 7. First-customer onboarding plan
+1. Review the price-sync script and its data sources.
+2. Confirm it is idempotent.
+3. Confirm it does not delete valid historical prices unexpectedly.
+4. Verify effective-date/version behavior.
+5. Confirm rollback or correction procedure.
+6. Run against a local or staging database first.
+7. Verify representative models from every supported provider.
 
-**Profile:** AI-native startup where tokens are COGS. OpenAI-dominant chat-completions traffic, $10k to $100k/month spend, a reachable technical founder or platform lead, tolerant of a design-partner relationship. Source from the NYC move and personal network; 10 to 20 targeted conversations, not a launch.
+## 2.2 Production synchronization
 
-**Offer:** 90-day founding-partner terms. 25% of verified savings (capped as already implemented), white-glove onboarding, weekly savings report, co-built golden sets, case-study rights. No payment until the first verified savings report exists.
+1. Take or confirm a recoverable production database checkpoint.
+2. Record pre-sync counts.
+3. Run the price sync against production.
+4. Record post-sync counts.
+5. Check for duplicate, missing, zero, negative, or overlapping price records.
+6. Verify currently marketed models have catalog coverage.
+7. Confirm unknown models fail honestly instead of receiving invented pricing.
 
-**Sequence (four weeks):**
+## 2.3 Real cost derivation test
 
-- **Week 0 (before their traffic):** staging benchmark green, production deployed, restore and kill-switch drills done, monitoring paging you.
-- **Week 1, observe:** SDK or ingestion install, zero behavior change. Deliverable: a baseline spend report with pricing-trust coverage. This alone must be impressive; it is the trust foundation.
-- **Week 2, arithmetic levers:** exact cache and token trim on one or two routes, auto mode. Verify ledger accuracy, added latency, and fail-open in their environment.
-- **Week 3, judgment levers:** routing/downshift candidates through the eval gate; approve-mode applies with the customer clicking approve; holdback live.
-- **Week 4, proof:** first verified savings report with confidence intervals, holdback cost as a line item, and the fee math. Decide expansion together.
+Send controlled real requests through each launch-supported integration and verify:
 
-**Success gate:** verified savings at least 3 to 5x the Varsten fee, zero customer-visible incidents, and the customer willing to say so on the record.
+- Provider
+- Model
+- Input tokens
+- Output tokens
+- Provider-reported usage
+- Calculated gross cost
+- Pricing source/version
+- Currency
+- Project and organization attribution
+- Dashboard aggregation
 
----
+### Exit criteria
 
-## 8. Enterprise-readiness checklist
-
-Two tiers. Do not let tier-two items block tier one.
-
-**Pilot-ready (required now):** secrets out of the repo and rotated; staging plus production live; tested database restore; incident-response doc (exists); DPA template; data-flow diagram; security page that discloses the semantic-cache exception plainly; status page; external uptime monitoring; the `ENGINE_RELIABILITY_BOUNDARIES.md` claims list enforced against all marketing copy.
-
-**Enterprise-ready (start clocks early, buy when a deal demands):** SOC 2 Type II (start evidence collection with a compliance platform at first paid customer; the observation window is months, so starting late means losing deals later); third-party pen test; SSO/SAML via Auth0 add-on; audit-log export; RBAC beyond owner/member; customer-managed encryption keys for the cache; the in-VPC sidecar; subprocessor list; SLA with credits; gain-share invoice automation.
-
----
-
-## 9. Competitive strategy
-
-Positioning sentence: **"Gateways route your traffic. Observability shows your bill. Varsten cuts it and proves the cut."**
-
-- **LiteLLM:** free OSS gateway with cost tracking, budgets, routing; enormous adoption. It shows spend and moves traffic; it does not cut spend safely or prove counterfactual savings. Strategy: full compatibility (upstream recipe, log ingestion) and sell into LiteLLM shops rather than against them.
-- **Vercel AI Gateway:** unified API, failover, cost visibility, huge distribution. Same functional counter, plus a structural one: Vercel's margin scales with traffic through the gateway, so savings-aligned pricing works against their book. Gain-share is the wedge they will not match.
-- **Palantir (Evolve / AIP estates):** sold top-down into existing accounts with long deployments. Do not fight inside Foundry accounts; win everywhere install velocity and neutrality matter. A one-day, stack-neutral install is the counter.
-- **Model-routing startups (Martian, NotDiamond, Unify, OpenRouter):** routing is one of Varsten's seven levers, and none of them prove savings against a live randomized baseline. Subsume, don't chase.
-- **Observability tools (Helicone, Langfuse) and gateways with caching (Portkey):** they inform; Varsten acts and proves. Portkey is the closest functional overlap; measurement rigor plus gain-share is the separation.
-- **The real competitor is "do nothing":** provider price cuts, provider prompt caching, and batch discounts make passivity cheaper every quarter. Varsten's answer is already built into the design: provider discounts are levers Varsten captures for the customer (batch, prefix restructure), and the concurrent holdback automatically nets provider price cuts out of savings claims. When optimization margins compress, the proof layer is what survives; that is why measurement rigor, not the proxy, is the durable business.
+- `model_catalog` and `model_prices` are populated
+- All launch-supported models are covered
+- A real request produces a correctly priced usage event
+- Unknown-model behavior is explicit and safe
+- Dashboard totals reconcile with event-level calculations
 
 ---
 
-## 10. Execution plan
+# Phase 3 — Make the SDK onboarding path real
 
-**The decision to make now: replace the local 200 RPS gate with a staging gate at a realistic pilot envelope.**
+**Owners:** Me and You
+**Risk:** High to onboarding
+**Current blocker:** Public package installation returns `E404`
 
-Reasoning: a $50k/month OpenAI customer at roughly $0.01 per request averages about 2 RPS. 200 RPS sustained is on the order of 17 million requests a day, far beyond any plausible first- or fifth-customer load, and the local benchmark shares one machine between load generator, eight workers, and the mock provider. The gate is measuring laptop contention against a threshold no pilot needs. Replacement gate: **on staging hardware, sustain 50 RPS with added p99 ≤ 25ms on passthrough and zero drops, plus a five-minute 100 RPS soak without error-rate degradation.** Keep the zero-DB-hot-path work regardless, because it is also the sidecar prerequisite, but stop tuning for a local number.
+## 3.1 Package preparation
 
-**Days 0 to 14, make it real:**
-1. Rotate every secret in `.env`; move to Secrets Manager; secret scanner in CI.
-2. `terraform apply` staging; migrations; smoke; live Redis smoke.
-3. Run the load benchmark against staging; fix what staging (not the laptop) reveals; make the snapshot caches the default path.
-4. Deploy production; external uptime monitoring; restore drill; kill-switch drill.
+**Owner: Me**
 
-**Days 15 to 45, first traffic:**
-5. Outbound to 10 to 20 design-partner candidates; sign one or two.
-6. Run the §7 onboarding sequence end to end.
-7. Finish SDK streaming; publish the packages.
-8. Weekly savings report template; manual gain-share invoice.
+For all packages:
 
-**Days 46 to 90, prove and compound:**
-9. First verified-savings case study with the methodology appendix.
-10. `/v1/responses` support; Anthropic to GA if the partner's mix demands it.
-11. Start SOC 2 evidence collection.
-12. Design (not build) the reasoning-effort lever; build only once the pilot is stable.
-13. Lock marketing copy against `ENGINE_RELIABILITY_BOUNDARIES.md`.
+- `@varsten/core`
+- `@varsten/openai`
+- `@varsten/anthropic`
+- `@varsten/gemini`
 
-**Deferred deliberately:** Foundry/Bedrock inline, semantic vector cache default-on, Kubernetes operator, additional providers beyond the three, enterprise RBAC, gain-share metering automation, and any new lever before pilot traffic is stable.
+I will verify:
 
-**One sentence:** stop proving the engine to yourself on a laptop; prove it on a staging deployment and one design partner's real traffic, because every remaining risk (capacity, provider maturity, savings credibility, the moat) only resolves against reality.
+1. Package names and dependencies
+2. Public access configuration
+3. License
+4. Repository and homepage metadata
+5. Correct exports
+6. ESM/CommonJS compatibility where intended
+7. Included package files
+8. Source maps and type declarations
+9. No secrets, fixtures, or internal files in package tarballs
+10. README installation and integration examples
+11. Version consistency
+12. Fail-open and timeout behavior
+13. Telemetry behavior
+14. Local build, typecheck, and tests
+15. `npm pack` contents
+
+## 3.2 npm organization and publication
+
+**Owner: You — manual**
+
+You must:
+
+1. Create or confirm ownership of the `varsten` npm organization.
+2. Enable MFA on your npm account.
+3. Configure publication permissions.
+4. Log into npm locally.
+5. Supply OTP/passkey authorization when publication requires it.
+6. Approve publication of the prepared versions.
+
+Secrets or OTP values should never be sent to me.
+
+## 3.3 Publication and clean-install verification
+
+**Owner: Me, with your npm authorization where required**
+
+1. Publish packages in dependency order.
+2. Confirm public registry visibility.
+3. Create clean temporary projects.
+4. Install each package directly from npm.
+5. Run every onboarding snippet exactly as displayed.
+6. Test compatible provider SDK versions.
+7. Test missing/invalid Varsten configuration.
+8. Verify provider fallback when Varsten is unreachable.
+9. Confirm no package requires unpublished workspace dependencies.
+
+## 3.4 Onboarding honesty gate
+
+If publication cannot be completed immediately:
+
+- Temporarily hide or disable the SDK path.
+- Make Gateway or metadata-only the default.
+- Explain that the SDK path is unavailable.
+- Never show a command that returns `E404`.
+
+### Commit structure
+
+- `sdk: prepare packages for verified public publication`
+- `onboarding: expose only available production integrations`
+
+### Exit criteria
+
+- Every displayed installation command works in a clean project
+- All packages are publicly available at the documented versions
+- Production onboarding links and snippets match published artifacts
+- Fail-open behavior is demonstrated against the production API
+
+---
+
+# Phase 4 — Verify and harden production identity
+
+**Owners:** Me and You
+**Risk:** Critical
+**Current concern:** Live configuration uses a tenant whose name differs from the documented production tenant
+
+## 4.1 Decide the Auth0 production tenant
+
+**Owner: You — manual decision**
+
+Confirm whether `dev-tnqse1hznivo6img.us.auth0.com` is intentionally the permanent production tenant.
+
+If it is not, create or select the actual production tenant.
+
+## 4.2 Auth0 configuration
+
+**Owner: You — manual dashboard work, guided by me**
+
+Configure:
+
+- API audience: `https://api.varsten.ai`
+- Callback: `https://app.varsten.ai/auth/callback`
+- Logout URL: `https://app.varsten.ai`
+- Allowed web origin: `https://app.varsten.ai`
+- Only necessary grant types
+- Appropriate token lifetime
+- Refresh-token rotation
+- Brute-force protection
+- Breached-password protection
+- Administrator MFA
+- Tenant recovery owners
+- Production email provider and templates
+- Log retention/export appropriate for incident investigation
+- No unintended localhost/preview URLs in production
+
+## 4.3 Application validation
+
+**Owner: Me**
+
+Verify:
+
+- Login and signup
+- Logout
+- Callback error handling
+- State and PKCE behavior
+- Session-cookie security attributes
+- Audience and issuer validation
+- Token expiration
+- Invalid-token rejection
+- Organization/user synchronization
+- Duplicate callback/idempotency behavior
+- Unauthorized dashboard behavior
+- Cross-organization isolation
+
+### Exit criteria
+
+- The selected tenant is explicitly designated production
+- Production allowlists are minimal
+- Administrative MFA and recovery are configured
+- A fresh signup completes successfully
+- Token and tenant isolation tests pass
+- Documentation and environment examples match reality
+
+---
+
+# Phase 5 — Prove backup, restore, and data recovery
+
+**Owners:** Me and You
+**Risk:** Critical
+**Current blocker:** Production uses Neon while recovery documentation describes RDS
+
+## 5.1 Establish the Neon recovery capability
+
+**Owner: You — manual account access if required**
+
+Confirm and provide non-secret evidence of:
+
+- Neon plan
+- Backup retention
+- Point-in-time recovery window
+- Branch/restore capability
+- Region
+- Account recovery and MFA
+- Authorized administrators
+- Billing status
+
+## 5.2 Define recovery objectives
+
+**Owner: You, with recommendations from me**
+
+Choose realistic initial objectives:
+
+- RPO: acceptable maximum data loss
+- RTO: acceptable maximum service recovery time
+- Recovery owner
+- Customer notification threshold
+
+These must be promises Varsten can actually meet.
+
+## 5.3 Conduct a restore drill
+
+**Owner: Me, with your approval before any provider-side operation**
+
+1. Record production database revision and safe aggregate counts.
+2. Create a recovery point or restore branch.
+3. Restore into an isolated destination.
+4. Ensure restored data cannot send email, bill customers, call providers, or receive production traffic.
+5. Connect a temporary verification process.
+6. Validate:
+
+   - Alembic version
+   - Organizations/projects
+   - API-key metadata
+   - Price catalog
+   - Usage events
+   - Billing state
+   - Provider connection metadata
+   - Tenant isolation
+
+7. Record elapsed restore time and recovery point gap.
+8. Destroy the temporary environment after evidence is captured.
+
+## 5.4 Correct documentation
+
+Replace RDS-specific production claims with the actual Neon procedure. Do not claim a restore is drilled until the drill has passed.
+
+### Exit criteria
+
+- Recovery retention is known
+- Restore drill succeeds
+- Measured RPO/RTO are recorded
+- Recovery documentation matches production
+- At least two people/accounts can recover access, if organizationally possible
+
+---
+
+# Phase 6 — Implement production monitoring and alerting
+
+**Owners:** Me and You
+**Risk:** Critical operational gap
+
+## 6.1 AWS and application alarms
+
+**Owner: Me**
+
+Implement alerts for:
+
+- App Runner deployment failure
+- Unhealthy instance or failed readiness checks
+- Elevated 5xx rate
+- Abnormal 4xx/authentication rate where useful
+- High latency
+- Request-volume disappearance
+- Database connection failures
+- Database pool exhaustion
+- Scheduler failures
+- Pricing lookup/catalog misses
+- Provider-key vault failures
+- Stripe webhook failures
+- Provider error/circuit-breaker activity
+- Excessive unpriced usage events
+
+Alerts should reach a real destination, not merely exist.
+
+## 6.2 Sentry
+
+**Owner: You — manual account access may be required; Me for application verification**
+
+Configure:
+
+- Production project/environment
+- New production error alert
+- Regression alert
+- Error-volume alert
+- Release tracking
+- Source maps where applicable
+- Alert delivery to your email/phone/Slack
+- Data-scrubbing rules for tokens, API keys, authorization headers, and prompts
+
+## 6.3 External uptime monitoring
+
+**Owner: You — manual account setup**
+
+Configure an independent monitor for:
+
+- `https://api.varsten.ai/health/ready`
+- `https://app.varsten.ai`
+- `https://www.varsten.ai`
+
+Use multiple regions if available. Alert your phone and email.
+
+## 6.4 Alert drill
+
+**Owner: Me, with your approval**
+
+Trigger safe synthetic failures or test notifications and prove:
+
+- The alert arrives
+- The message identifies the affected service
+- It contains a useful runbook link
+- Recovery/acknowledgment responsibility is clear
+
+### Exit criteria
+
+- Every P0 alert has a verified recipient
+- At least one end-to-end alert drill passes
+- Sentry scrubbing is verified
+- External uptime monitoring is active
+- The runbook explains what to do for each alert
+
+---
+
+# Phase 7 — Harden infrastructure and release controls
+
+**Owner:** Me
+**Risk:** Medium to high
+
+## 7.1 Container and supply-chain security
+
+1. Enable or run container-image vulnerability scanning.
+2. Patch actionable findings.
+3. Confirm the runtime image is minimal and non-root where feasible.
+4. Verify no secrets are embedded in image layers.
+5. Generate or retain dependency inventory/SBOM if supported.
+6. Pin critical CI actions and deployment dependencies appropriately.
+
+## 7.2 App Runner review
+
+Verify:
+
+- Minimum and maximum instances
+- CPU and memory
+- Request concurrency
+- Health-check thresholds
+- Deployment rollback behavior
+- Log retention
+- IAM least privilege
+- Secret references
+- No plaintext credentials
+- Rate-limiting behavior at current instance count
+
+The current one-instance configuration avoids distributed-state inconsistencies but creates a capacity ceiling. Before increasing it, Redis/shared-state requirements must be resolved and tested.
+
+## 7.3 Capacity and resilience
+
+1. Re-run supported load benchmarks against a safe environment.
+2. Validate target concurrency and request sizes.
+3. Test upstream slowness, rate limits, malformed responses, streaming interruption, and connection resets.
+4. Confirm circuit breaker and fail-open behavior.
+5. Establish initial customer traffic limits.
+6. Document what happens when Varsten or the database is unavailable.
+
+## 7.4 CI/CD validation
+
+1. Confirm GitHub Actions runs successfully on `main`.
+2. Verify production deployment uses GitHub OIDC, not long-lived deployment credentials.
+3. Confirm Terraform plan gating.
+4. Confirm migrations precede promotion.
+5. Confirm deployment uses an immutable SHA.
+6. Test rollback to a prior image without rolling back the database.
+7. Add dependency audits to CI with an intentional severity policy.
+
+### Exit criteria
+
+- Release image passes vulnerability scanning
+- Current capacity is documented and tested
+- CI passes for the exact release SHA
+- Deployment and rollback procedures are exercised
+- Scaling beyond one instance is either proven safe or explicitly prohibited
+
+---
+
+# Phase 8 — Complete the real production onboarding funnel
+
+**Owners:** Me and You
+**Risk:** Critical launch gate
+
+## 8.1 Create a clean customer-like identity
+
+**Owner: You — manual signup**
+
+Use an email account that has never used Varsten. Do not use developer bypasses, seed data, or mocked authentication.
+
+## 8.2 Run the exact funnel
+
+Together, verify:
+
+1. Visit `www.varsten.ai`.
+2. Select the intended plan/trial CTA.
+3. Complete Auth0 signup.
+4. Confirm user and organization synchronization.
+5. Enter onboarding.
+6. Create or select a project.
+7. Generate a `vk_` key.
+8. Confirm it is displayed only once.
+9. Choose a real, publicly available integration.
+10. Connect a real provider key.
+11. Confirm it is written to the correct Secrets Manager prefix.
+12. Send a real provider request.
+13. Confirm onboarding detects verified traffic.
+14. Finish onboarding without manual database intervention.
+15. Confirm the dashboard displays actual usage.
+16. Confirm event-level and aggregate costs reconcile.
+17. Confirm pricing provenance is present.
+18. Confirm cross-page navigation and refresh persistence.
+19. Confirm logout and login restore the correct workspace.
+
+## 8.3 Failure-path tests
+
+Verify graceful handling of:
+
+- Invalid provider key
+- Provider rate limit
+- Missing model price
+- Duplicate project creation
+- Repeated callback
+- Refresh during every onboarding step
+- Back-button navigation
+- Mobile viewport
+- Network interruption
+- Varsten API temporarily unavailable
+- Provider unavailable
+- Expired Auth0 session
+- User abandoning and resuming onboarding
+
+## 8.4 Security checks
+
+Verify:
+
+- Foreign-origin CORS rejection
+- Anonymous API rejection
+- Cross-tenant resource rejection
+- API-key one-time visibility
+- Redacted logs
+- Provider key never returned through the API
+- Stripe webhook signature enforcement
+- Rate limits
+- Kill switch and project bypass
+
+### Exit criteria
+
+- A fresh user reaches a correctly priced dashboard using real traffic
+- No mock, seed, bypass, or direct database correction is used
+- Resume and failure behavior are smooth
+- Secrets and tenant boundaries are preserved
+- Evidence is recorded for the release candidate
+
+---
+
+# Phase 9 — Verify production billing
+
+**Owners:** Me and You
+**Risk:** Critical if accepting payment
+
+## 9.1 Stripe configuration
+
+**Owner: You — manual Stripe Dashboard review**
+
+Confirm:
+
+- Correct business identity
+- Bank/payout details
+- Public business information
+- Customer support contact
+- Statement descriptor
+- Tax configuration decision
+- Receipt behavior
+- Dispute notifications
+- Webhook endpoint
+- Required webhook event subscriptions
+- Webhook delivery history
+- Restricted dashboard access and MFA
+
+## 9.2 Billing lifecycle tests
+
+**Owner: Me, using a controlled production customer and with your approval**
+
+Verify:
+
+- Checkout/setup session opens
+- Cancel returns safely
+- Successful payment-method setup
+- Webhook delivery
+- Idempotent duplicate webhook handling
+- Subscription/customer association
+- Trial-to-paid transition
+- Past-due state
+- Cancellation/reactivation
+- Customer portal
+- No charge occurs merely from estimates or recommendations
+- Billing calculation reconciles with verified savings rules
+
+Use the smallest safe real transaction only if a true live charge test is required and you explicitly approve it.
+
+### Exit criteria
+
+- Stripe live account and webhook are operational
+- Billing state survives duplicate/out-of-order events
+- Dashboard entitlement state matches Stripe
+- Cancellation and failure behavior are clear
+- Financial calculations are auditable
+
+---
+
+# Phase 10 — Legal, privacy, and enterprise readiness
+
+**Owners:** You, qualified counsel, and Me for technical accuracy
+**Risk:** Commercial and contractual
+
+## 10.1 Legal package
+
+**Owner: You and counsel — manual**
+
+Prepare/review:
+
+- Binding Terms of Service or MSA
+- Privacy Policy
+- DPA
+- Subprocessor list
+- Acceptable Use Policy
+- Support terms
+- Data-retention/deletion commitments
+- Limitation of liability
+- Warranty disclaimers
+- Security incident notification terms
+- Pricing and verified-savings definition
+- Trial and cancellation terms
+
+The current public pages should not be treated as a substitute for legal review.
+
+## 10.2 Security package
+
+**Owner: Me for technical content; You for distribution/approval**
+
+Prepare:
+
+- Architecture/data-flow diagram
+- Security overview
+- Provider-key handling
+- Encryption posture
+- Access-control model
+- Tenant-isolation explanation
+- Data inventory
+- Retention matrix
+- Incident-response procedure
+- Backup and recovery evidence
+- Pen-test or independent assessment roadmap
+- Accurate SOC 2 status
+- Security contact process
+
+## 10.3 Claims review
+
+Audit all public copy for claims involving:
+
+- “Enterprise-ready”
+- “Production-ready”
+- “Finance-grade”
+- “Fail-open”
+- “Never stores prompts”
+- “Guaranteed quality”
+- “Real-time”
+- “Every dollar priced”
+- “Verified savings”
+- “Uptime”
+- “SOC 2-compatible”
+- “Review-ready”
+
+Every claim must be demonstrably true, carefully qualified, or removed.
+
+### Exit criteria
+
+- Counsel-approved commercial documents are available
+- DPA and subprocessors are ready
+- Security claims match implemented controls
+- No public page promises unproven recovery, reliability, or coverage
+- Sales language distinguishes current controls from roadmap items
+
+---
+
+# Phase 11 — Documentation and operational handoff
+
+**Owner:** Me
+
+Update:
+
+- Deployment runbook
+- Dashboard deployment guide
+- AWS infrastructure documentation
+- Security documentation
+- Incident-response runbook
+- Backup/restore procedure
+- Auth0 configuration
+- Stripe configuration
+- Price synchronization
+- SDK publication
+- Kill-switch procedure
+- Customer onboarding procedure
+- Customer offboarding and data deletion
+- Monitoring/alert response
+- Release and rollback process
+
+Remove stale claims that:
+
+- Terraform has never been applied
+- Production uses RDS
+- Restore drills are complete when they are not
+- SDK packages are available when unpublished
+- Monitoring exists when it is unverified
+
+### Exit criteria
+
+A competent operator can deploy, observe, bypass, recover, and roll back Varsten using the documentation without relying on undocumented founder knowledge.
+
+---
+
+# Phase 12 — Final release and launch gate
+
+**Owners:** Me and You
+
+## 12.1 Release candidate
+
+**Owner: Me**
+
+1. Confirm all preceding phases pass.
+2. Ensure the repository is clean and synchronized.
+3. Record the exact release SHA.
+4. Run the complete CI-equivalent suite.
+5. Build the Linux production image.
+6. Scan it.
+7. Push the immutable SHA tag.
+8. Produce and review the Terraform plan.
+9. Confirm no destructive database or infrastructure changes.
+
+## 12.2 Production promotion
+
+**Owner: Me, with your approval**
+
+1. Confirm recovery checkpoint.
+2. Apply expand-only migrations.
+3. Promote the exact image SHA.
+4. Wait for App Runner stabilization.
+5. Verify readiness.
+6. Check error, latency, database, and deployment telemetry.
+7. Run production smoke tests.
+8. Verify dashboard and marketing deployments.
+9. Repeat the critical customer funnel checks.
+10. Observe production for a defined soak period.
+
+## 12.3 Rollback conditions
+
+Immediately roll back or activate bypass if:
+
+- Readiness becomes unstable
+- Error rate rises materially
+- Authentication fails
+- Tenant isolation is questionable
+- Provider requests fail or duplicate
+- Costs are missing or materially incorrect
+- Provider keys cannot be retrieved safely
+- Stripe state becomes inconsistent
+- Dashboard shows another organization’s data
+- Logs expose credentials or prompt content
+
+### Exit criteria
+
+- Exact release SHA is running
+- All automated gates are green
+- Production smoke tests pass
+- Real end-to-end onboarding passes
+- Alerts remain quiet except for expected drill events
+- Rollback and bypass controls are immediately available
+
+---
+
+# Human-only action checklist
+
+These actions require you or another authorized human:
+
+- Confirm or create the production Auth0 tenant.
+- Configure Auth0 administrator MFA, recovery, connections, and allowlists.
+- Provide Auth0/Vercel secrets through their secure dashboards.
+- Create or confirm the `varsten` npm organization.
+- Authenticate npm publication with MFA/OTP/passkey.
+- Confirm Neon plan, retention, account security, and recovery access.
+- Approve creation of a Neon restore branch or recovery drill.
+- Configure or authorize Sentry notification destinations.
+- Create external uptime-monitoring accounts and notification contacts.
+- Review the Stripe Dashboard, business settings, tax decision, and webhook events.
+- Approve any real live-mode Stripe transaction.
+- Perform the fresh-user signup where human email verification is required.
+- Confirm receipt of enterprise lead emails and operational alerts.
+- Engage legal counsel and approve the MSA, Terms, Privacy Policy, and DPA.
+- Decide initial RPO, RTO, SLA, support commitments, and customer traffic limits.
+- Approve DNS or production infrastructure changes.
+- Approve final production promotion.
+- Decide when the LinkedIn/commercial announcement goes live.
+
+---
+
+# Recommended commit sequence
+
+1. `security: patch backend dependency vulnerabilities`
+2. `security: update frontend dependencies`
+3. `security: update marketing dependencies`
+4. `pricing: harden and verify catalog synchronization`
+5. `sdk: finalize packages for public publication`
+6. `onboarding: align integration choices with published SDKs`
+7. `observability: add production metrics and alarms`
+8. `infrastructure: harden image scanning and runtime controls`
+9. `auth: align production tenant configuration`
+10. `billing: harden production lifecycle verification`
+11. `docs: document Neon backup and tested recovery`
+12. `docs: reconcile production deployment and incident runbooks`
+13. `legal: align public security and service claims`
+
+Each category should be pushed after its tests pass. Production should be promoted only from the final audited SHA.
+
+# Final definition of “production-ready”
+
+Varsten is ready for its first enterprise customer only when all of these are true:
+
+- No unresolved critical/high security findings
+- Production pricing catalog is populated and verified
+- Every advertised SDK command installs successfully
+- Fresh-account real onboarding succeeds
+- Real traffic creates correctly priced dashboard data
+- Provider keys are vaulted, retrievable, and never exposed
+- Auth0 production posture is explicitly approved
+- Stripe lifecycle and webhook handling are verified
+- Database restore has been performed successfully
+- RPO and RTO are measured
+- Operational alerts reach a human
+- Kill switch and rollback have been exercised
+- Capacity limits are known and enforced
+- Commercial and security documentation is accurate
+- Legal agreements are ready
+- The deployed SHA exactly matches the tested release candidate
+- A post-deployment soak period completes without unexplained errors
+
+Until then, Varsten should be positioned as a controlled design-partner pilot rather than generally available enterprise software.
