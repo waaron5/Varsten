@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { SITE_URL, siteUrl } from "./site-links";
+import { siteUrl } from "./site-links";
 import { getAllDocs } from "@/lib/content/docs";
 
 const staticRoutes = [
@@ -37,5 +37,3 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
 export const dynamic = "force-static";
 export const revalidate = 86_400;
-
-export const metadataBase = new URL(SITE_URL);

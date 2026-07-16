@@ -38,21 +38,30 @@ const blockedPropertyFragments = [
   "token",
 ];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isBlockedProperty(key: string): boolean {
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  return blockedPropertyFragments.some((fragment) => normalizedKey.includes(fragment));
+}
+
+function safeAnalyticsValue(value: unknown): AnalyticsProperties[string] | undefined {
+  const allowedTypes = ["number", "boolean"];
+  if (typeof value === "string") return value.slice(0, 500);
+  if (allowedTypes.includes(typeof value) || value === null) return value as AnalyticsProperties[string];
+  return undefined;
+}
+
 export function safeAnalyticsProperties(properties: unknown): AnalyticsProperties {
-  if (!properties || typeof properties !== "object" || Array.isArray(properties)) return {};
+  if (!isRecord(properties)) return {};
 
-  return Object.entries(properties as Record<string, unknown>).reduce<AnalyticsProperties>((safe, [key, value]) => {
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-    if (blockedPropertyFragments.some((fragment) => normalizedKey.includes(fragment))) return safe;
+  return Object.entries(properties).reduce<AnalyticsProperties>((safe, [key, value]) => {
+    if (isBlockedProperty(key)) return safe;
 
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean" ||
-      value === null
-    ) {
-      safe[key] = typeof value === "string" ? value.slice(0, 500) : value;
-    }
+    const safeValue = safeAnalyticsValue(value);
+    if (safeValue !== undefined) safe[key] = safeValue;
 
     return safe;
   }, {});

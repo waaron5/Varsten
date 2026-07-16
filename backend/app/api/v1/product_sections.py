@@ -29,10 +29,10 @@ from app.eval.gate import (
 )
 from app.lever_controls import lever_enabled
 from app.levers import (
+    LEVER_BATCHING,
     LEVER_DEFAULT_AUTOMATION,
     LEVER_DISPLAY_ORDER,
     LEVER_LABELS,
-    LEVER_BATCHING,
     LEVER_PROMPT_COMPRESSION,
     LEVER_SEMANTIC_CACHE,
     ROUTING_LEVERS,
@@ -287,9 +287,10 @@ def _lever_runtime_status(config: LeverConfig) -> tuple[bool, str | None]:
             return False, "Cache storage is not enabled on this deployment."
         if not settings.semantic_cache_enabled:
             return False, "Semantic cache is not enabled on this deployment."
-    if config.lever in {LEVER_BATCHING, LEVER_PROMPT_COMPRESSION}:
-        if not provider_key_for_project(config.project_id, "openai"):
-            return False, "Connect an OpenAI provider key before using this automation."
+    if config.lever in {LEVER_BATCHING, LEVER_PROMPT_COMPRESSION} and not provider_key_for_project(
+        config.project_id, "openai"
+    ):
+        return False, "Connect an OpenAI provider key before using this automation."
     return True, None
 
 

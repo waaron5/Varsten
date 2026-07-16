@@ -41,9 +41,7 @@ def test_true_net_subtracts_holdback_architecture_overhead_and_gain_share():
 
 
 def test_report_exposes_p25_p75_per_workload_for_calculator():
-    report = benchmark_proof.build_report(
-        benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00")
-    )
+    report = benchmark_proof.build_report(benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00"))
 
     sliders = report["calculator"]["traffic_mix_sliders"]
 
@@ -58,9 +56,7 @@ def test_report_exposes_p25_p75_per_workload_for_calculator():
 
 
 def test_sidecar_overhead_is_higher_than_sdk_wrapper_for_each_workload():
-    report = benchmark_proof.build_report(
-        benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00")
-    )
+    report = benchmark_proof.build_report(benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00"))
 
     for workload in report["workload_classes"].values():
         sdk = workload["deployment_paths"]["sdk_wrapper"]["percentiles"]["p50"]
@@ -70,9 +66,7 @@ def test_sidecar_overhead_is_higher_than_sdk_wrapper_for_each_workload():
 
 
 def test_general_chat_remains_near_zero_and_not_a_marketing_claim():
-    report = benchmark_proof.build_report(
-        benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00")
-    )
+    report = benchmark_proof.build_report(benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00"))
     general_chat = report["workload_classes"]["general_chat"]["deployment_paths"]["sdk_wrapper"]["percentiles"]
 
     assert general_chat["p75"]["true_net_savings_rate"] < 0.003
@@ -80,9 +74,7 @@ def test_general_chat_remains_near_zero_and_not_a_marketing_claim():
 
 
 def test_write_artifacts_creates_calculator_json_and_proof_pack(tmp_path):
-    report = benchmark_proof.build_report(
-        benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00")
-    )
+    report = benchmark_proof.build_report(benchmark_proof.BenchmarkConfig(generated_at="2026-07-09T00:00:00+00:00"))
 
     json_path, proof_path = benchmark_proof.write_artifacts(report, tmp_path)
 

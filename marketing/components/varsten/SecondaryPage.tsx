@@ -25,6 +25,7 @@ type SectionProps = {
   children: ReactNode;
   tone?: "default" | "muted" | "dark";
 };
+type SectionTone = NonNullable<SectionProps["tone"]>;
 
 type CardProps = {
   eyebrow?: string;
@@ -56,46 +57,73 @@ export function SecondaryHero({
   return (
     <section className="border-b border-border bg-background">
       <div className="mx-auto max-w-[1400px] px-6 py-18 md:px-10 md:py-24">
-        {eyebrowInGrid ? null : eyebrowEl}
+        <HeroEyebrowSlot eyebrow={eyebrowEl} show={!eyebrowInGrid} />
         <div
-          className={`${eyebrowInGrid ? "" : "mt-6"} grid gap-8 md:grid-cols-[minmax(0,0.92fr)_minmax(320px,0.48fr)] ${
-            align === "start" ? "md:items-start" : align === "stretch" ? "md:items-stretch" : "md:items-end"
-          }`}
+          className={`${heroGridOffset(eyebrowInGrid)} grid gap-8 md:grid-cols-[minmax(0,0.92fr)_minmax(320px,0.48fr)] ${heroAlignClass(align)}`}
         >
           <div>
-            {eyebrowInGrid ? eyebrowEl : null}
-            <h1
-              className={`${eyebrowInGrid ? "mt-6" : ""} max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.02em] text-ink md:text-[72px]`}
-            >
+            <HeroEyebrowSlot eyebrow={eyebrowEl} show={eyebrowInGrid} />
+            <h1 className={`${heroTitleOffset(eyebrowInGrid)} max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.02em] text-ink md:text-[72px]`}>
               {title}
             </h1>
             <p className="mt-6 max-w-2xl text-[17px] leading-8 text-ink-soft md:text-[19px]">{description}</p>
           </div>
-          {children ? <div className={mediaClassName}>{children}</div> : null}
+          <HeroMedia className={mediaClassName}>{children}</HeroMedia>
         </div>
       </div>
     </section>
   );
 }
 
-export function SecondarySection({ id, eyebrow, title, description, children, tone = "default" }: SectionProps) {
-  const toneClass =
-    tone === "dark"
-      ? "bg-ink text-primary-foreground"
-      : tone === "muted"
-        ? "bg-muted text-ink"
-        : "bg-background text-ink";
+function HeroEyebrowSlot({ eyebrow, show }: { eyebrow: ReactNode; show: boolean }) {
+  return show ? eyebrow : null;
+}
 
+function HeroMedia({ children, className }: { children?: ReactNode; className: string }) {
+  return children ? <div className={className}>{children}</div> : null;
+}
+
+function heroGridOffset(eyebrowInGrid: boolean): string {
+  return eyebrowInGrid ? "" : "mt-6";
+}
+
+function heroTitleOffset(eyebrowInGrid: boolean): string {
+  return eyebrowInGrid ? "mt-6" : "";
+}
+
+function heroAlignClass(align: NonNullable<HeroProps["align"]>): string {
+  const classes: Record<NonNullable<HeroProps["align"]>, string> = {
+    start: "md:items-start",
+    stretch: "md:items-stretch",
+    end: "md:items-end",
+  };
+  return classes[align];
+}
+
+function sectionToneClass(tone: SectionTone): string {
+  const classes: Record<SectionTone, string> = {
+    dark: "bg-ink text-primary-foreground",
+    muted: "bg-muted text-ink",
+    default: "bg-background text-ink",
+  };
+  return classes[tone];
+}
+
+function sectionEyebrowClass(tone: SectionTone): string {
+  return tone === "dark" ? "text-white/55" : "text-ink-soft";
+}
+
+function sectionDescriptionClass(tone: SectionTone): string {
+  return tone === "dark" ? "text-white/65" : "text-ink-soft";
+}
+
+export function SecondarySection({ id, eyebrow, title, description, children, tone = "default" }: SectionProps) {
   return (
-    <section id={id} className={`border-b border-border ${toneClass}`}>
+    <section id={id} className={`border-b border-border ${sectionToneClass(tone)}`}>
       <div className="mx-auto max-w-[1400px] px-6 py-14 md:px-10 md:py-20">
         <div className="mb-10 max-w-3xl">
           {eyebrow ? (
-            <p
-              className={`mono text-[11px] uppercase tracking-[0.28em] ${
-                tone === "dark" ? "text-white/55" : "text-ink-soft"
-              }`}
-            >
+            <p className={`mono text-[11px] uppercase tracking-[0.28em] ${sectionEyebrowClass(tone)}`}>
               {eyebrow}
             </p>
           ) : null}
@@ -103,7 +131,7 @@ export function SecondarySection({ id, eyebrow, title, description, children, to
             {title}
           </h2>
           {description ? (
-            <p className={`mt-4 text-[16px] leading-7 ${tone === "dark" ? "text-white/65" : "text-ink-soft"}`}>
+            <p className={`mt-4 text-[16px] leading-7 ${sectionDescriptionClass(tone)}`}>
               {description}
             </p>
           ) : null}
@@ -115,8 +143,17 @@ export function SecondarySection({ id, eyebrow, title, description, children, to
 }
 
 export function CardGrid({ children, columns = 3 }: { children: ReactNode; columns?: 2 | 3 | 4 }) {
-  const columnClass = columns === 4 ? "lg:grid-cols-4" : columns === 2 ? "md:grid-cols-2" : "md:grid-cols-3";
+  const columnClass = cardGridColumnClass(columns);
   return <div className={`grid grid-cols-1 gap-px border border-border bg-border ${columnClass}`}>{children}</div>;
+}
+
+function cardGridColumnClass(columns: 2 | 3 | 4): string {
+  const classes = {
+    2: "md:grid-cols-2",
+    3: "md:grid-cols-3",
+    4: "lg:grid-cols-4",
+  };
+  return classes[columns];
 }
 
 export function InfoCard({ eyebrow, title, children }: CardProps) {
@@ -174,8 +211,7 @@ export function PageCta({
   label: string;
   intent: "trial" | "observe" | "sales";
 }) {
-  const event =
-    intent === "trial" ? "trial intent started" : intent === "observe" ? "observe intent started" : "sales intent started";
+  const event = pageCtaEvent(intent);
 
   return (
     <section className="border-b border-border bg-ink text-primary-foreground">
@@ -198,4 +234,13 @@ export function PageCta({
       </div>
     </section>
   );
+}
+
+function pageCtaEvent(intent: "trial" | "observe" | "sales") {
+  const events = {
+    trial: "trial intent started",
+    observe: "observe intent started",
+    sales: "sales intent started",
+  } as const;
+  return events[intent];
 }

@@ -4,6 +4,7 @@ import { pageMetadata } from "@/lib/seo";
 import { SecondaryShell } from "@/components/varsten/SecondaryPage";
 import { TrackedLink } from "@/components/varsten/TrackedLink";
 import { NextStepCta } from "@/components/varsten/NextStepCta";
+import { PricingFeatureList, PricingPlanBody, PricingPlanPrice, pricingToneClass } from "@/components/varsten/PricingPlanParts";
 import { SavingsCalculator } from "@/components/varsten/pricing/SavingsCalculator";
 
 export const metadata: Metadata = pageMetadata({
@@ -73,10 +74,6 @@ const plans = [
 
 type PricingPlan = (typeof plans)[number];
 
-function toneClass(plan: PricingPlan, highlighted: string, defaultClass: string): string {
-  return "highlighted" in plan && plan.highlighted ? highlighted : defaultClass;
-}
-
 function pricingCardBorder(index: number): string {
   if (index === plans.length - 1) return "";
   return "border-b border-border lg:border-b-0 lg:border-r";
@@ -88,69 +85,41 @@ function PricingPlanCard({ index, plan }: { index: number; plan: PricingPlan }) 
       className={[
         "relative flex min-h-[620px] min-w-0 flex-col p-6 sm:p-8 md:p-10 xl:p-12",
         pricingCardBorder(index),
-        toneClass(plan, "bg-ink text-primary-foreground", "bg-background"),
+        pricingToneClass(plan, "bg-ink text-primary-foreground", "bg-background"),
       ].join(" ")}
     >
       <div
-        className={[
-          "mono mb-8 flex flex-wrap items-center justify-between gap-3 text-[10px] uppercase tracking-[0.28em]",
-          toneClass(plan, "text-white/60", "text-ink-soft"),
-        ].join(" ")}
-      >
+          className={[
+            "mono mb-8 flex flex-wrap items-center justify-between gap-3 text-[10px] uppercase tracking-[0.28em]",
+            pricingToneClass(plan, "text-white/60", "text-ink-soft"),
+          ].join(" ")}
+        >
         <span>Plan · 0{index + 1}</span>
-        <span className={toneClass(plan, "text-white", "text-blueprint")}>{plan.tag}</span>
+        <span className={pricingToneClass(plan, "text-white", "text-blueprint")}>{plan.tag}</span>
       </div>
 
       <h2
         className={[
           "text-[28px] font-medium tracking-[-0.01em]",
-          toneClass(plan, "text-white", "text-ink"),
+          pricingToneClass(plan, "text-white", "text-ink"),
         ].join(" ")}
       >
         {plan.name}
       </h2>
 
-      <div className="mt-7 flex flex-wrap items-baseline gap-x-3 gap-y-2">
-        <span
-          className={[
-            "text-[52px] font-medium leading-none tracking-[-0.03em] sm:text-[58px] md:text-[72px]",
-            toneClass(plan, "text-white", "text-ink"),
-          ].join(" ")}
-        >
-          {plan.price}
-        </span>
-        <span
-          className={[
-            "mono max-w-[150px] text-[11px] uppercase tracking-[0.22em]",
-            toneClass(plan, "text-white/60", "text-ink-soft"),
-          ].join(" ")}
-        >
-          {plan.priceNote}
-        </span>
-      </div>
-
-      <p
-        className={[
-          "mt-8 max-w-md text-[14px] leading-[1.65]",
-          toneClass(plan, "text-white/70", "text-ink-soft"),
-        ].join(" ")}
-      >
-        {plan.body}
-      </p>
-
-      <ul
-        className={[
-          "mono mt-8 grid min-w-0 gap-3 border-t pt-6 text-[11px] uppercase tracking-[0.12em] sm:text-[12px] sm:tracking-[0.18em]",
-          toneClass(plan, "border-white/20 text-white", "border-border text-ink"),
-        ].join(" ")}
-      >
-        {plan.features.map((feature) => (
-          <li key={feature} className="flex min-w-0 items-start gap-3">
-            <span className={toneClass(plan, "text-white/60", "text-blueprint")}>✓</span>
-            <span className="min-w-0 break-words">{feature}</span>
-          </li>
-        ))}
-      </ul>
+      <PricingPlanPrice
+        plan={plan}
+        wrapperClassName="mt-7 flex flex-wrap items-baseline gap-x-3 gap-y-2"
+        priceClassName="text-[52px] font-medium leading-none tracking-[-0.03em] sm:text-[58px] md:text-[72px]"
+        noteClassName="mono max-w-[150px] text-[11px] uppercase tracking-[0.22em]"
+      />
+      <PricingPlanBody plan={plan} />
+      <PricingFeatureList
+        plan={plan}
+        itemClassName="flex min-w-0 items-start gap-3"
+        textClassName="min-w-0 break-words"
+        wrapperClassName="mono mt-8 grid min-w-0 gap-3 border-t pt-6 text-[11px] uppercase tracking-[0.12em] sm:text-[12px] sm:tracking-[0.18em]"
+      />
 
       <div className="mt-auto pt-12">
         <TrackedLink
@@ -160,7 +129,7 @@ function PricingPlanCard({ index, plan }: { index: number; plan: PricingPlan }) 
           eventProperties={{ plan: plan.id, cta: plan.cta }}
           className={[
             "inline-flex h-11 w-fit items-center gap-3 px-5 text-[13px] font-medium transition-opacity hover:opacity-90",
-            toneClass(plan, "bg-white text-ink", "bg-ink text-primary-foreground"),
+            pricingToneClass(plan, "bg-white text-ink", "bg-ink text-primary-foreground"),
           ].join(" ")}
         >
           {plan.cta}

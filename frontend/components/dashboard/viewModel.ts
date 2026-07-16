@@ -152,13 +152,13 @@ export function dashboardViewModel(snapshot: DashboardSnapshot, period: Dashboar
   };
 }
 
-export function numberValue(value: string | number | null | undefined): number | null {
+function numberValue(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = typeof value === "number" ? value : Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function moneyDisplay(value: string | number | null | undefined, digits?: number): string {
+function moneyDisplay(value: string | number | null | undefined, digits?: number): string {
   const parsed = numberValue(value);
   if (parsed === null) return "—";
   const abs = Math.abs(parsed);
@@ -174,7 +174,7 @@ export function moneyDisplay(value: string | number | null | undefined, digits?:
   });
 }
 
-export function moneyExactDisplay(value: string | number | null | undefined): string {
+function moneyExactDisplay(value: string | number | null | undefined): string {
   return moneyDisplay(value);
 }
 
@@ -188,13 +188,13 @@ export function compactMoneyDisplay(value: string | number | null | undefined): 
   return moneyDisplay(parsed);
 }
 
-export function percentDisplay(value: string | number | null | undefined, digits = 1): string {
+function percentDisplay(value: string | number | null | undefined, digits = 1): string {
   const parsed = numberValue(value);
   if (parsed === null) return "—";
   return `${(parsed * 100).toFixed(digits)}%`;
 }
 
-export function percentWholeDisplay(value: string | number | null | undefined): string {
+function percentWholeDisplay(value: string | number | null | undefined): string {
   const parsed = numberValue(value);
   if (parsed === null) return "—";
   return `${Math.round(parsed * 100)}%`;
@@ -285,50 +285,66 @@ function driverViews(rows: DashboardDriverRow[]): DashboardDriverView[] {
     .sort((a, b) => (b.value ?? Number.NEGATIVE_INFINITY) - (a.value ?? Number.NEGATIVE_INFINITY));
 }
 
-function integrityView(proof: DashboardProofTrust): DashboardIntegrityView {
-  const score = numberValue(proof.score);
-  const scoreNumber = score === null ? null : Math.round(score * 100);
+function scoreNumber(value: string | number | null | undefined): number | null {
+  const score = numberValue(value);
+  return score === null ? null : Math.round(score * 100);
+}
+
+function hasMeasuredSignal(proof: DashboardProofTrust): boolean {
+  return (
+    numberValue(proof.measured_share) !== null ||
+    numberValue(proof.verified_savings_usd) !== null ||
+    proof.has_direct_ledger ||
+    proof.has_ab_holdback
+  );
+}
+
+function verifiedSavingsValue(proof: DashboardProofTrust): string {
+  if (proof.claimed_savings_usd === null) return "—";
+  return `${moneyExactDisplay(proof.verified_savings_usd)} · ${moneyExactDisplay(proof.claimed_savings_usd)} claimed`;
+}
+
+function verifiedSavingsSub(measuredShare: number | null): string {
+  if (measuredShare === null) return "Measured savings appear once optimization evidence is available";
+  return `${Math.round(measuredShare * 100)}% of claimed savings measured end-to-end`;
+}
+
+function integrityRows(proof: DashboardProofTrust): DashboardIntegrityMetricView[] {
   const pricingCoverage = numberValue(proof.pricing_coverage);
   const measuredShare = numberValue(proof.measured_share);
   const attribution = numberValue(proof.attribution_share);
-  const verifiedSavings = numberValue(proof.verified_savings_usd);
-  const hasMeasuredSignal =
-    measuredShare !== null ||
-    verifiedSavings !== null ||
-    proof.has_direct_ledger ||
-    proof.has_ab_holdback;
-  const verifiedValue = proof.claimed_savings_usd === null
-    ? "—"
-    : `${moneyExactDisplay(proof.verified_savings_usd)} · ${moneyExactDisplay(proof.claimed_savings_usd)} claimed`;
+  return [
+    {
+      label: "Pricing coverage",
+      value: percentWholeDisplay(proof.pricing_coverage),
+      sub: "Priced against real provider catalogs",
+      level: trustLevel(ratioToScore(pricingCoverage)),
+    },
+    {
+      label: "Verified savings",
+      value: verifiedSavingsValue(proof),
+      sub: verifiedSavingsSub(measuredShare),
+      level: trustLevel(ratioToScore(measuredShare)),
+    },
+    {
+      label: "Spend attribution",
+      value: percentDisplay(proof.attribution_share, 1),
+      sub: "Requests tagged to a team or feature",
+      level: trustLevel(ratioToScore(attribution)),
+    },
+  ];
+}
+
+function integrityView(proof: DashboardProofTrust): DashboardIntegrityView {
+  const score = scoreNumber(proof.score);
   return {
-    scoreDisplay: scoreNumber === null ? "—" : String(scoreNumber),
-    scoreNumber,
-    scoreLevel: trustLevel(scoreNumber),
+    scoreDisplay: score === null ? "—" : String(score),
+    scoreNumber: score,
+    scoreLevel: trustLevel(score),
     confidenceLabel: proof.confidence_label,
     confidenceNote: proof.confidence_note,
-    showCheck: proof.confidence_level === "high" && scoreNumber !== null && hasMeasuredSignal,
-    rows: [
-      {
-        label: "Pricing coverage",
-        value: percentWholeDisplay(proof.pricing_coverage),
-        sub: "Priced against real provider catalogs",
-        level: trustLevel(ratioToScore(pricingCoverage)),
-      },
-      {
-        label: "Verified savings",
-        value: verifiedValue,
-        sub: measuredShare === null
-          ? "Measured savings appear once optimization evidence is available"
-          : `${Math.round(measuredShare * 100)}% of claimed savings measured end-to-end`,
-        level: trustLevel(ratioToScore(measuredShare)),
-      },
-      {
-        label: "Spend attribution",
-        value: percentDisplay(proof.attribution_share, 1),
-        sub: "Requests tagged to a team or feature",
-        level: trustLevel(ratioToScore(attribution)),
-      },
-    ],
+    showCheck: proof.confidence_level === "high" && score !== null && hasMeasuredSignal(proof),
+    rows: integrityRows(proof),
   };
 }
 

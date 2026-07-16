@@ -181,6 +181,86 @@ async function sendResendEmail({
   }
 }
 
+function buyerFirstName(lead: LeadPayload): string {
+  return lead.fullName.split(/\s+/, 1)[0] || lead.fullName;
+}
+
+function providerDetail(lead: LeadPayload): string {
+  return lead.primaryProviders === "Other" && lead.primaryProvidersOther
+    ? `Other: ${lead.primaryProvidersOther}`
+    : lead.primaryProviders;
+}
+
+function requestDetails(lead: LeadPayload): string[] {
+  return [
+    lead.monthlySpendRange ? `Monthly AI/API spend: ${lead.monthlySpendRange}` : "",
+    providerDetail(lead) ? `Primary providers: ${providerDetail(lead)}` : "",
+    lead.mainGoal ? `Main goal: ${lead.mainGoal}` : "",
+  ].filter(Boolean);
+}
+
+function buyerEmailText(lead: LeadPayload, calendlyUrl: string): string {
+  const details = requestDetails(lead);
+  return `Hey ${buyerFirstName(lead)},
+
+We received your Varsten enterprise request.
+
+${details.length ? `${details.join("\n")}\n\n` : ""}We will review the details and follow up with the right next step for your rollout.
+
+If you want to pick a time now, you can use this setup-call link:
+${calendlyUrl}
+
+No prompt text, provider keys, or message content is needed before the call.
+
+-Aaron`;
+}
+
+function presentOrNa(value: string): string {
+  return value || "n/a";
+}
+
+function notifyEmailText(lead: LeadPayload): string {
+  const provider = providerDetail(lead);
+  return `New Varsten setup request
+
+Name: ${lead.fullName}
+Company: ${lead.companyName}
+Email: ${lead.email}
+Monthly AI/API spend: ${presentOrNa(lead.monthlySpendRange)}
+Primary providers: ${presentOrNa(provider)}
+Main goal: ${presentOrNa(lead.mainGoal)}
+Note: ${presentOrNa(lead.note)}
+Source: ${lead.source}
+Submitted: ${lead.submittedAt}
+
+Buyer autoresponder: sent`;
+}
+
+async function sendBuyerEmail(apiKey: string, fromEmail: string, calendlyUrl: string, lead: LeadPayload): Promise<void> {
+  await sendResendEmail({
+    apiKey,
+    from: fromEmail,
+    to: lead.email,
+    subject: "Varsten enterprise request received",
+    text: buyerEmailText(lead, calendlyUrl),
+  });
+}
+
+async function sendNotifyEmail(
+  apiKey: string,
+  notifyEmail: string,
+  fromEmail: string,
+  lead: LeadPayload,
+): Promise<void> {
+  await sendResendEmail({
+    apiKey,
+    from: fromEmail,
+    to: notifyEmail,
+    subject: `New Varsten setup request: ${lead.companyName}`,
+    text: notifyEmailText(lead),
+  });
+}
+
 async function deliverViaResend(
   apiKey: string,
   notifyEmail: string,
@@ -188,55 +268,8 @@ async function deliverViaResend(
   calendlyUrl: string,
   lead: LeadPayload,
 ): Promise<void> {
-  const buyerFirstName = lead.fullName.split(/\s+/, 1)[0] || lead.fullName;
-  const providerDetail =
-    lead.primaryProviders === "Other" && lead.primaryProvidersOther
-      ? `Other: ${lead.primaryProvidersOther}`
-      : lead.primaryProviders;
-  const requestDetails = [
-    lead.monthlySpendRange ? `Monthly AI/API spend: ${lead.monthlySpendRange}` : "",
-    providerDetail ? `Primary providers: ${providerDetail}` : "",
-    lead.mainGoal ? `Main goal: ${lead.mainGoal}` : "",
-  ].filter(Boolean);
-
-  await sendResendEmail({
-    apiKey,
-    from: fromEmail,
-    to: lead.email,
-    subject: "Varsten enterprise request received",
-    text: `Hey ${buyerFirstName},
-
-We received your Varsten enterprise request.
-
-${requestDetails.length ? `${requestDetails.join("\n")}\n\n` : ""}We will review the details and follow up with the right next step for your rollout.
-
-If you want to pick a time now, you can use this setup-call link:
-${calendlyUrl}
-
-No prompt text, provider keys, or message content is needed before the call.
-
--Aaron`,
-  });
-
-  await sendResendEmail({
-    apiKey,
-    from: fromEmail,
-    to: notifyEmail,
-    subject: `New Varsten setup request: ${lead.companyName}`,
-    text: `New Varsten setup request
-
-Name: ${lead.fullName}
-Company: ${lead.companyName}
-Email: ${lead.email}
-Monthly AI/API spend: ${lead.monthlySpendRange || "n/a"}
-Primary providers: ${providerDetail || "n/a"}
-Main goal: ${lead.mainGoal || "n/a"}
-Note: ${lead.note || "n/a"}
-Source: ${lead.source}
-Submitted: ${lead.submittedAt}
-
-Buyer autoresponder: sent`,
-  });
+  await sendBuyerEmail(apiKey, fromEmail, calendlyUrl, lead);
+  await sendNotifyEmail(apiKey, notifyEmail, fromEmail, lead);
 }
 
 async function deliverLead(lead: LeadPayload): Promise<LeadDeliveryResult | NextResponse> {
@@ -282,20 +315,24 @@ async function leadResponse(lead: LeadPayload) {
 
 async function captureLeadSubmitted(lead: LeadPayload) {
   try {
-    await captureServerEvent({
-      event: "lead form submitted",
-      distinctId: lead.anonymousId,
-      properties: {
-        source: lead.source,
-        path: lead.pagePath,
-        utm_source: lead.utmSource || null,
-        utm_medium: lead.utmMedium || null,
-        utm_campaign: lead.utmCampaign || null,
-      },
-    });
+    await captureServerEvent(leadSubmittedEvent(lead));
   } catch (error) {
     console.error("lead analytics capture failed:", error);
   }
+}
+
+function leadSubmittedEvent(lead: LeadPayload): Parameters<typeof captureServerEvent>[0] {
+  return {
+    event: "lead form submitted",
+    distinctId: lead.anonymousId,
+    properties: {
+      source: lead.source,
+      path: lead.pagePath,
+      utm_source: lead.utmSource || null,
+      utm_medium: lead.utmMedium || null,
+      utm_campaign: lead.utmCampaign || null,
+    },
+  };
 }
 
 async function leadFromRequest(request: Request): Promise<LeadPayload | NextResponse> {

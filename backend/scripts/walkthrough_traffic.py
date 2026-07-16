@@ -46,6 +46,7 @@ import random
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -75,6 +76,13 @@ CACHEABLE_PROMPTS = [
 ]
 
 
+def _open_http_request(req: urllib.request.Request, timeout: float):
+    parsed = urllib.parse.urlparse(req.full_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(f"unsupported URL scheme: {parsed.scheme}")
+    return urllib.request.urlopen(req, timeout=timeout)  # nosec B310
+
+
 def _post_completion(
     api_base: str,
     key: str,
@@ -102,7 +110,7 @@ def _post_completion(
         headers["X-Varsten-Client"] = client
     req = urllib.request.Request(f"{api_base}/v1/chat/completions", data=body, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _open_http_request(req, timeout) as resp:
             return resp.status, resp.headers.get("X-Varsten-Cache", "?")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", "replace")[:200]
@@ -110,7 +118,7 @@ def _post_completion(
 
 def _run_traffic(args: argparse.Namespace, key: str) -> None:
     client = None if args.base_url_mode else args.client
-    rng = random.Random(args.seed_value)
+    rng = random.Random(args.seed_value)  # nosec B311
     total = 1 if args.first_only else args.count
 
     sent = 0
@@ -149,7 +157,7 @@ def _read_snapshot(api_base: str, key: str, timeout: float) -> None:
         headers={"Authorization": f"Bearer {key}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _open_http_request(req, timeout) as resp:
             snap = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         print(f"Could not read dashboard snapshot: HTTP {exc.code}")

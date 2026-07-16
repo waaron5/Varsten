@@ -12,7 +12,6 @@ export const AI_COST_REPORT_HREF = "https://aaronwoodcs.substack.com/subscribe";
 // trial starts Optimize access immediately, observe creates/keeps Free mode.
 export const START_TRIAL_HREF = `${APP_URL}/start?intent=trial`;
 export const START_OBSERVE_HREF = `${APP_URL}/start?intent=observe`;
-export const START_FREE_HREF = START_TRIAL_HREF;
 
 export function siteUrl(path = "/") {
   return new URL(path, `${SITE_URL}/`).toString();

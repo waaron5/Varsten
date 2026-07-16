@@ -235,7 +235,7 @@ async function handleApiKeys(ctx: MockRouteContext): Promise<boolean> {
   return true;
 }
 
-async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
+async function handleDashboardRead(ctx: MockRouteContext): Promise<boolean> {
   if (matches(ctx, "GET", "/v1/dashboard")) {
     increment(ctx.state, "dashboard");
     await fulfillJson(ctx.route, ctx.state.dashboard);
@@ -256,7 +256,10 @@ async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
     await fulfillText(ctx.route, ctx.state.dashboardExportCsv);
     return true;
   }
+  return false;
+}
 
+async function handleSimpleRead(ctx: MockRouteContext): Promise<boolean> {
   const reads: Record<string, [keyof MockState, string]> = {
     "/v1/entitlements": ["entitlements", "entitlements"],
     "/v1/proof/savings": ["proofSavings", "proofSavings"],
@@ -268,6 +271,10 @@ async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
   increment(ctx.state, callKey);
   await fulfillJson(ctx.route, ctx.state[stateKey]);
   return true;
+}
+
+async function handleReadModels(ctx: MockRouteContext): Promise<boolean> {
+  return (await handleDashboardRead(ctx)) || handleSimpleRead(ctx);
 }
 
 async function handleAutomation(ctx: MockRouteContext): Promise<boolean> {

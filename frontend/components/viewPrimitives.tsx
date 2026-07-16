@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useEffect } from "react";
 
 import { LEVER_LABELS as SAVINGS_LEVER_LABELS } from "@/lib/levers";
@@ -45,20 +45,6 @@ export function plainPercent(value: string | number | null | undefined): string 
   return `${n}%`;
 }
 
-export function signedPercent(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "-";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "-";
-  return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
-}
-
-export function riskClass(risk: string): string {
-  const normalized = risk.toLowerCase();
-  if (normalized.includes("high")) return "amber";
-  if (normalized.includes("medium")) return "accent";
-  return "green";
-}
-
 export function useDeferredLoad(load: () => Promise<void>) {
   useEffect(() => {
     void load();
@@ -90,30 +76,6 @@ export function Tabs({ tabs, active }: { tabs: TabLink[]; active: string }) {
           {tab.label}
         </Link>
       ))}
-    </div>
-  );
-}
-
-export function NoticeCard({
-  badge,
-  children,
-  style,
-  title,
-}: {
-  badge: string;
-  children: ReactNode;
-  style?: CSSProperties;
-  title: string;
-}) {
-  return (
-    <div className="card" style={style}>
-      <div className="card-head">
-        <h3>{title}</h3>
-        <div className="right"><span className="pill neutral">{badge}</span></div>
-      </div>
-      <div className="es" style={{ padding: "0 12px 12px" }}>
-        {children}
-      </div>
     </div>
   );
 }

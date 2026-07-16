@@ -8,15 +8,15 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export async function POST(request: Request) {
-  let body: Record<string, unknown>;
-
+async function analyticsRequestBody(request: Request): Promise<Record<string, unknown> | NextResponse> {
   try {
-    body = (await request.json()) as Record<string, unknown>;
+    return (await request.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
+}
 
+function validatedAnalyticsEvent(body: Record<string, unknown>) {
   const event = stringValue(body.event);
   const distinctId = stringValue(body.distinctId);
 
@@ -28,16 +28,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "missing distinct id" }, { status: 400 });
   }
 
+  return { event, distinctId, properties: safeAnalyticsProperties(body.properties) };
+}
+
+async function captureAnalyticsEvent({
+  distinctId,
+  event,
+  properties,
+}: {
+  distinctId: string;
+  event: Parameters<typeof captureServerEvent>[0]["event"];
+  properties: ReturnType<typeof safeAnalyticsProperties>;
+}) {
   try {
-    await captureServerEvent({
-      event,
-      distinctId,
-      properties: safeAnalyticsProperties(body.properties),
-    });
+    await captureServerEvent({ event, distinctId, properties });
   } catch (error) {
     console.error("analytics capture failed:", error);
     return NextResponse.json({ ok: false }, { status: 202 });
   }
 
   return NextResponse.json({ ok: true });
+}
+
+export async function POST(request: Request) {
+  const body = await analyticsRequestBody(request);
+  if (body instanceof NextResponse) return body;
+
+  const analyticsEvent = validatedAnalyticsEvent(body);
+  if (analyticsEvent instanceof NextResponse) return analyticsEvent;
+
+  return captureAnalyticsEvent(analyticsEvent);
 }

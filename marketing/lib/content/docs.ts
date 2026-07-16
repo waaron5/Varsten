@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { cache } from "react";
 
-export type DocFrontmatter = {
+type DocFrontmatter = {
   title: string;
   description: string;
   slug: string;
@@ -11,17 +11,21 @@ export type DocFrontmatter = {
   updatedAt: string;
 };
 
-export type DocPage = DocFrontmatter & {
+type DocPage = DocFrontmatter & {
   body: string;
 };
 
 const docsDirectory = path.join(process.cwd(), "content", "docs");
+const requiredFrontmatterFields = ["title", "slug", "category", "order", "updatedAt"] as const;
 
-function parseFrontmatter(raw: string, fileName: string): DocPage {
+function splitFrontmatter(raw: string, fileName: string): RegExpMatchArray {
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!match) throw new Error(`Missing frontmatter in ${fileName}`);
+  return match;
+}
 
-  const fields = match[1].split("\n").reduce<Record<string, string>>((acc, line) => {
+function frontmatterFields(frontmatter: string): Record<string, string> {
+  return frontmatter.split("\n").reduce<Record<string, string>>((acc, line) => {
     const separator = line.indexOf(":");
     if (separator === -1) return acc;
     const key = line.slice(0, separator).trim();
@@ -29,14 +33,24 @@ function parseFrontmatter(raw: string, fileName: string): DocPage {
     acc[key] = value;
     return acc;
   }, {});
+}
 
-  const required = ["title", "slug", "category", "order", "updatedAt"] as const;
-  for (const key of required) {
+function requireFrontmatter(fields: Record<string, string>, fileName: string) {
+  for (const key of requiredFrontmatterFields) {
     if (!fields[key]) throw new Error(`Missing ${key} in ${fileName}`);
   }
+}
 
-  const order = Number(fields.order);
+function parseOrder(value: string, fileName: string): number {
+  const order = Number(value);
   if (!Number.isFinite(order)) throw new Error(`Invalid order in ${fileName}`);
+  return order;
+}
+
+function parseFrontmatter(raw: string, fileName: string): DocPage {
+  const match = splitFrontmatter(raw, fileName);
+  const fields = frontmatterFields(match[1]);
+  requireFrontmatter(fields, fileName);
 
   const body = match[2].trim();
   const description = fields.description || descriptionFromMarkdown(body);
@@ -47,7 +61,7 @@ function parseFrontmatter(raw: string, fileName: string): DocPage {
     description,
     slug: fields.slug,
     category: fields.category,
-    order,
+    order: parseOrder(fields.order, fileName),
     updatedAt: fields.updatedAt,
     body,
   };
@@ -60,7 +74,7 @@ function markdownFiles() {
     .sort();
 }
 
-export function descriptionFromMarkdown(markdown: string) {
+function descriptionFromMarkdown(markdown: string) {
   const clean = markdown
     .replace(/```[\s\S]*?```/g, "")
     .split("\n")
@@ -85,12 +99,4 @@ export const getAllDocs = cache((): DocPage[] => {
 
 export function getDoc(slug: string) {
   return getAllDocs().find((doc) => doc.slug === slug) ?? null;
-}
-
-export function getDocsByCategory() {
-  return getAllDocs().reduce<Record<string, DocPage[]>>((groups, doc) => {
-    groups[doc.category] = groups[doc.category] || [];
-    groups[doc.category].push(doc);
-    return groups;
-  }, {});
 }

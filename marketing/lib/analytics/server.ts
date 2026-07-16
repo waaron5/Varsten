@@ -15,6 +15,19 @@ function knownEvent(event: string): event is AnalyticsEventName {
   return (ANALYTICS_EVENTS as readonly string[]).includes(event);
 }
 
+function skippedCaptureReason(event: AnalyticsEventName, apiKey: string) {
+  if (analyticsDisabled()) return "disabled" as const;
+  if (!knownEvent(event)) return "unknown-event" as const;
+  if (!apiKey) return "missing-key" as const;
+  return null;
+}
+
+function logMissingAnalyticsKey(event: AnalyticsEventName, properties: AnalyticsProperties) {
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[analytics disabled] missing PostHog key:", event, properties);
+  }
+}
+
 export async function captureServerEvent({
   event,
   distinctId,
@@ -24,16 +37,10 @@ export async function captureServerEvent({
   distinctId: string;
   properties?: AnalyticsProperties;
 }) {
-  if (analyticsDisabled()) return { captured: false, reason: "disabled" as const };
-  if (!knownEvent(event)) return { captured: false, reason: "unknown-event" as const };
-
   const apiKey = posthogKey();
-  if (!apiKey) {
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[analytics disabled] missing PostHog key:", event, properties);
-    }
-    return { captured: false, reason: "missing-key" as const };
-  }
+  const skippedReason = skippedCaptureReason(event, apiKey);
+  if (skippedReason === "missing-key") logMissingAnalyticsKey(event, properties);
+  if (skippedReason) return { captured: false, reason: skippedReason };
 
   const response = await fetch(`${posthogHost}/capture/`, {
     method: "POST",

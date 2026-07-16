@@ -18,18 +18,3 @@ export function LockedNotice({ title, children }: { title: string; children?: Re
     </div>
   );
 }
-
-// Effective status, not raw config: for observe-only (Free), a lever/route/trim is
-// never "active" regardless of its stored enabled flag.
-export function EffectiveStatusBadge({
-  observeOnly,
-  active,
-  lockedLabel = "Available on Optimize",
-}: {
-  observeOnly: boolean;
-  active: boolean;
-  lockedLabel?: string;
-}) {
-  if (observeOnly) return <span className="pill neutral">{lockedLabel}</span>;
-  return <span className={`pill ${active ? "green" : "neutral"}`}>{active ? "active" : "paused"}</span>;
-}

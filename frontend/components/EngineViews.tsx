@@ -112,6 +112,110 @@ function totalSavings(items: readonly LeverConfig[]): number {
   return items.reduce((sum, item) => sum + Number(item.savings_to_date_usd || 0), 0);
 }
 
+function lockedLeverStatus(): LeverStatus {
+  return {
+    label: "Observe only",
+    tone: "locked",
+    detail: "Upgrade to Optimize before Varsten changes production behavior.",
+  };
+}
+
+function disabledLeverStatus(): LeverStatus {
+  return {
+    label: "Off",
+    tone: "off",
+    detail: "Varsten will not use this automation for this project.",
+  };
+}
+
+function setupRequiredStatus(item: LeverConfig): LeverStatus {
+  return {
+    label: "Needs setup",
+    tone: "setup",
+    detail: runtimeReason(item) ?? "Finish setup before this automation can run.",
+  };
+}
+
+function routingLeverStatus(item: LeverConfig, routes: readonly ActiveRoute[] | null | undefined): LeverStatus {
+  const count = routeCount(routes, item.lever);
+  if (count > 0) {
+    return {
+      label: `Running on ${count} ${count === 1 ? "route" : "routes"}`,
+      tone: "active",
+      detail: "Eligible traffic can be routed through checked policies.",
+    };
+  }
+  return {
+    label: "Waiting for eligible traffic",
+    tone: "waiting",
+    detail: "Varsten will use this when quality checks and route evidence are ready.",
+  };
+}
+
+function tokenTrimStatus(trims: readonly ActiveTrim[] | null | undefined): LeverStatus {
+  const count = trims?.length ?? 0;
+  if (count > 0) {
+    return {
+      label: `Running on ${count} ${count === 1 ? "model" : "models"}`,
+      tone: "active",
+      detail: "Eligible requests can be trimmed before forwarding.",
+    };
+  }
+  return {
+    label: "Waiting for high-context traffic",
+    tone: "waiting",
+    detail: "Varsten will trim only where a safe policy exists.",
+  };
+}
+
+function promptCompressionStatus(compressions: readonly PromptCompressionArtifact[] | null | undefined): LeverStatus {
+  const active = activeCompressionCount(compressions);
+  const prepared = compressions?.length ?? 0;
+  if (active > 0) {
+    return {
+      label: `Running on ${active} ${active === 1 ? "prompt" : "prompts"}`,
+      tone: "active",
+      detail: "Only exact matches to evaluated prompts are compressed.",
+    };
+  }
+  if (prepared > 0) {
+    return {
+      label: "Prepared, not live",
+      tone: "waiting",
+      detail: "A compressed prompt exists but no live policy is currently active.",
+    };
+  }
+  return {
+    label: "Needs replay samples",
+    tone: "setup",
+    detail: "Capture or add samples before Varsten can prove a shorter prompt.",
+  };
+}
+
+function batchingStatus(batches: readonly BatchJob[] | null | undefined): LeverStatus {
+  const recent = batches?.filter((job) => job.status === "finalized" || job.status === "completed").length ?? 0;
+  if (recent > 0) {
+    return {
+      label: `${recent} recent ${recent === 1 ? "batch" : "batches"}`,
+      tone: "active",
+      detail: "New batch submissions are allowed for non-urgent jobs.",
+    };
+  }
+  return {
+    label: "Ready for batch API",
+    tone: "waiting",
+    detail: "Normal requests are not batched automatically; callers submit batch jobs explicitly.",
+  };
+}
+
+function defaultLeverStatus(): LeverStatus {
+  return {
+    label: "On",
+    tone: "active",
+    detail: "Varsten can use this automation on eligible requests.",
+  };
+}
+
 function leverStatus({
   batches,
   compressions,
@@ -127,65 +231,27 @@ function leverStatus({
   routes: readonly ActiveRoute[] | null | undefined;
   trims: readonly ActiveTrim[] | null | undefined;
 }): LeverStatus {
-  if (observeOnly) {
-    return {
-      label: "Observe only",
-      tone: "locked",
-      detail: "Upgrade to Optimize before Varsten changes production behavior.",
-    };
-  }
-  if (!item.enabled) {
-    return {
-      label: "Off",
-      tone: "off",
-      detail: "Varsten will not use this automation for this project.",
-    };
-  }
-  if (!runtimeAvailable(item)) {
-    return {
-      label: "Needs setup",
-      tone: "setup",
-      detail: runtimeReason(item) ?? "Finish setup before this automation can run.",
-    };
-  }
+  if (observeOnly) return lockedLeverStatus();
+  if (!item.enabled) return disabledLeverStatus();
+  if (!runtimeAvailable(item)) return setupRequiredStatus(item);
 
   if (item.lever === LEVER_MODEL_DOWNSHIFT || item.lever === LEVER_SMART_ROUTING) {
-    const count = routeCount(routes, item.lever);
-    return count > 0
-      ? { label: `Running on ${count} ${count === 1 ? "route" : "routes"}`, tone: "active", detail: "Eligible traffic can be routed through checked policies." }
-      : { label: "Waiting for eligible traffic", tone: "waiting", detail: "Varsten will use this when quality checks and route evidence are ready." };
+    return routingLeverStatus(item, routes);
   }
 
   if (item.lever === LEVER_TOKEN_TRIM) {
-    const count = trims?.length ?? 0;
-    return count > 0
-      ? { label: `Running on ${count} ${count === 1 ? "model" : "models"}`, tone: "active", detail: "Eligible requests can be trimmed before forwarding." }
-      : { label: "Waiting for high-context traffic", tone: "waiting", detail: "Varsten will trim only where a safe policy exists." };
+    return tokenTrimStatus(trims);
   }
 
   if (item.lever === LEVER_PROMPT_COMPRESSION) {
-    const active = activeCompressionCount(compressions);
-    const prepared = compressions?.length ?? 0;
-    if (active > 0) {
-      return { label: `Running on ${active} ${active === 1 ? "prompt" : "prompts"}`, tone: "active", detail: "Only exact matches to evaluated prompts are compressed." };
-    }
-    return prepared > 0
-      ? { label: "Prepared, not live", tone: "waiting", detail: "A compressed prompt exists but no live policy is currently active." }
-      : { label: "Needs replay samples", tone: "setup", detail: "Capture or add samples before Varsten can prove a shorter prompt." };
+    return promptCompressionStatus(compressions);
   }
 
   if (item.lever === LEVER_BATCHING) {
-    const recent = batches?.filter((job) => job.status === "finalized" || job.status === "completed").length ?? 0;
-    return recent > 0
-      ? { label: `${recent} recent ${recent === 1 ? "batch" : "batches"}`, tone: "active", detail: "New batch submissions are allowed for non-urgent jobs." }
-      : { label: "Ready for batch API", tone: "waiting", detail: "Normal requests are not batched automatically; callers submit batch jobs explicitly." };
+    return batchingStatus(batches);
   }
 
-  return {
-    label: "On",
-    tone: "active",
-    detail: "Varsten can use this automation on eligible requests.",
-  };
+  return defaultLeverStatus();
 }
 
 function Toggle({
@@ -359,38 +425,108 @@ function AutomationError({ children }: { children: ReactNode }) {
   return <div className="automation-error">{children}</div>;
 }
 
+function useAutomationResources() {
+  return {
+    levers: useProjectResource<LeverConfig[]>(["automationLevers"], api.engineLevers, []),
+    routes: useProjectResource<ActiveRoute[]>(["automationRoutes"], api.engineRoutes, []),
+    trims: useProjectResource<ActiveTrim[]>(["automationTrims"], api.engineTrims, []),
+    batches: useProjectResource<BatchJob[]>(["automationBatches"], api.engineBatches, []),
+    compressions: useProjectResource<PromptCompressionArtifact[]>(
+      ["automationCompressions"],
+      api.engineCompressions,
+      [],
+    ),
+    dashboard: useProjectResource<Dashboard>(["automationActivity"], api.dashboard),
+  };
+}
+
+function secondaryResourceError(resources: ReturnType<typeof useAutomationResources>): string | null {
+  return (
+    resources.routes.error ??
+    resources.trims.error ??
+    resources.batches.error ??
+    resources.compressions.error ??
+    resources.dashboard.error
+  );
+}
+
+function AutomationRowsPanel({
+  busyId,
+  observeOnly,
+  resources,
+  rows,
+  toggleLever,
+}: {
+  busyId: string | null;
+  observeOnly: boolean;
+  resources: ReturnType<typeof useAutomationResources>;
+  rows: readonly LeverConfig[];
+  toggleLever: (item: LeverConfig) => void;
+}) {
+  if (resources.levers.loading || resources.levers.error) {
+    return <div className="card"><PageState loading={resources.levers.loading} error={resources.levers.error} /></div>;
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="card">
+        <PageState empty="No automations configured" emptyDetail="Connect a provider and send traffic to initialize Varsten automations." />
+      </div>
+    );
+  }
+
+  return (
+    <section className="card automation-list" aria-label="Money-saving automations">
+      <div className="card-head">
+        <div>
+          <h3>Money-saving automations</h3>
+          <p className="sub">Each switch maps to a real project-level runtime control.</p>
+        </div>
+        <div className="right"><span className="pill neutral">{rows.length} levers</span></div>
+      </div>
+      {rows.map((item) => (
+        <AutomationRow
+          key={item.id}
+          batches={resources.batches.data}
+          busy={busyId === item.lever}
+          compressions={resources.compressions.data}
+          item={item}
+          observeOnly={observeOnly}
+          onToggle={toggleLever}
+          routes={resources.routes.data}
+          trims={resources.trims.data}
+        />
+      ))}
+    </section>
+  );
+}
+
 function AutomationBody() {
   const { activeProjectId, getToken } = useSession();
   const { observeOnly } = useEntitlements();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const levers = useProjectResource<LeverConfig[]>(["automationLevers"], api.engineLevers, []);
-  const routes = useProjectResource<ActiveRoute[]>(["automationRoutes"], api.engineRoutes, []);
-  const trims = useProjectResource<ActiveTrim[]>(["automationTrims"], api.engineTrims, []);
-  const batches = useProjectResource<BatchJob[]>(["automationBatches"], api.engineBatches, []);
-  const compressions = useProjectResource<PromptCompressionArtifact[]>(["automationCompressions"], api.engineCompressions, []);
-  const dashboard = useProjectResource<Dashboard>(["automationActivity"], api.dashboard);
-
-  const rows = useMemo(() => sortedLeverRows(levers.data), [levers.data]);
-  const secondaryError = routes.error ?? trims.error ?? batches.error ?? compressions.error ?? dashboard.error;
+  const resources = useAutomationResources();
+  const rows = useMemo(() => sortedLeverRows(resources.levers.data), [resources.levers.data]);
+  const secondaryError = secondaryResourceError(resources);
 
   const toggleLever = useCallback(
     async (item: LeverConfig) => {
       setBusyId(item.lever);
-      levers.setError(null);
+      resources.levers.setError(null);
       try {
         const updated = await api.updateLever(await getToken(), activeProjectId ?? undefined, item.lever, {
           enabled: !item.enabled,
         });
-        levers.setData((current) =>
+        resources.levers.setData((current) =>
           (current ?? []).map((row) => (row.lever === item.lever ? { ...row, ...updated } : row)),
         );
       } catch (e) {
-        levers.setError(e instanceof Error ? e.message : String(e));
+        resources.levers.setError(e instanceof Error ? e.message : String(e));
       } finally {
         setBusyId(null);
       }
     },
-    [activeProjectId, getToken, levers],
+    [activeProjectId, getToken, resources.levers],
   );
 
   return (
@@ -402,40 +538,19 @@ function AutomationBody() {
         </LockedNotice>
       )}
       {secondaryError ? <AutomationError>{secondaryError}</AutomationError> : null}
-      {levers.loading || levers.error ? (
-        <div className="card"><PageState loading={levers.loading} error={levers.error} /></div>
-      ) : rows.length === 0 ? (
-        <div className="card"><PageState empty="No automations configured" emptyDetail="Connect a provider and send traffic to initialize Varsten automations." /></div>
-      ) : (
-        <section className="card automation-list" aria-label="Money-saving automations">
-          <div className="card-head">
-            <div>
-              <h3>Money-saving automations</h3>
-              <p className="sub">Each switch maps to a real project-level runtime control.</p>
-            </div>
-            <div className="right"><span className="pill neutral">{rows.length} levers</span></div>
-          </div>
-          {rows.map((item) => (
-            <AutomationRow
-              key={item.id}
-              batches={batches.data}
-              busy={busyId === item.lever}
-              compressions={compressions.data}
-              item={item}
-              observeOnly={observeOnly}
-              onToggle={toggleLever}
-              routes={routes.data}
-              trims={trims.data}
-            />
-          ))}
-        </section>
-      )}
+      <AutomationRowsPanel
+        busyId={busyId}
+        observeOnly={observeOnly}
+        resources={resources}
+        rows={rows}
+        toggleLever={toggleLever}
+      />
       <AutomationActivity
-        batches={batches.data}
-        compressions={compressions.data}
-        dashboard={dashboard.data}
-        routes={routes.data}
-        trims={trims.data}
+        batches={resources.batches.data}
+        compressions={resources.compressions.data}
+        dashboard={resources.dashboard.data}
+        routes={resources.routes.data}
+        trims={resources.trims.data}
       />
     </div>
   );
@@ -447,16 +562,4 @@ export function AutomationView() {
       <AutomationBody />
     </RequireSession>
   );
-}
-
-export function EngineLeversView() {
-  return <AutomationView />;
-}
-
-export function EngineAutomationView() {
-  return <AutomationView />;
-}
-
-export function EngineRecommendationsView() {
-  return <AutomationView />;
 }

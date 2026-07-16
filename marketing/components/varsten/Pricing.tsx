@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ENTERPRISE_FORM_HREF, START_TRIAL_HREF, START_OBSERVE_HREF } from "@/app/site-links";
 import { SectionIntro } from "./SectionIntro";
+import { PricingFeatureList, PricingPlanBody, PricingPlanPrice, pricingToneClass } from "./PricingPlanParts";
 
 const plans = [
   {
@@ -42,10 +43,6 @@ const plans = [
 
 type Plan = (typeof plans)[number];
 
-function toneClass(plan: Plan, highlighted: string, defaultClass: string): string {
-  return plan.highlighted ? highlighted : defaultClass;
-}
-
 function planCardBorder(index: number): string {
   return index === 0 ? "border-b border-border md:border-b-0 md:border-r" : "";
 }
@@ -54,19 +51,19 @@ function PricingCard({ index, plan }: { index: number; plan: Plan }) {
   const cardClass = [
     "relative p-8 md:p-12",
     planCardBorder(index),
-    toneClass(plan, "bg-ink text-primary-foreground", "bg-background"),
+    pricingToneClass(plan, "bg-ink text-primary-foreground", "bg-background"),
   ].join(" ");
 
   return (
     <div className={cardClass}>
       <div
-        className={[
-          "mono mb-8 flex items-center justify-between text-[10px] uppercase tracking-[0.28em]",
-          toneClass(plan, "text-white/60", "text-ink-soft"),
-        ].join(" ")}
-      >
+          className={[
+            "mono mb-8 flex items-center justify-between text-[10px] uppercase tracking-[0.28em]",
+            pricingToneClass(plan, "text-white/60", "text-ink-soft"),
+          ].join(" ")}
+        >
         <span>Plan · 0{index + 1}</span>
-        <span className={toneClass(plan, "text-white", "text-blueprint")}>
+        <span className={pricingToneClass(plan, "text-white", "text-blueprint")}>
           {plan.tag}
         </span>
       </div>
@@ -74,61 +71,21 @@ function PricingCard({ index, plan }: { index: number; plan: Plan }) {
       <h3
         className={[
           "text-[26px] font-medium tracking-[-0.01em]",
-          toneClass(plan, "text-white", "text-ink"),
+          pricingToneClass(plan, "text-white", "text-ink"),
         ].join(" ")}
       >
         {plan.name}
       </h3>
 
-      <div className="mt-6 flex items-baseline gap-3">
-        <span
-          className={[
-            "text-[56px] font-medium leading-none tracking-[-0.03em] md:text-[72px]",
-            toneClass(plan, "text-white", "text-ink"),
-          ].join(" ")}
-        >
-          {plan.price}
-        </span>
-        <span
-          className={[
-            "mono text-[11px] uppercase tracking-[0.22em]",
-            toneClass(plan, "text-white/60", "text-ink-soft"),
-          ].join(" ")}
-        >
-          {plan.priceNote}
-        </span>
-      </div>
-
-      <p
-        className={[
-          "mt-8 max-w-md text-[14px] leading-[1.65]",
-          toneClass(plan, "text-white/70", "text-ink-soft"),
-        ].join(" ")}
-      >
-        {plan.body}
-      </p>
-
-      <ul
-        className={[
-          "mono mt-8 grid gap-3 border-t pt-6 text-[12px] uppercase tracking-[0.18em]",
-          toneClass(plan, "border-white/20 text-white", "border-border text-ink"),
-        ].join(" ")}
-      >
-        {plan.features.map((feature) => (
-          <li key={feature} className="flex items-start gap-3">
-            <span className={toneClass(plan, "text-white/60", "text-blueprint")}>
-              ✓
-            </span>
-            <span>{feature}</span>
-          </li>
-        ))}
-      </ul>
+      <PricingPlanPrice plan={plan} />
+      <PricingPlanBody plan={plan} />
+      <PricingFeatureList plan={plan} />
 
       <Link
         href={plan.href}
         className={[
           "mt-12 inline-flex h-11 items-center gap-3 px-5 text-[13px] font-medium transition-opacity hover:opacity-90",
-          toneClass(plan, "bg-white text-ink", "bg-ink text-primary-foreground"),
+          pricingToneClass(plan, "bg-white text-ink", "bg-ink text-primary-foreground"),
         ].join(" ")}
       >
         {plan.cta}

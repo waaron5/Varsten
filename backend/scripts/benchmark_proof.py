@@ -212,10 +212,7 @@ def build_report(
     deployment_paths = deployment_paths or default_deployment_paths()
     generated_at = config.generated_at or datetime.now(UTC).isoformat()
 
-    workload_reports = {
-        workload.id: _workload_report(workload, config, deployment_paths)
-        for workload in workloads
-    }
+    workload_reports = {workload.id: _workload_report(workload, config, deployment_paths) for workload in workloads}
     default_deployment = "sdk_wrapper"
     portfolio = _portfolio_summary(workload_reports, default_deployment)
     return {
@@ -226,8 +223,7 @@ def build_report(
             "holdback_percent": config.holdback_percent,
             "gain_share_percent": config.gain_share_percent,
             "net_formula": (
-                "true_net = gross_captured_savings - measurement_holdback_cost "
-                "- architecture_overhead - gain_share_fee"
+                "true_net = gross_captured_savings - measurement_holdback_cost - architecture_overhead - gain_share_fee"
             ),
             "fee_formula": "gain_share_fee = max(billable_verified_savings, 0) * gain_share_percent",
             "architecture_overhead": (
@@ -252,8 +248,7 @@ def build_report(
             "holdback_percent": config.holdback_percent,
             "gain_share_percent": config.gain_share_percent,
             "traffic_mix_sliders": [
-                _calculator_slider(workload_reports[workload.id], default_deployment)
-                for workload in workloads
+                _calculator_slider(workload_reports[workload.id], default_deployment) for workload in workloads
             ],
             "portfolio_default_mix": portfolio,
         },
@@ -437,9 +432,7 @@ def _architecture_overhead_usd(
     request_units = request_count / 1000
     compute_cost = request_units * deployment_path.compute_cost_per_1k_requests_usd
     latency_cost = (
-        request_units
-        * deployment_path.latency_overhead_p50_ms
-        * config.latency_cost_per_1k_requests_per_ms_usd
+        request_units * deployment_path.latency_overhead_p50_ms * config.latency_cost_per_1k_requests_per_ms_usd
     )
     return compute_cost + latency_cost
 
@@ -482,8 +475,7 @@ def _calculator_slider(workload_report: dict[str, Any], default_deployment: str)
         "p50": default_percentiles["p50"],
         "p75": default_percentiles["p75"],
         "deployment_paths": {
-            path_id: path_report["percentiles"]
-            for path_id, path_report in workload_report["deployment_paths"].items()
+            path_id: path_report["percentiles"] for path_id, path_report in workload_report["deployment_paths"].items()
         },
     }
 
