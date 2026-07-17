@@ -1,8 +1,10 @@
 # Provider key vaulting: migration to AWS Secrets Manager
 
-Status: implemented behind `PROVIDER_KEY_BACKEND`. The data plane resolves
-provider keys through a provider-aware TTL cache; production writes and deletes
-use AWS Secrets Manager and local/dev can still use env maps for rollback.
+Status: AWS Secrets Manager storage is live behind `PROVIDER_KEY_BACKEND`.
+Customer-managed KMS enforcement and shorter plaintext cache residency are
+implemented in code/Terraform but require the migration below before they are
+true of existing production secrets. Human IAM removal, durable CloudTrail, and
+read/write workload separation remain separate custody-hardening gates.
 
 ## Today (interim, Phase 1)
 
@@ -43,9 +45,9 @@ One secret per `(project_id, provider)`, namespaced:
 varsten/<env>/provider-keys/<project_id>/<provider>   ->  {"api_key": "sk-..."}
 ```
 
-- Encrypted at rest with a **customer-scoped KMS key** (one CMK per tenant for
-  enterprise tiers; a shared CMK for self-serve), enabling per-tenant key policies
-  and crypto-shredding on offboarding.
+- The first hardening step uses a dedicated, rotating customer-managed KMS key for
+  all provider secrets in one environment. Per-tenant keys remain an enterprise
+  isolation target and must not be claimed as deployed yet.
 - Versioned by Secrets Manager (`AWSCURRENT` / `AWSPREVIOUS`) so rotation is
   atomic and reversible.
 
@@ -78,7 +80,7 @@ A Secrets Manager `GetSecretValue` call is ~10-30ms — unacceptable on every
 request. Mitigation:
 
 - **In-process TTL cache** (`cachetools.TTLCache` guarded by an `RLock`), keyed by
-  `(project_id, provider)`, default TTL 5 minutes. First request for a tenant pays
+  `(project_id, provider)`, production TTL 30 seconds. First request for a tenant pays
   the fetch; subsequent ones are in-memory.
 - **Decrypt cache** via the AWS SDK is also available; the TTL cache is the primary
   control.
@@ -103,13 +105,32 @@ request. Mitigation:
 
 ### IAM / least privilege
 
-- The app's task role gets `secretsmanager:GetSecretValue` and `kms:Decrypt`
-  scoped by resource ARN prefix `varsten/<env>/provider-keys/*` only — not broad
-  Secrets Manager access.
-- Writes (creating/rotating a tenant's key) are done by the onboarding/control
-  path with a separate role that also has `secretsmanager:CreateSecret`,
-  `secretsmanager:PutSecretValue`, and `secretsmanager:DeleteSecret`, never by
-  the data-plane task role.
+- The current App Runner instance role reads environment secrets and provider
+  secrets, and also writes provider secrets for the self-serve Connections flow.
+  This is not the final least-privilege boundary. The CMK change scopes its
+  explicit `kms:Decrypt` grant to the provider-key CMK instead of `Resource = "*"`.
+- Separating the control-plane writer from the data-plane reader requires a
+  separate workload/role and remains mandatory before enterprise launch.
+
+### Existing-secret migration without plaintext export
+
+1. Review and apply Terraform to create the provider-key CMK, alias, exact KMS
+   runtime grant, 30-second cache setting, and `PROVIDER_KEY_KMS_KEY_ID`.
+2. Deploy the matching backend image. Production startup refuses to proceed if
+   the Secrets Manager backend lacks the KMS key identifier.
+3. For each existing provider secret, run `aws secretsmanager update-secret` with
+   the new KMS key ARN. Do not call `GetSecretValue`, print a secret, or copy one
+   through a shell variable.
+4. Rotate each key in its provider console, then reconnect it through Varsten.
+   That creates a fresh `AWSCURRENT` version under the selected CMK without moving
+   the old plaintext through an operator workstation.
+5. Verify secret metadata (`KmsKeyId`, tags, version stages), proxy health, and a
+   controlled request for each provider. Never include `SecretString` in evidence.
+6. Revoke the superseded provider keys at OpenAI, Anthropic, and Google.
+
+This sequence intentionally separates infrastructure creation from key rotation.
+Do not narrow or remove the old decrypt path until all existing secrets have been
+migrated and a controlled request has passed.
 
 ### Migration steps (no downtime)
 
@@ -120,9 +141,9 @@ request. Mitigation:
 3. Wire the EventBridge rotation -> cache-invalidation hook.
 4. Remove env maps once prod is stable on the vault.
 
-### What this lets us tell a security reviewer
+### Target statement after all custody gates pass
 
-- Tenant keys are encrypted with per-tenant KMS keys, access is least-privilege and
-  audited (CloudTrail on `GetSecretValue`/`Decrypt`), rotation is atomic and
-  reversible, and onboarding a client no longer requires a deploy. The data plane
-  fails closed on key resolution and never logs or persists keys.
+- Provider keys are encrypted with a dedicated CMK, runtime access is
+  least-privilege and durably audited, rotation is controlled, and onboarding a
+  client does not require a deploy. Per-tenant/customer-owned custody is described
+  separately and never implied for the shared hosted gateway.

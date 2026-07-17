@@ -154,7 +154,9 @@ Set these on the service (plain env for non-secrets, Secrets Manager refs for th
 | Key | Example | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql+psycopg://varsten:…@<rds-endpoint>:5432/varsten` | **secret** |
-| `PROXY_OPENAI_KEYS` | `{"<project-uuid>":"sk-…"}` | **secret**, JSON map |
+| `PROVIDER_KEY_BACKEND` | `secretsmanager` | required in production |
+| `PROVIDER_KEY_KMS_KEY_ID` | provider-key CMK ARN | required in production; Terraform supplies it |
+| `PROVIDER_KEY_CACHE_TTL_SECONDS` | `30` | maximum application cache TTL for decrypted keys |
 | `CORS_ORIGINS` | `["https://app.varsten.com"]` | lock to the real frontend origin |
 | `AUTH0_DOMAIN` / `AUTH0_AUDIENCE` | … | dashboard auth |
 | `BATCH_STORAGE_BACKEND` | `s3` | switches storage off local disk |
