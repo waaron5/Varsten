@@ -134,7 +134,7 @@ export const PROVIDER_LABELS: Record<IntegrationProviderId, string> = {
 
 export const EXAMPLE_MODELS: Record<IntegrationProviderId, string> = {
   openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-haiku-20241022",
+  anthropic: "claude-haiku-4-5-20251001",
   gemini: "gemini-2.5-flash",
 };
 
@@ -224,7 +224,7 @@ const client = new VarstenAnthropic({
 });
 
 const res = await client.messages.create({
-  model: "claude-3-5-haiku-20241022",
+  model: "claude-haiku-4-5-20251001",
   max_tokens: 256,
   messages: [{ role: "user", content: "Say hello from Varsten" }],
 });
@@ -299,7 +299,7 @@ client = anthropic.Anthropic(
   -H "anthropic-version: 2023-06-01" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "claude-3-5-haiku-20241022",
+    "model": "claude-haiku-4-5-20251001",
     "max_tokens": 256,
     "messages": [{"role": "user", "content": "Say hello from Varsten"}]
   }'`,

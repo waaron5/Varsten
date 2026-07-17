@@ -36,8 +36,8 @@ def _smoke_config() -> SmokeConfig:
         base_url=base_url,
         api_key=api_key,
         openai_model=os.getenv("VARSTEN_SDK_SMOKE_OPENAI_MODEL", "gpt-4o-mini"),
-        anthropic_model=os.getenv("VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL", "claude-3-5-haiku-20241022"),
-        gemini_model=os.getenv("VARSTEN_SDK_SMOKE_GEMINI_MODEL", "gemini-3.5-flash"),
+        anthropic_model=os.getenv("VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+        gemini_model=os.getenv("VARSTEN_SDK_SMOKE_GEMINI_MODEL", "gemini-2.5-flash"),
     )
 
 

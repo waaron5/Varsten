@@ -119,8 +119,8 @@ Optional model overrides:
 
 ```bash
 VARSTEN_SDK_SMOKE_OPENAI_MODEL=gpt-4o-mini
-VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL=claude-3-5-haiku-20241022
-VARSTEN_SDK_SMOKE_GEMINI_MODEL=gemini-3.5-flash
+VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+VARSTEN_SDK_SMOKE_GEMINI_MODEL=gemini-2.5-flash
 ```
 
 The smoke suite covers non-streaming and streaming calls through the official

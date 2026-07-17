@@ -13,7 +13,7 @@ are cheap and the effective_at history stays meaningful.
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_UP, Decimal
 
 import httpx
@@ -41,6 +41,25 @@ _PRICE_FIELDS = (
     "output_cost_per_token_batch",
 )
 
+# These are the exact direct-provider models shown by the production onboarding
+# recipes. A feed refresh must cover all three before it is allowed to write;
+# otherwise a successful-looking sync could still leave a new customer unpriced.
+REQUIRED_LAUNCH_PRICES = frozenset(
+    {
+        ("openai", "gpt-4o-mini"),
+        ("anthropic", "claude-haiku-4-5-20251001"),
+        ("gemini", "gemini-2.5-flash"),
+    }
+)
+
+# LiteLLM namespaces some direct-provider model keys even though the provider API
+# and Varsten's normalized request facts use the unprefixed identifier. Emit a
+# provider-scoped alias only where that mismatch is confirmed; never use a price
+# from a different provider merely because the model name looks similar.
+DIRECT_MODEL_ALIASES = {
+    ("gemini", "gemini/gemini-2.5-flash"): "gemini-2.5-flash",
+}
+
 
 @dataclass(frozen=True)
 class ParsedModel:
@@ -63,7 +82,10 @@ def _dec(value: object) -> Decimal | None:
     # binary-float artifacts in the Decimal. Then snap to the stored 12-dp scale.
     if value is None:
         return None
-    return Decimal(str(value)).quantize(_PRICE_SCALE, rounding=ROUND_HALF_UP)
+    parsed = Decimal(str(value))
+    if not parsed.is_finite() or parsed < 0:
+        raise ValueError(f"invalid token price: {value!r}")
+    return parsed.quantize(_PRICE_SCALE, rounding=ROUND_HALF_UP)
 
 
 def parse_feed(raw: dict) -> list[ParsedModel]:
@@ -94,7 +116,24 @@ def parse_feed(raw: dict) -> list[ParsedModel]:
                 output_cost_per_token_batch=_dec(spec.get("output_cost_per_token_batches")),
             )
         )
+    by_identity = {(p.provider, p.model_key): p for p in parsed}
+    for source_identity, alias_key in DIRECT_MODEL_ALIASES.items():
+        source = by_identity.get(source_identity)
+        alias_identity = (source_identity[0], alias_key)
+        if source is not None and alias_identity not in by_identity:
+            alias = replace(source, model_key=alias_key)
+            parsed.append(alias)
+            by_identity[alias_identity] = alias
     return parsed
+
+
+def validate_launch_coverage(parsed: list[ParsedModel]) -> None:
+    """Fail closed when the public feed cannot price an onboarding default."""
+    available = {(p.provider, p.model_key) for p in parsed}
+    missing = sorted(REQUIRED_LAUNCH_PRICES - available)
+    if missing:
+        details = ", ".join(f"{provider}/{model}" for provider, model in missing)
+        raise ValueError(f"pricing feed is missing required launch models: {details}")
 
 
 def _price_changed(latest: ModelPrice | None, p: ParsedModel) -> bool:
@@ -178,11 +217,15 @@ def sync(db: Session, raw: dict) -> dict[str, int]:
 def fetch_feed(url: str) -> dict:
     resp = httpx.get(url, timeout=30.0, follow_redirects=True)
     resp.raise_for_status()
-    return resp.json()
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        raise ValueError("pricing feed root must be a JSON object")
+    return raw
 
 
 def main() -> int:
     raw = fetch_feed(settings.pricing_feed_url)
+    validate_launch_coverage(parse_feed(raw))
     db = SessionLocal()
     try:
         counts = sync(db, raw)

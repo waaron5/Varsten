@@ -8,8 +8,10 @@ real catalog rows a live `sync_prices` run may have seeded into the dev DB.
 from decimal import Decimal
 from typing import Any
 
+import pytest
+
 from app.models import ModelCatalog, ModelPrice
-from scripts.sync_prices import parse_feed, sync
+from scripts.sync_prices import REQUIRED_LAUNCH_PRICES, parse_feed, sync, validate_launch_coverage
 
 MODEL = "varsten-test-model"
 
@@ -55,3 +57,69 @@ def test_sync_appends_version_on_price_change(db_session):
     result = sync(db_session, changed)
     assert result["price_inserts"] == 1
     assert db_session.query(ModelPrice).filter_by(model_key=MODEL).count() == 2
+
+
+def test_sync_never_deletes_models_missing_from_a_later_feed(db_session):
+    sync(db_session, FEED)
+    result = sync(db_session, {})
+
+    assert result["price_inserts"] == 0
+    assert db_session.query(ModelCatalog).filter_by(model_key=MODEL).count() == 1
+    assert db_session.query(ModelPrice).filter_by(model_key=MODEL).count() == 1
+
+
+@pytest.mark.parametrize("bad_price", ["NaN", "Infinity", "-0.000001"])
+def test_parse_rejects_invalid_token_prices(bad_price):
+    feed = {**FEED, MODEL: {**FEED[MODEL], "input_cost_per_token": bad_price}}
+    with pytest.raises(ValueError, match="invalid token price"):
+        parse_feed(feed)
+
+
+def test_launch_coverage_requires_every_onboarding_default():
+    with pytest.raises(ValueError, match="anthropic/claude-haiku-4-5-20251001"):
+        validate_launch_coverage(parse_feed(FEED))
+
+
+def test_launch_coverage_accepts_all_direct_provider_defaults():
+    feed = {
+        model: {
+            "litellm_provider": provider,
+            "mode": "chat",
+            "input_cost_per_token": "0.000001",
+            "output_cost_per_token": "0.000005",
+        }
+        for provider, model in REQUIRED_LAUNCH_PRICES
+    }
+    validate_launch_coverage(parse_feed(feed))
+
+
+def test_parse_adds_provider_scoped_gemini_alias():
+    feed = {
+        "gemini/gemini-2.5-flash": {
+            "litellm_provider": "gemini",
+            "mode": "chat",
+            "input_cost_per_token": "0.0000003",
+            "output_cost_per_token": "0.0000025",
+        }
+    }
+    identities = {(p.provider, p.model_key) for p in parse_feed(feed)}
+    assert ("gemini", "gemini/gemini-2.5-flash") in identities
+    assert ("gemini", "gemini-2.5-flash") in identities
+
+
+def test_parse_does_not_overwrite_an_explicit_direct_model_with_alias():
+    feed = {
+        "gemini/gemini-2.5-flash": {
+            "litellm_provider": "gemini",
+            "input_cost_per_token": "0.0000003",
+            "output_cost_per_token": "0.0000025",
+        },
+        "gemini-2.5-flash": {
+            "litellm_provider": "gemini",
+            "input_cost_per_token": "0.0000004",
+            "output_cost_per_token": "0.0000030",
+        },
+    }
+    direct = [p for p in parse_feed(feed) if p.provider == "gemini" and p.model_key == "gemini-2.5-flash"]
+    assert len(direct) == 1
+    assert direct[0].input_cost_per_token == Decimal("0.0000004")
