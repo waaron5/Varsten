@@ -214,7 +214,7 @@ Send controlled real requests through each launch-supported integration and veri
 **Risk:** High to onboarding
 **Current blocker:** Public package installation returns `E404`
 
-## 3.1 Package preparation
+## 3.1 Package preparation (Done)
 
 **Owner: Me**
 

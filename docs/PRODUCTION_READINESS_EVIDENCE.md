@@ -120,7 +120,7 @@ rollback/containment procedure.
 | Marketing dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck, and build passed at `2026-07-16T21:36:45Z` | Revert `32d5296`; no deployment was made |
 | Production pricing initialization | Engineering | Passed | Hardened sync at `47aa031`; checkpoint `br-icy-scene-aimmtj6f`; 2,506 catalog and price identities verified at `2026-07-17T15:38:52Z` | Restore the checkpoint if necessary, or append corrected versioned price rows and reconcile affected events |
 | Real cost derivation | Engineering | Passed | Six production SDK requests across OpenAI, Anthropic, and Gemini reconciled exactly at `aef5515` on `2026-07-17T18:54:31Z` | Disable affected model/route; mark events unpriced rather than inventing cost |
-| Public SDK availability | Engineering + npm owner | Failed at baseline | Clean registry installs and exact onboarding snippets pass for all advertised packages | Hide/disable unavailable SDK paths; retain gateway/metadata paths |
+| Public SDK availability | Engineering + npm owner | In progress | Four release tarballs pass local clean-install gates at `16e02d2`; npm registry still returns `E404` pending human organization setup and publication | Hide/disable unavailable SDK paths; retain gateway/metadata paths |
 | Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
 | Database restore drill | Engineering + Neon owner | Not started | Isolated restore succeeds; revision/counts/tenancy verified; measured RPO/RTO recorded | Destroy isolated restore; production remains untouched |
@@ -323,6 +323,51 @@ rollback/containment procedure.
 - Manual credential cleanup: the temporary Varsten `vk_` key shared for this test
   must be revoked in the dashboard because it was exposed in chat. Provider keys
   remain vaulted and were not exposed.
+
+## Phase 3 evidence
+
+### SDK package preparation
+
+- Verification completed: `2026-07-17T19:25:30Z`
+- Commit: `16e02d2`
+- Prepared version `0.1.0` consistently for `@varsten/core`, `@varsten/openai`,
+  `@varsten/anthropic`, and `@varsten/gemini`.
+- All manifests declare public scoped publication, Apache-2.0 licensing, package
+  repository directories, a resolving documentation homepage, issue metadata,
+  Node.js 18+ runtime support, side-effect-free modules, and explicit ESM exports.
+  CommonJS is intentionally not emitted in this beta; its documented compatibility
+  path is dynamic `import()` or an ESM entry point.
+- Every package runs a TypeScript build during `prepack`. Release output contains
+  ESM JavaScript, declarations, source maps with inline source content, and
+  declaration maps. Package `files` allowlists exclude source tests, examples,
+  fixtures, workspace configuration, and dependencies.
+- Public READMEs consistently identify the beta status, installation command,
+  peer dependency, runtime/module format, fail-open boundary, telemetry behavior,
+  support link, and license. Anthropic and Gemini examples use the production-
+  verified launch models; the Gemini key example no longer assumes one prefix.
+- Current provider compatibility was tested with OpenAI `6.48.0`, Anthropic SDK
+  `0.112.2`, and Google Gen AI `2.12.0`. The OpenAI peer range was widened only
+  after the current major passed typecheck, build, and wrapper tests.
+- Vitest was upgraded from 2.1 to 4.1.10, removing one critical, one high, and
+  three moderate development-tool advisories. Full and production npm audits now
+  report zero vulnerabilities.
+- Workspace gates passed: typecheck, build, and 81 tests (34 core, 33 OpenAI, 6
+  Anthropic, 8 Gemini). The tests cover fallback classification, circuit breaking,
+  provider-origin protection, timeout policy, construction without fallback keys,
+  metadata boundaries, and Gemini's conservative unattributed-error behavior.
+- Exact `npm pack` tarballs were inspected. They contain only `package.json`,
+  `README.md`, `LICENSE`, and allowlisted `dist` files. Approximate compressed
+  sizes are 30.3 kB core, 13.7 kB OpenAI, 11.4 kB Anthropic, and 13.6 kB Gemini;
+  no tests, examples, fixtures, secrets, or internal workspace files are included.
+- A clean temporary ESM project installed all four tarballs with the latest tested
+  provider peers, passed a NodeNext TypeScript consumer check, loaded all four
+  runtime exports, and passed a production dependency audit with zero findings.
+- Registry status remains intentionally unresolved: all four package names return
+  `E404` as of verification. No package was published in Phase 3.1.
+- Remaining manual gate: create or confirm the `varsten` npm organization, enable
+  MFA, configure publish access, and authenticate locally without sharing an OTP
+  or token. Phase 3.3 then publishes in dependency order and repeats the clean
+  install proof from the public registry.
 
 ## Evidence update procedure
 
