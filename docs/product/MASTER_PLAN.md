@@ -173,7 +173,7 @@ The PostCSS finding is transitive through Next.js. Do not run a blind forced dow
 6. Run against a local or staging database first.
 7. Verify representative models from every supported provider.
 
-## 2.2 Production synchronization
+## 2.2 Production synchronization (Done)
 
 1. Take or confirm a recoverable production database checkpoint.
 2. Record pre-sync counts.

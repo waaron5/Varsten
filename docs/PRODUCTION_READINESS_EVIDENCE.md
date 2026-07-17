@@ -118,7 +118,7 @@ rollback/containment procedure.
 | Backend dependency security | Engineering | Passed | `pip-audit`, backend static gates, 814 tests, 84.70% coverage, and image build passed at `2026-07-16T21:26:53Z` | Revert `cba4b0e`; retain prior image |
 | Dashboard dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck/build, and 26 browser tests passed at `2026-07-16T21:36:45Z` | Revert `4d377ab`; no deployment was made |
 | Marketing dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck, and build passed at `2026-07-16T21:36:45Z` | Revert `32d5296`; no deployment was made |
-| Production pricing initialization | Engineering | In progress | Local preflight passed at `47aa031`; production remains empty pending a recoverable Neon checkpoint and controlled sync | Stop synchronization; restore the checkpoint if necessary, or append corrected versioned price rows |
+| Production pricing initialization | Engineering | Passed | Hardened sync at `47aa031`; checkpoint `br-icy-scene-aimmtj6f`; 2,506 catalog and price identities verified at `2026-07-17T15:38:52Z` | Restore the checkpoint if necessary, or append corrected versioned price rows and reconcile affected events |
 | Real cost derivation | Engineering | Not started | Real request reconciles tokens, versioned price, event cost, and dashboard aggregate | Disable affected model/route; mark events unpriced rather than inventing cost |
 | Public SDK availability | Engineering + npm owner | Failed at baseline | Clean registry installs and exact onboarding snippets pass for all advertised packages | Hide/disable unavailable SDK paths; retain gateway/metadata paths |
 | Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
@@ -235,8 +235,47 @@ rollback/containment procedure.
   so corrected prices are appended as a new effective version. A materially bad
   production sync still requires a pre-sync Neon checkpoint/branch for whole-state
   recovery; events priced during a bad interval require explicit reconciliation.
-- Remaining gate: Phase 2.2 must confirm a recoverable Neon checkpoint before the
-  production sync, then record before/after counts and data-quality queries.
+- Phase 2.2 subsequently confirmed a recoverable Neon branch and completed the
+  controlled production synchronization below.
+
+### Production pricing synchronization
+
+- Verification completed: `2026-07-17T15:38:52Z`
+- Sync implementation: `47aa031383953a435be1a0fcae5dfd8e669e1f6c`
+- Human-created pre-sync Neon branch: `br-icy-scene-aimmtj6f`
+  (`pre-pricing-sync-20260717`). No credential or connection string was recorded.
+- Pre-sync state: Alembic `b0c1d2e3f4a5`; 2 organizations, 2 projects, and zero
+  usage events, provider connections, catalog rows, or price rows.
+- Post-sync state: 2,506 catalog identities and 2,506 price identities across 91
+  providers. Every catalog identity has a price and every price has a catalog
+  identity. No duplicate catalog identities, duplicate effective versions,
+  negative prices, missing required fields, non-USD rows, or unexpected sources
+  were found.
+- All rows use source `litellm`; the initial effective timestamp is
+  `2026-07-17 15:33:55.043755+00:00`.
+- The 130 zero-input/zero-output entries were explicitly counted. Launch-provider
+  examples are free moderation or experimental Gemini models; none of the three
+  required onboarding models has a zero price. The broader set remains feed data,
+  not an invented Varsten fallback.
+- Launch prices verified exactly:
+  - OpenAI `gpt-4o-mini`: input `0.000000150000`, output `0.000000600000` USD/token.
+  - Anthropic `claude-haiku-4-5-20251001`: input `0.000001000000`, output
+    `0.000005000000` USD/token.
+  - Gemini `gemini-2.5-flash`: input `0.000000300000`, output `0.000002500000`
+    USD/token.
+- Unknown models remain honest by design and regression evidence: pricing service
+  returns `model_not_in_catalog` with no fabricated catalog cost when no version
+  resolves. No synthetic production event was inserted for this check.
+- Operational note: the first monitored command lost its client output window but
+  continued and committed successfully. A concurrently started retry held an
+  earlier empty snapshot, encountered the catalog uniqueness constraint at commit,
+  and rolled back in full. Final integrity queries prove that only one complete
+  2,506-row version exists.
+- Post-sync readiness check: `https://api.varsten.ai/health/ready` returned
+  `{\"ok\":true,\"database\":\"ok\"}`.
+- Rollback remains available through the recorded pre-sync branch. Normal price
+  corrections should append a new effective version; any events priced during an
+  incorrect interval require explicit reconciliation rather than silent rewriting.
 
 ## Evidence update procedure
 
