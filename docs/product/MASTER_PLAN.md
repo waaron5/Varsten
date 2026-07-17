@@ -243,7 +243,7 @@ I will verify:
 14. Local build, typecheck, and tests
 15. `npm pack` contents
 
-## 3.2 npm organization and publication
+## 3.2 npm organization and publication (Done)
 
 **Owner: You — manual**
 
@@ -258,7 +258,7 @@ You must:
 
 Secrets or OTP values should never be sent to me.
 
-## 3.3 Publication and clean-install verification
+## 3.3 Publication and clean-install verification (In progress)
 
 **Owner: Me, with your npm authorization where required**
 

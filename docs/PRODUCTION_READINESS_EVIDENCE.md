@@ -120,7 +120,7 @@ rollback/containment procedure.
 | Marketing dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck, and build passed at `2026-07-16T21:36:45Z` | Revert `32d5296`; no deployment was made |
 | Production pricing initialization | Engineering | Passed | Hardened sync at `47aa031`; checkpoint `br-icy-scene-aimmtj6f`; 2,506 catalog and price identities verified at `2026-07-17T15:38:52Z` | Restore the checkpoint if necessary, or append corrected versioned price rows and reconcile affected events |
 | Real cost derivation | Engineering | Passed | Six production SDK requests across OpenAI, Anthropic, and Gemini reconciled exactly at `aef5515` on `2026-07-17T18:54:31Z` | Disable affected model/route; mark events unpriced rather than inventing cost |
-| Public SDK availability | Engineering + npm owner | In progress | Four release tarballs pass local clean-install gates at `16e02d2`; npm registry still returns `E404` pending human organization setup and publication | Hide/disable unavailable SDK paths; retain gateway/metadata paths |
+| Public SDK availability | Engineering + npm owner | In progress | All four `0.1.0` packages are public and pass clean registry install/import/audit gates as of `2026-07-17T20:44:56Z`; exact live consumer calls and forced-unreachable fallback remain | Hide/disable unavailable SDK paths if the remaining live gate fails; retain gateway/metadata paths |
 | Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
 | Database restore drill | Engineering + Neon owner | Not started | Isolated restore succeeds; revision/counts/tenancy verified; measured RPO/RTO recorded | Destroy isolated restore; production remains untouched |
@@ -368,6 +368,34 @@ rollback/containment procedure.
   MFA, configure publish access, and authenticate locally without sharing an OTP
   or token. Phase 3.3 then publishes in dependency order and repeats the clean
   install proof from the public registry.
+
+### SDK publication and registry verification
+
+- Verification checkpoint: `2026-07-17T20:44:56Z`
+- npm identity `waaron5` was verified as an owner of the `varsten` organization;
+  account 2FA is enabled for authorization and writes.
+- Published public version `0.1.0` in dependency order: `@varsten/core`,
+  `@varsten/openai`, `@varsten/anthropic`, and `@varsten/gemini`.
+- Registry-reported integrity values match the inspected release tarballs. The
+  Anthropic package required public visibility to be reapplied after npm initially
+  recorded its tag and access while its anonymous registry document returned 404;
+  it subsequently propagated and resolved normally.
+- Fresh temporary consumer projects installed the provider packages directly from
+  npm with OpenAI `6.48.0`, Anthropic SDK `0.112.3`, and Google Gen AI `2.12.0`.
+  Each resolved public `@varsten/core@0.1.0`; no workspace dependency remained.
+- Clean runtime imports, documented constructor surfaces, and missing-Varsten-key
+  validation passed for all three provider wrappers. All three clean production
+  dependency trees report zero npm audit vulnerabilities.
+- The release workspace passed typecheck, build, and all 81 tests before publish.
+  Those tests cover invalid configuration and direct-provider fail-open behavior,
+  but do not replace the required clean consumer live-request proof.
+- Frontend Gemini key guidance was made prefix-neutral in commit `3feda46` after
+  the exact-snippet review found stale `AIza...` assumptions. Frontend lint and
+  the 33-route production build pass.
+- Remaining Phase 3.3 gate: run the exact public onboarding snippets and the
+  forced-unreachable Varsten self-test from a clean consumer with locally supplied
+  provider credentials. No provider credentials are present in this execution
+  environment, and vaulted production keys were intentionally not extracted.
 
 ## Evidence update procedure
 
