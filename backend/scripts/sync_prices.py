@@ -48,7 +48,7 @@ REQUIRED_LAUNCH_PRICES = frozenset(
     {
         ("openai", "gpt-4o-mini"),
         ("anthropic", "claude-haiku-4-5-20251001"),
-        ("gemini", "gemini-2.5-flash"),
+        ("gemini", "gemini-3.1-flash-lite"),
     }
 )
 
@@ -57,7 +57,7 @@ REQUIRED_LAUNCH_PRICES = frozenset(
 # provider-scoped alias only where that mismatch is confirmed; never use a price
 # from a different provider merely because the model name looks similar.
 DIRECT_MODEL_ALIASES = {
-    ("gemini", "gemini/gemini-2.5-flash"): "gemini-2.5-flash",
+    ("gemini", "gemini/gemini-3.1-flash-lite"): "gemini-3.1-flash-lite",
 }
 
 

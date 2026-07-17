@@ -37,7 +37,7 @@ def _smoke_config() -> SmokeConfig:
         api_key=api_key,
         openai_model=os.getenv("VARSTEN_SDK_SMOKE_OPENAI_MODEL", "gpt-4o-mini"),
         anthropic_model=os.getenv("VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
-        gemini_model=os.getenv("VARSTEN_SDK_SMOKE_GEMINI_MODEL", "gemini-2.5-flash"),
+        gemini_model=os.getenv("VARSTEN_SDK_SMOKE_GEMINI_MODEL", "gemini-3.1-flash-lite"),
     )
 
 
@@ -134,12 +134,14 @@ def test_google_genai_sdk_generate_content_and_stream_smoke():
     response = client.models.generate_content(
         model=cfg.gemini_model,
         contents="Reply with one short sentence about Varsten.",
+        config=types.GenerateContentConfig(max_output_tokens=24),
     )
     _nonempty(getattr(response, "text", ""))
 
     chunks = client.models.generate_content_stream(
         model=cfg.gemini_model,
-        contents="Reply with one short sentence about Varsten.",
+        contents="Reply with one different short sentence about Varsten.",
+        config=types.GenerateContentConfig(max_output_tokens=24),
     )
     stream_text = "".join(getattr(chunk, "text", "") or "" for chunk in chunks)
     _nonempty(stream_text)

@@ -95,7 +95,7 @@ def test_launch_coverage_accepts_all_direct_provider_defaults():
 
 def test_parse_adds_provider_scoped_gemini_alias():
     feed = {
-        "gemini/gemini-2.5-flash": {
+        "gemini/gemini-3.1-flash-lite": {
             "litellm_provider": "gemini",
             "mode": "chat",
             "input_cost_per_token": "0.0000003",
@@ -103,23 +103,23 @@ def test_parse_adds_provider_scoped_gemini_alias():
         }
     }
     identities = {(p.provider, p.model_key) for p in parse_feed(feed)}
-    assert ("gemini", "gemini/gemini-2.5-flash") in identities
-    assert ("gemini", "gemini-2.5-flash") in identities
+    assert ("gemini", "gemini/gemini-3.1-flash-lite") in identities
+    assert ("gemini", "gemini-3.1-flash-lite") in identities
 
 
 def test_parse_does_not_overwrite_an_explicit_direct_model_with_alias():
     feed = {
-        "gemini/gemini-2.5-flash": {
+        "gemini/gemini-3.1-flash-lite": {
             "litellm_provider": "gemini",
             "input_cost_per_token": "0.0000003",
             "output_cost_per_token": "0.0000025",
         },
-        "gemini-2.5-flash": {
+        "gemini-3.1-flash-lite": {
             "litellm_provider": "gemini",
             "input_cost_per_token": "0.0000004",
             "output_cost_per_token": "0.0000030",
         },
     }
-    direct = [p for p in parse_feed(feed) if p.provider == "gemini" and p.model_key == "gemini-2.5-flash"]
+    direct = [p for p in parse_feed(feed) if p.provider == "gemini" and p.model_key == "gemini-3.1-flash-lite"]
     assert len(direct) == 1
     assert direct[0].input_cost_per_token == Decimal("0.0000004")

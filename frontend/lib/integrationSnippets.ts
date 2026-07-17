@@ -135,7 +135,7 @@ export const PROVIDER_LABELS: Record<IntegrationProviderId, string> = {
 export const EXAMPLE_MODELS: Record<IntegrationProviderId, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-haiku-4-5-20251001",
-  gemini: "gemini-2.5-flash",
+  gemini: "gemini-3.1-flash-lite",
 };
 
 const PROVIDER_ENV_KEYS: Record<IntegrationProviderId, { name: string; placeholder: string }> = {
@@ -239,7 +239,7 @@ const client = new VarstenGemini({
 });
 
 const res = await client.models.generateContent({
-  model: "gemini-2.5-flash",
+  model: "gemini-3.1-flash-lite",
   contents: "Say hello from Varsten",
 });
 
@@ -319,7 +319,7 @@ client = genai.Client(
     api_key=os.environ["VARSTEN_API_KEY"],  # vk_... — your Gemini key stays vaulted with Varsten
     http_options=types.HttpOptions(base_url="${PROXY_HOST}", api_version="v1beta"),
 )`,
-    curl: `curl ${PROXY_HOST}/v1beta/models/gemini-2.5-flash:generateContent \\
+    curl: `curl ${PROXY_HOST}/v1beta/models/gemini-3.1-flash-lite:generateContent \\
   -H "x-goog-api-key: $VARSTEN_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

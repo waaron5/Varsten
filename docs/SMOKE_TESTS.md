@@ -22,7 +22,7 @@ export VARSTEN_SDK_SMOKE_API_KEY="vk_..."
 # Optional model overrides:
 # export VARSTEN_SDK_SMOKE_OPENAI_MODEL=gpt-4o-mini
 # export VARSTEN_SDK_SMOKE_ANTHROPIC_MODEL=claude-haiku-4-5-20251001
-# export VARSTEN_SDK_SMOKE_GEMINI_MODEL=gemini-2.5-flash
+# export VARSTEN_SDK_SMOKE_GEMINI_MODEL=gemini-3.1-flash-lite
 
 make backend-sdk-smoke
 ```
