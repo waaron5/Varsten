@@ -183,7 +183,7 @@ The PostCSS finding is transitive through Next.js. Do not run a blind forced dow
 6. Verify currently marketed models have catalog coverage.
 7. Confirm unknown models fail honestly instead of receiving invented pricing.
 
-## 2.3 Real cost derivation test
+## 2.3 Real cost derivation test (Done)
 
 Send controlled real requests through each launch-supported integration and verify:
 

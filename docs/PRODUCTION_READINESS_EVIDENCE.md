@@ -119,7 +119,7 @@ rollback/containment procedure.
 | Dashboard dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck/build, and 26 browser tests passed at `2026-07-16T21:36:45Z` | Revert `4d377ab`; no deployment was made |
 | Marketing dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck, and build passed at `2026-07-16T21:36:45Z` | Revert `32d5296`; no deployment was made |
 | Production pricing initialization | Engineering | Passed | Hardened sync at `47aa031`; checkpoint `br-icy-scene-aimmtj6f`; 2,506 catalog and price identities verified at `2026-07-17T15:38:52Z` | Restore the checkpoint if necessary, or append corrected versioned price rows and reconcile affected events |
-| Real cost derivation | Engineering | Not started | Real request reconciles tokens, versioned price, event cost, and dashboard aggregate | Disable affected model/route; mark events unpriced rather than inventing cost |
+| Real cost derivation | Engineering | Passed | Six production SDK requests across OpenAI, Anthropic, and Gemini reconciled exactly at `aef5515` on `2026-07-17T18:54:31Z` | Disable affected model/route; mark events unpriced rather than inventing cost |
 | Public SDK availability | Engineering + npm owner | Failed at baseline | Clean registry installs and exact onboarding snippets pass for all advertised packages | Hide/disable unavailable SDK paths; retain gateway/metadata paths |
 | Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
@@ -263,6 +263,9 @@ rollback/containment procedure.
     `0.000005000000` USD/token.
   - Gemini `gemini-2.5-flash`: input `0.000000300000`, output `0.000002500000`
     USD/token.
+- Phase 2.3 superseded the Gemini launch default after Google rejected 2.5 Flash
+  for this newly provisioned API key. This row remains the accurate Phase 2.2
+  catalog observation, not the current onboarding recommendation.
 - Unknown models remain honest by design and regression evidence: pricing service
   returns `model_not_in_catalog` with no fabricated catalog cost when no version
   resolves. No synthetic production event was inserted for this check.
@@ -276,6 +279,50 @@ rollback/containment procedure.
 - Rollback remains available through the recorded pre-sync branch. Normal price
   corrections should append a new effective version; any events priced during an
   incorrect interval require explicit reconciliation rather than silent rewriting.
+
+### Real production cost derivation
+
+- Verification completed: `2026-07-17T18:54:31Z`
+- Launch-model correction commit: `aef5515`
+- Production project `4d1c870c-2302-4e2e-abbb-93b2914036b6` had verified,
+  vaulted connections for OpenAI, Anthropic, and Gemini before traffic was sent.
+  Provider secret values were never printed or recorded.
+- The official OpenAI, Anthropic, and Google Gen AI Python clients sent one normal
+  and one streamed request per provider through `https://api.varsten.ai`. Every
+  request used a short prompt and a maximum of 24 output tokens.
+- The original Gemini onboarding default, `gemini-2.5-flash`, returned Google's
+  explicit `404` that the model is unavailable to new users. `gemini-3.5-flash`
+  was enabled and priced but returned Google's `503 high demand` twice. Neither
+  failed request produced a usage event.
+- The stable enabled model `gemini-3.1-flash-lite` was selected instead. Its
+  direct-provider feed entry is input `0.000000250000` and output
+  `0.000001500000` USD/token. The hardened sync appended its direct Gemini alias,
+  and both normal and streamed production requests then passed.
+- All six successful events have `status=success`, `pricing_status=priced`,
+  `cost_source=catalog`, `currency=USD`, a non-null price-version ID, and matching
+  organization, project, and API-key attribution. Each referenced price version
+  has source `litellm` and predates its event.
+- Event-level recomputation matched exactly:
+  - OpenAI normal: 16 input + 21 output tokens, `$0.00001500`.
+  - OpenAI repeated stream: intentional cache hit, `$0.00000000`; metadata records
+    `$0.00001500` naive cost and avoided cost.
+  - Anthropic normal: 17 input + 18 output tokens, `$0.00010700`.
+  - Anthropic stream: 17 input + 24 output tokens, `$0.00013700`.
+  - Gemini normal: 10 input + 15 output tokens, `$0.00002500`.
+  - Gemini stream: 11 input + 9 output tokens, `$0.00001625`.
+- Project/dashboard-period reconciliation: 6 requests, 87 input tokens, 108
+  output tokens, 195 total tokens, 6 priced events, and `$0.00030025` actual cost.
+  The sum of independently recomputed event costs is also `$0.00030025`.
+- Unknown-model behavior remains explicit through the pricing regression suite:
+  no catalog match yields `model_not_in_catalog` rather than a fabricated cost.
+  No synthetic unknown-model production event was created.
+- Verification gates for the correction: 822 backend tests passed, 4 opt-in tests
+  skipped, coverage was 84.69%, and all backend static/security gates passed.
+  Frontend lint and the 33-route production build passed. The targeted live Gemini
+  SDK test passed after the stable-model correction.
+- Manual credential cleanup: the temporary Varsten `vk_` key shared for this test
+  must be revoked in the dashboard because it was exposed in chat. Provider keys
+  remain vaulted and were not exposed.
 
 ## Evidence update procedure
 
