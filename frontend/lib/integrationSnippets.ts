@@ -141,7 +141,7 @@ export const EXAMPLE_MODELS: Record<IntegrationProviderId, string> = {
 const PROVIDER_ENV_KEYS: Record<IntegrationProviderId, { name: string; placeholder: string }> = {
   openai: { name: "OPENAI_API_KEY", placeholder: "sk-..." },
   anthropic: { name: "ANTHROPIC_API_KEY", placeholder: "sk-ant-..." },
-  gemini: { name: "GEMINI_API_KEY", placeholder: "AIza..." },
+  gemini: { name: "GEMINI_API_KEY", placeholder: "<provider-key>" },
 };
 
 // --- recipe model -------------------------------------------------------------
@@ -234,7 +234,7 @@ console.log(res._varsten?.servedBy); // "varsten" or "provider-fallback"`,
 
 const client = new VarstenGemini({
   varstenApiKey: process.env.VARSTEN_API_KEY, // vk_...
-  geminiApiKey: process.env.GEMINI_API_KEY,   // AIza... used only for direct fallback
+  geminiApiKey: process.env.GEMINI_API_KEY,   // provider key; used only for direct fallback
   onFallback: (event) => console.warn("varsten fallback", event.reasonCode),
 });
 

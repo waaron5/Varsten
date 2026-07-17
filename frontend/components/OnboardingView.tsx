@@ -36,7 +36,7 @@ type ProviderConnectionStatus = OnboardingStatus["provider_connections"][number]
 const PROVIDER_KEY_PLACEHOLDERS: Record<ProviderId, string> = {
   openai: "sk-...",
   anthropic: "sk-ant-...",
-  gemini: "AIza...",
+  gemini: "Gemini API key",
 };
 
 function languageStorageKey(projectId: string): string {

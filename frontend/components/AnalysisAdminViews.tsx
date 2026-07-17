@@ -39,7 +39,7 @@ const ADMIN_TABS = [
 const PROVIDERS = [
   { id: "openai", label: "OpenAI", placeholder: "sk-..." },
   { id: "anthropic", label: "Anthropic", placeholder: "sk-ant-..." },
-  { id: "gemini", label: "Gemini", placeholder: "AIza..." },
+  { id: "gemini", label: "Gemini", placeholder: "Gemini API key" },
 ];
 
 type ProviderBusyAction = "save" | "disconnect";
