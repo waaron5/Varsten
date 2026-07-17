@@ -118,7 +118,7 @@ rollback/containment procedure.
 | Backend dependency security | Engineering | Passed | `pip-audit`, backend static gates, 814 tests, 84.70% coverage, and image build passed at `2026-07-16T21:26:53Z` | Revert `cba4b0e`; retain prior image |
 | Dashboard dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck/build, and 26 browser tests passed at `2026-07-16T21:36:45Z` | Revert `4d377ab`; no deployment was made |
 | Marketing dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck, and build passed at `2026-07-16T21:36:45Z` | Revert `32d5296`; no deployment was made |
-| Production pricing initialization | Engineering | Failed at baseline | Idempotent sync; nonzero catalog/price counts; representative models validated | Restore/checkpoint if sync is destructive; otherwise correct with versioned price rows |
+| Production pricing initialization | Engineering | In progress | Local preflight passed at `47aa031`; production remains empty pending a recoverable Neon checkpoint and controlled sync | Stop synchronization; restore the checkpoint if necessary, or append corrected versioned price rows |
 | Real cost derivation | Engineering | Not started | Real request reconciles tokens, versioned price, event cost, and dashboard aggregate | Disable affected model/route; mark events unpriced rather than inventing cost |
 | Public SDK availability | Engineering + npm owner | Failed at baseline | Clean registry installs and exact onboarding snippets pass for all advertised packages | Hide/disable unavailable SDK paths; retain gateway/metadata paths |
 | Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
@@ -196,6 +196,47 @@ rollback/containment procedure.
 - Production build and TypeScript compilation: passed for all 27 generated and
   dynamic marketing routes.
 - Production impact: none. The marketing site was not deployed.
+
+## Phase 2 evidence
+
+### Pricing synchronization preflight
+
+- Timestamp: `2026-07-17T02:04:57Z`
+- Commit: `47aa031383953a435be1a0fcae5dfd8e669e1f6c`
+- Production impact: none. No production database connection or write was made;
+  production catalog and price counts remain at the Phase 0 baseline of zero.
+- Source inspected: the configured LiteLLM public model-pricing feed. The current
+  feed plus one confirmed direct-provider alias parsed into 2,506 priced model
+  identities across 91 providers.
+- The loader remains append-only for prices: a changed price creates a new
+  effective version, an unchanged rerun creates none, and a later feed that omits
+  a model does not delete its catalog or price history.
+- Invalid non-finite or negative token prices now fail closed before database
+  synchronization. The feed root and the exact launch-onboarding price coverage
+  are also validated before a database session is opened.
+- Launch coverage verified for OpenAI `gpt-4o-mini`, Anthropic
+  `claude-haiku-4-5-20251001`, and Gemini `gemini-2.5-flash`. The onboarding and
+  opt-in smoke examples were aligned to those current direct-provider identifiers;
+  Gemini's namespaced feed entry is copied to its confirmed unprefixed API alias
+  without overwriting an explicit direct entry.
+- Full-feed local proof used an outer transaction with savepoints and rolled back
+  the entire exercise. The first run parsed 2,506 models and appended 36 price
+  versions relative to existing local data; the identical second run appended
+  zero. Catalog/price counts returned exactly from `(2474, 2572)` to
+  `(2474, 2572)` after rollback, and zero negative price rows were observed.
+- Targeted pricing suite: 11 passed. Three live-provider SDK smoke tests skipped
+  because their opt-in credentials were intentionally absent. Ruff, formatting,
+  and mypy passed for the changed backend files.
+- Exact release regression evidence: the full backend gate passed with 822 tests,
+  4 opt-in skips, 84.69% coverage, and all migration/static/security gates green.
+  The dashboard production build passed all 33 routes and its browser regression
+  suite passed 26 tests.
+- Correction/rollback procedure: the sync itself does not delete historical rows,
+  so corrected prices are appended as a new effective version. A materially bad
+  production sync still requires a pre-sync Neon checkpoint/branch for whole-state
+  recovery; events priced during a bad interval require explicit reconciliation.
+- Remaining gate: Phase 2.2 must confirm a recoverable Neon checkpoint before the
+  production sync, then record before/after counts and data-quality queries.
 
 ## Evidence update procedure
 

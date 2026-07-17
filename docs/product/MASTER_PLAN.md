@@ -163,7 +163,7 @@ The PostCSS finding is transitive through Next.js. Do not run a blind forced dow
 **Risk:** High to product correctness
 **Current blocker:** Production has zero catalog and price records
 
-## 2.1 Inspect the pricing sync path
+## 2.1 Inspect the pricing sync path (Done)
 
 1. Review the price-sync script and its data sources.
 2. Confirm it is idempotent.
