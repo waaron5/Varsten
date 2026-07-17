@@ -62,13 +62,16 @@ class Settings(BaseSettings):
     # Production provider-key backend. "env" preserves local/dev compatibility;
     # production should set "secretsmanager".
     provider_key_backend: str = "env"
-    # Mandatory hot-path memory cache for decrypted provider keys. Secrets Manager
-    # lookups must never happen on every proxied request.
-    provider_key_cache_ttl_seconds: int = 300
+    # Mandatory hot-path memory cache for decrypted provider keys. Keep plaintext
+    # residency short; production explicitly sets this to 30 seconds.
+    provider_key_cache_ttl_seconds: int = 30
     provider_key_cache_maxsize: int = 4096
     provider_key_secret_prefix: str = "varsten"
     provider_key_secret_environment: str = "development"
     provider_key_aws_region: str = ""
+    # Customer-managed KMS key used only for per-project provider secrets. Required
+    # in production so new secrets never silently fall back to aws/secretsmanager.
+    provider_key_kms_key_id: str = ""
     # Optional local development fallback for self-serve key storage. Production
     # still requires Secrets Manager; when provider_key_backend="localdb", provider
     # keys are encrypted with this Fernet/base-secret value and stored on the
@@ -462,6 +465,8 @@ def validate_production(s: "Settings") -> list[str]:
         problems.append("PROVIDER_KEY_BACKEND must be 'secretsmanager' in production (env-vaulted keys are dev-only).")
     elif not s.provider_key_aws_region:
         problems.append("PROVIDER_KEY_AWS_REGION must be set when PROVIDER_KEY_BACKEND=secretsmanager.")
+    elif not s.provider_key_kms_key_id:
+        problems.append("PROVIDER_KEY_KMS_KEY_ID must be set when PROVIDER_KEY_BACKEND=secretsmanager.")
     if not s.cors_origins:
         problems.append("CORS_ORIGINS must list the real frontend origin(s).")
     elif any(_localhost_origin(o) for o in s.cors_origins):

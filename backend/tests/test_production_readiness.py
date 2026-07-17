@@ -18,6 +18,7 @@ def _prod_settings(**overrides) -> Settings:
         "auth0_audience": "https://api.varsten.ai",
         "provider_key_backend": "secretsmanager",
         "provider_key_aws_region": "us-east-1",
+        "provider_key_kms_key_id": "arn:aws:kms:us-east-1:123456789012:key/test-key-id",
         "cors_origins": ["https://app.varsten.ai"],
         "sentry_dsn": "https://examplePublicKey@o0.ingest.sentry.io/0",
         "self_serve_billing_enabled": True,
@@ -47,6 +48,11 @@ def test_env_vaulted_keys_rejected_in_production():
 def test_secretsmanager_without_region_flagged():
     problems = validate_production(_prod_settings(provider_key_aws_region=""))
     assert any("PROVIDER_KEY_AWS_REGION" in p for p in problems)
+
+
+def test_secretsmanager_without_customer_managed_kms_key_flagged():
+    problems = validate_production(_prod_settings(provider_key_kms_key_id=""))
+    assert any("PROVIDER_KEY_KMS_KEY_ID" in p for p in problems)
 
 
 def test_localhost_cors_rejected_in_production():

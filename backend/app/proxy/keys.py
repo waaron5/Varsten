@@ -287,9 +287,22 @@ class SecretsManagerProviderKeyResolver:
 
     def store(self, project_id: uuid.UUID, provider: str, api_key: str) -> str:
         name = self.secret_name(project_id, provider)
+        provider_name = _provider(provider)
         payload = json.dumps({"api_key": api_key}, separators=(",", ":"))
+        create_args: dict[str, Any] = {
+            "Name": name,
+            "SecretString": payload,
+            "Tags": [
+                {"Key": "VarstenDataClass", "Value": "provider-key"},
+                {"Key": "VarstenProjectId", "Value": str(project_id)},
+                {"Key": "VarstenProvider", "Value": provider_name},
+                {"Key": "Environment", "Value": settings.provider_key_secret_environment},
+            ],
+        }
+        if settings.provider_key_kms_key_id:
+            create_args["KmsKeyId"] = settings.provider_key_kms_key_id
         try:
-            self.client.create_secret(Name=name, SecretString=payload)
+            self.client.create_secret(**create_args)
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code")
             if code != "ResourceExistsException":

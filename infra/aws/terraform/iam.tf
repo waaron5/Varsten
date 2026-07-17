@@ -55,10 +55,10 @@ resource "aws_iam_role_policy" "apprunner_secrets" {
         Resource = "arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:varsten/${var.environment}/*"
       },
       {
-        Sid      = "DecryptSecrets"
+        Sid      = "ProviderKeyCryptography"
         Effect   = "Allow"
-        Action   = ["kms:Decrypt"]
-        Resource = "*"
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource = aws_kms_key.provider_keys.arn
         Condition = {
           StringEquals = {
             "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com"

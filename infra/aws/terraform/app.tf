@@ -28,6 +28,8 @@ locals {
       PROVIDER_KEY_AWS_REGION         = var.region
       PROVIDER_KEY_SECRET_PREFIX      = "varsten"
       PROVIDER_KEY_SECRET_ENVIRONMENT = var.environment
+      PROVIDER_KEY_KMS_KEY_ID         = aws_kms_key.provider_keys.arn
+      PROVIDER_KEY_CACHE_TTL_SECONDS  = "30"
       PROXY_DEFAULT_PROVIDER          = "openai"
       SCHEDULER_ENABLED               = "true"
       # Multi-instance coordination: each background sweep takes a per-job Postgres
@@ -73,6 +75,10 @@ resource "aws_secretsmanager_secret" "rate_limit_redis_url" {
   count       = local.redis_enabled ? 1 : 0
   name        = "varsten/${var.environment}/rate-limit-redis-url"
   description = "Redis URL for the Varsten shared rate limiter"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_secretsmanager_secret_version" "rate_limit_redis_url" {
@@ -158,6 +164,10 @@ resource "aws_apprunner_auto_scaling_configuration_version" "main" {
 resource "aws_secretsmanager_secret" "sentry_dsn" {
   name        = "varsten/${var.environment}/sentry-dsn"
   description = "Sentry DSN for the Varsten API"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_secretsmanager_secret_version" "sentry_dsn" {

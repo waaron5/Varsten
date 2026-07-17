@@ -22,6 +22,7 @@ class FakeSecretsManager:
         self.created: list[str] = []
         self.updated: list[str] = []
         self.deleted: list[str] = []
+        self.create_requests: list[dict[str, Any]] = []
 
     def get_secret_value(self, *, SecretId: str) -> dict[str, str]:
         if SecretId not in self.secrets:
@@ -31,13 +32,21 @@ class FakeSecretsManager:
             )
         return {"SecretString": self.secrets[SecretId]}
 
-    def create_secret(self, *, Name: str, SecretString: str) -> dict[str, Any]:
+    def create_secret(
+        self,
+        *,
+        Name: str,
+        SecretString: str,
+        KmsKeyId: str | None = None,
+        Tags: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         if Name in self.secrets:
             raise ClientError(
                 {"Error": {"Code": "ResourceExistsException", "Message": "exists"}},
                 "CreateSecret",
             )
         self.created.append(Name)
+        self.create_requests.append({"Name": Name, "KmsKeyId": KmsKeyId, "Tags": Tags})
         self.secrets[Name] = SecretString
         return {"Name": Name}
 
@@ -136,10 +145,23 @@ def test_secrets_manager_resolver_creates_and_rotates_secret(monkeypatch):
     fake = FakeSecretsManager()
     monkeypatch.setattr(settings, "provider_key_secret_prefix", "varsten")
     monkeypatch.setattr(settings, "provider_key_secret_environment", "test")
+    monkeypatch.setattr(settings, "provider_key_kms_key_id", "arn:aws:kms:us-east-1:123456789012:key/test")
     resolver = SecretsManagerProviderKeyResolver(client=fake)
 
     name = resolver.store(project_id, "gemini", "AIza-first")
     assert fake.created == [name]
+    assert fake.create_requests == [
+        {
+            "Name": name,
+            "KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/test",
+            "Tags": [
+                {"Key": "VarstenDataClass", "Value": "provider-key"},
+                {"Key": "VarstenProjectId", "Value": str(project_id)},
+                {"Key": "VarstenProvider", "Value": "gemini"},
+                {"Key": "Environment", "Value": "test"},
+            ],
+        }
+    ]
     assert json.loads(fake.secrets[name]) == {"api_key": "AIza-first"}
 
     assert resolver.store(project_id, "gemini", "AIza-second") == name
