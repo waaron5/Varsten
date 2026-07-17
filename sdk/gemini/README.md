@@ -27,6 +27,10 @@ npm install @varsten/gemini @google/genai
 `@google/genai` is a peer dependency; the wrapper delegates to it for both the
 optimized and the direct path.
 
+Runtime: Node.js 18 or newer. This is an ESM package; CommonJS applications must
+use dynamic `import()` or an ESM entry point. JavaScript, TypeScript declarations,
+source maps, and declaration maps are included.
+
 ## Quickstart
 
 ```ts
@@ -34,12 +38,12 @@ import { VarstenGemini } from "@varsten/gemini";
 
 const client = new VarstenGemini({
   varstenApiKey: process.env.VARSTEN_API_KEY, // vk_...  (sent to Varsten only)
-  geminiApiKey: process.env.GEMINI_API_KEY,   // AIza... (stays local; used only on fallback)
+  geminiApiKey: process.env.GEMINI_API_KEY,   // provider key; stays local and is used only on fallback
   onFallback: (e) => console.warn("varsten fallback", e.reasonCode),
 });
 
 const res = await client.models.generateContent({
-  model: "gemini-2.5-flash",
+  model: "gemini-3.1-flash-lite",
   contents: "Say hello in five words.",
 });
 ```
@@ -65,8 +69,12 @@ OpenAI and Anthropic. Instead:
   is deliberately more conservative than the header-readable providers, trading the
   rare bare-crash fallback for a guarantee of no duplicate billing.
 
-See `docs/design/SDK_FAILOPEN_DESIGN_FREEZE.md` for the full frozen contract.
+See the
+[SDK fail-open design contract](https://github.com/waaron5/Varsten/blob/main/docs/design/SDK_FAILOPEN_DESIGN_FREEZE.md)
+for the full frozen contract.
 
 ## License
 
 Apache-2.0.
+
+Issues and support: [Varsten GitHub issues](https://github.com/waaron5/Varsten/issues).

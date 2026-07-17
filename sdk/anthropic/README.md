@@ -28,6 +28,10 @@ npm install @varsten/anthropic @anthropic-ai/sdk
 `@anthropic-ai/sdk` is a peer dependency; the wrapper delegates to it for both the
 optimized and the direct path.
 
+Runtime: Node.js 18 or newer. This is an ESM package; CommonJS applications must
+use dynamic `import()` or an ESM entry point. JavaScript, TypeScript declarations,
+source maps, and declaration maps are included.
+
 ## Quickstart
 
 ```ts
@@ -40,7 +44,7 @@ const client = new VarstenAnthropic({
 });
 
 const res = await client.messages.create({
-  model: "claude-3-5-sonnet-20241022",
+  model: "claude-haiku-4-5-20251001",
   max_tokens: 256,
   messages: [{ role: "user", content: "Say hello in five words." }],
 });
@@ -64,8 +68,12 @@ Identical to the other Varsten wrappers, because they share `@varsten/core`:
 - **`budget_exceeded` (402)** → surfaced, not bypassed; it is a deliberate cap.
 - **Read timeout** → surfaced by default (opt in with `fallbackOnReadTimeout`).
 
-See `docs/design/SDK_FAILOPEN_DESIGN_FREEZE.md` for the full frozen contract.
+See the
+[SDK fail-open design contract](https://github.com/waaron5/Varsten/blob/main/docs/design/SDK_FAILOPEN_DESIGN_FREEZE.md)
+for the full frozen contract.
 
 ## License
 
 Apache-2.0.
+
+Issues and support: [Varsten GitHub issues](https://github.com/waaron5/Varsten/issues).

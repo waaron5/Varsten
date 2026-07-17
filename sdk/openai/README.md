@@ -12,12 +12,13 @@ OpenAI SDK at `https://api.varsten.ai/v1`) is great for evaluation, but it keeps
 Varsten in your request path with no way around it if Varsten is down. Use this
 SDK for anything production-critical.
 
-> Status: v0.1.0. Chat completions (streaming and non-streaming) have
+> Status: v0.1.0 beta. Chat completions (streaming and non-streaming) have
 > direct-to-provider fallback. Streaming falls back only *before the first token*
 > (if the optimized request fails before a stream is returned); once a stream has
 > started, a mid-stream error surfaces to you and is never restarted. Every request
 > carries an idempotency key so a fallback retry can't double-bill at the provider.
-> Anthropic and Gemini packages follow.
+> Shares the `@varsten/core` fail-open engine with `@varsten/anthropic` and
+> `@varsten/gemini`.
 
 ## Install
 
@@ -27,6 +28,10 @@ npm install @varsten/openai openai
 
 `openai` is a peer dependency; the wrapper delegates to it for both the optimized
 and the direct path.
+
+Runtime: Node.js 18 or newer. This is an ESM package; CommonJS applications must
+use dynamic `import()` or an ESM entry point. JavaScript, TypeScript declarations,
+source maps, and declaration maps are included.
 
 ## Quickstart
 
@@ -164,3 +169,5 @@ recovery.
 ## License
 
 Apache-2.0.
+
+Issues and support: [Varsten GitHub issues](https://github.com/waaron5/Varsten/issues).

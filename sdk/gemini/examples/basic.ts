@@ -2,7 +2,7 @@
  * Minimal example: optimize through Varsten, fall back to Gemini directly if
  * Varsten is unavailable.
  *
- *   VARSTEN_API_KEY=vk_... GEMINI_API_KEY=AIza... npx tsx examples/basic.ts
+ *   VARSTEN_API_KEY=vk_... GEMINI_API_KEY=<provider-key> npx tsx examples/basic.ts
  *
  * To see fallback in action, point the SDK at a dead Varsten and watch it serve
  * directly from the provider:
@@ -19,7 +19,7 @@ const client = new VarstenGemini({
 });
 
 const res = await client.models.generateContent({
-  model: "gemini-2.5-flash",
+  model: "gemini-3.1-flash-lite",
   contents: "Say hello in five words.",
 });
 
