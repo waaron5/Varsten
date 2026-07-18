@@ -477,6 +477,30 @@ rollback/containment procedure.
 - Phase 4.1 is complete. Phase 4.2 remains human Auth0-dashboard hardening; Phase
   4.3 retains the fresh-user and full live-session validation gates.
 
+### Phase 4.3 automated application validation
+
+- Verification checkpoint: `2026-07-18`; deployment of the callback UX change is
+  not included in this checkpoint.
+- The live login route redirects to the permanent issuer using the expected client,
+  API audience, callback, authorization-code flow, nonce/state, and S256 PKCE.
+- The transaction cookie is one-hour, Secure, HttpOnly, SameSite=Lax, and scoped
+  to `/`. Logout clears the session cookie and redirects through Auth0's OIDC
+  logout endpoint to `https://app.varsten.ai`.
+- Invalid live API tokens return 401. The offline issuer/audience/signature/expiry,
+  session synchronization/idempotency, production-readiness, and cross-tenant
+  authorization suite passed 36 tests.
+- Before this change, a callback missing state failed closed but returned a plain
+  HTTP 500. The frontend now uses the Auth0 SDK's `onCallback` hook to redirect
+  failed callbacks to a generic recovery page without reflecting OAuth error text.
+  Successful return targets are restricted to same-origin relative paths.
+- Frontend lint and the 34-route production build pass. The full browser suite
+  passes 27 tests, including callback error recovery/non-reflection, onboarding,
+  dashboard integrity, resilience, automation, billing, and self-serve flows.
+- Remaining Phase 4.3 gates: deploy the exact frontend SHA; repeat the malformed
+  callback probe; perform fresh Google signup/login, logout, password/email
+  recovery where applicable, expired-session renewal, and a live cross-account
+  isolation walkthrough after Phase 4.2 policy changes are finalized.
+
 ## Evidence update procedure
 
 For each gate:

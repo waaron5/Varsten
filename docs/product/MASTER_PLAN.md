@@ -335,9 +335,13 @@ Configure:
 - Log retention/export appropriate for incident investigation
 - No unintended localhost/preview URLs in production
 
-## 4.3 Application validation
+## 4.3 Application validation (In progress)
 
 **Owner: Me**
+
+Automated token, tenant-isolation, session-sync, anonymous-gate, and callback
+failure checks are complete. A fresh real-user browser session, recovery flow,
+and deployed callback-error verification remain after Phase 4.2 settings settle.
 
 Verify:
 
