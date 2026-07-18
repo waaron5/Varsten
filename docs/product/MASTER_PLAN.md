@@ -299,15 +299,17 @@ If publication cannot be completed immediately:
 
 **Owners:** Me and You
 **Risk:** Critical
-**Current concern:** Live configuration uses a tenant whose name differs from the documented production tenant
+**Current concern:** The permanent tenant is selected; its production hardening
+and application validation remain.
 
-## 4.1 Decide the Auth0 production tenant
+## 4.1 Decide the Auth0 production tenant (Done)
 
 **Owner: You — manual decision**
 
-Confirm whether `dev-tnqse1hznivo6img.us.auth0.com` is intentionally the permanent production tenant.
-
-If it is not, create or select the actual production tenant.
+On 2026-07-17, the founder designated
+`dev-tnqse1hznivo6img.us.auth0.com` as Varsten's permanent production tenant.
+The generated `dev-` hostname is retained; production status is an operational
+designation and hardening posture, not a hostname migration.
 
 ## 4.2 Auth0 configuration
 

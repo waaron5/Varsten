@@ -27,7 +27,8 @@ intentionally excluded.
 
 ## A1. Auth0 — production Regular Web Application
 
-In the **production** Auth0 tenant (`varsten.us.auth0.com`):
+In the designated **production** Auth0 tenant
+(`dev-tnqse1hznivo6img.us.auth0.com`):
 
 1. Confirm an **API** exists with identifier (audience) exactly `https://api.varsten.ai`
    (the backend already validates tokens against it).
@@ -47,8 +48,8 @@ In the **production** Auth0 tenant (`varsten.us.auth0.com`):
 1. New Vercel project from this repo. **Root Directory: `frontend`** (Vercel
    auto-detects Next.js; build command `next build`, output default).
 2. Set Production environment variables — see `frontend/.env.production.example`:
-   - `NEXT_PUBLIC_API_BASE=https://xkmwbvcq2r.us-east-1.awsapprunner.com`
-   - `AUTH0_DOMAIN=varsten.us.auth0.com`
+   - `NEXT_PUBLIC_API_BASE=https://api.varsten.ai`
+   - `AUTH0_DOMAIN=dev-tnqse1hznivo6img.us.auth0.com`
    - `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` (from A1)
    - `AUTH0_SECRET` = `openssl rand -hex 32`
    - `AUTH0_AUDIENCE=https://api.varsten.ai`

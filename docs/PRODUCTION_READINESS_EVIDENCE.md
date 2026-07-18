@@ -28,7 +28,7 @@ documentation only and did not change the application release candidate.
 | Marketing deployment | `https://www.varsten.ai` returns `200` from Vercel | Public deployment verified; immutable Vercel deployment ID unverified | Public HTTPS headers; retrieve immutable ID after human Vercel login | Unknown |
 | Database provider | Neon Postgres in AWS `us-east-1` | Verified | Parse only the hostname of the Secrets Manager database URL | N/A |
 | Database migration | Alembic `b0c1d2e3f4a5 (head)` | Verified | Run `alembic current` with the production database URL without printing it | Production image SHA above |
-| Auth0 tenant | `dev-tnqse1hznivo6img.us.auth0.com` | Verified; production designation unresolved | Inspect public authorization redirect and confirm tenant purpose in Auth0 | Dashboard deployment ID pending |
+| Auth0 tenant | `dev-tnqse1hznivo6img.us.auth0.com` | Verified; designated permanent production tenant on `2026-07-17` | Founder decision plus public authorization redirect | Dashboard deployment ID pending |
 | Auth0 client | `bcBLfGeiEF1ra9LDdkm0xP11MtXBu6NF` | Verified | Inspect public authorization redirect | Dashboard deployment ID pending |
 | Auth0 audience | `https://api.varsten.ai` | Verified | Inspect public authorization redirect and App Runner environment | Dashboard/API SHAs above |
 | Auth0 callback | `https://app.varsten.ai/auth/callback` | Verified | Inspect public authorization redirect | Dashboard deployment ID pending |
@@ -96,7 +96,7 @@ HTTPS verification.
 | Neon Postgres | Production transactional and evidence database | Live and migrated; recovery plan and restore drill unverified |
 | AWS Secrets Manager | Database, Sentry, Stripe, and provider-key secrets | Wired; provider-key IAM/persistence is tested in later gates |
 | Vercel | Host marketing and dashboard applications | Both public sites live; immutable deployment IDs need human-authenticated verification |
-| Auth0 | Customer identity and API token issuer | Live login redirect works; tenant's production designation and hardening unresolved |
+| Auth0 | Customer identity and API token issuer | Permanent production tenant selected; live redirect works; dashboard hardening remains Phase 4.2 |
 | Stripe | Live payment setup, lifecycle, and webhook source | Live account ready; full customer billing lifecycle unproven |
 | Sentry | Production exception and release observability | DSN wired; alert rules, scrubbing, releases, and delivery unproven |
 | External uptime monitor | Independent website/API availability alerting | No evidence available; required before launch |
@@ -123,7 +123,7 @@ rollback/containment procedure.
 | Provider-key CMK migration | Engineering | Passed | Dedicated rotating CMK deployed; three existing secrets migrated without plaintext export; all three controlled provider requests returned 200 on `2026-07-17` | Restore the prior App Runner image/config only if retrieval fails; do not export key material |
 | Provider-key rotation and operator custody | Founder + Engineering | Blocked on human action | Durable multi-region CloudTrail passed on `2026-07-17`; remaining: rotate/revoke upstream keys and replace broad long-lived operator access with MFA-backed short-lived sessions | Pause customer key onboarding until the affected control is complete |
 | Public SDK availability | Engineering + npm owner | In progress | All four `0.1.0` packages are public and pass clean registry install/import/audit gates as of `2026-07-17T20:44:56Z`; exact live consumer calls and forced-unreachable fallback remain | Hide/disable unavailable SDK paths if the remaining live gate fails; retain gateway/metadata paths |
-| Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
+| Auth0 production hardening | Auth0 owner + Engineering | In progress | Permanent tenant selected and drift-guarded; remaining: dashboard MFA/recovery, allowlists, protections, token settings, fresh signup, and full application validation | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
 | Database restore drill | Engineering + Neon owner | Not started | Isolated restore succeeds; revision/counts/tenancy verified; measured RPO/RTO recorded | Destroy isolated restore; production remains untouched |
 | AWS/application monitoring | Engineering | Failed at baseline | Alarms exist for availability, errors, latency, database, scheduler, pricing, secrets, and billing | Disable noisy alarm; never disable underlying telemetry |
@@ -452,6 +452,30 @@ rollback/containment procedure.
   `AdministratorAccess`, and no MFA device. The lockout-safe transition procedure
   is documented in `docs/security/aws-operator-access.md` and requires the account
   owner to complete and verify it before customer key onboarding.
+
+## Phase 4 evidence
+
+### Permanent production tenant decision
+
+- Founder decision: retain `dev-tnqse1hznivo6img.us.auth0.com` as Varsten's
+  permanent production Auth0 tenant. The provider-generated hostname is not a
+  statement about the environment's operational designation.
+- The live authorization redirect already uses this issuer with client
+  `bcBLfGeiEF1ra9LDdkm0xP11MtXBu6NF`, audience `https://api.varsten.ai`, callback
+  `https://app.varsten.ai/auth/callback`, authorization-code response type, and
+  S256 PKCE.
+- Tracked dashboard deployment examples, the Terraform example, backend readiness
+  fixture, deployment runbook, and master plan now agree with the selected tenant.
+  The ignored local production tfvars was also corrected to prevent an accidental
+  issuer rollback.
+- The App Runner Terraform resource now rejects a production plan whose Auth0
+  domain differs from the selected tenant. A negative plan using the retired
+  `varsten.us.auth0.com` value failed at this precondition; the selected value
+  produced a no-change production plan.
+- Identity/readiness regression suite: 36 passed. Frontend lint and production
+  build passed all 33 application routes.
+- Phase 4.1 is complete. Phase 4.2 remains human Auth0-dashboard hardening; Phase
+  4.3 retains the fresh-user and full live-session validation gates.
 
 ## Evidence update procedure
 

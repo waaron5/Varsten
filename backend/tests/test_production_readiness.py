@@ -14,7 +14,7 @@ def _prod_settings(**overrides) -> Settings:
     base = {
         "database_url": "postgresql+psycopg://u:p@db:5432/varsten",
         "app_env": "production",
-        "auth0_domain": "varsten.us.auth0.com",
+        "auth0_domain": "dev-tnqse1hznivo6img.us.auth0.com",
         "auth0_audience": "https://api.varsten.ai",
         "provider_key_backend": "secretsmanager",
         "provider_key_aws_region": "us-east-1",

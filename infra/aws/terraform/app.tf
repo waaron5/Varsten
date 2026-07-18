@@ -146,6 +146,14 @@ resource "aws_apprunner_service" "api" {
   lifecycle {
     precondition {
       condition = (
+        var.environment != "production" ||
+        var.auth0_domain == "dev-tnqse1hznivo6img.us.auth0.com"
+      )
+      error_message = "Production AUTH0_DOMAIN must remain dev-tnqse1hznivo6img.us.auth0.com unless the permanent tenant decision and all dependent configurations are deliberately migrated together."
+    }
+
+    precondition {
+      condition = (
         !var.self_serve_billing_enabled ||
         var.billing_secrets_preprovisioned ||
         (

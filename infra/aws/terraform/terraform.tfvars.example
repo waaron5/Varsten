@@ -18,7 +18,7 @@ database_url = "postgresql+psycopg://USER:PASSWORD@ep-xxxx.us-east-1.aws.neon.te
 # if this contains localhost.
 cors_origins = "[\"https://app.varsten.ai\"]"
 
-auth0_domain   = "varsten.us.auth0.com"
+auth0_domain   = "dev-tnqse1hznivo6img.us.auth0.com"
 auth0_audience = "https://api.varsten.ai"
 
 # Required in production (the API refuses to boot without it). Treat as a secret;
