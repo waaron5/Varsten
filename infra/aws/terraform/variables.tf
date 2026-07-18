@@ -138,3 +138,14 @@ variable "billing_cancel_url" {
   type        = string
   default     = "https://app.varsten.ai/admin/billing-security?checkout=cancel"
 }
+
+variable "cloudtrail_retention_days" {
+  description = "Days to retain current and noncurrent CloudTrail log objects. Seven years supports security investigations and common enterprise evidence needs."
+  type        = number
+  default     = 2555
+
+  validation {
+    condition     = var.cloudtrail_retention_days >= 365
+    error_message = "cloudtrail_retention_days must be at least 365 days."
+  }
+}

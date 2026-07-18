@@ -121,7 +121,7 @@ rollback/containment procedure.
 | Production pricing initialization | Engineering | Passed | Hardened sync at `47aa031`; checkpoint `br-icy-scene-aimmtj6f`; 2,506 catalog and price identities verified at `2026-07-17T15:38:52Z` | Restore the checkpoint if necessary, or append corrected versioned price rows and reconcile affected events |
 | Real cost derivation | Engineering | Passed | Six production SDK requests across OpenAI, Anthropic, and Gemini reconciled exactly at `aef5515` on `2026-07-17T18:54:31Z` | Disable affected model/route; mark events unpriced rather than inventing cost |
 | Provider-key CMK migration | Engineering | Passed | Dedicated rotating CMK deployed; three existing secrets migrated without plaintext export; all three controlled provider requests returned 200 on `2026-07-17` | Restore the prior App Runner image/config only if retrieval fails; do not export key material |
-| Provider-key rotation and operator custody | Founder + Engineering | Blocked on human action | Rotate upstream keys, reconnect through Varsten, revoke superseded keys; remove broad human IAM and require MFA; enable durable audit trail | Pause customer key onboarding until the affected control is complete |
+| Provider-key rotation and operator custody | Founder + Engineering | Blocked on human action | Durable multi-region CloudTrail passed on `2026-07-17`; remaining: rotate/revoke upstream keys and replace broad long-lived operator access with MFA-backed short-lived sessions | Pause customer key onboarding until the affected control is complete |
 | Public SDK availability | Engineering + npm owner | In progress | All four `0.1.0` packages are public and pass clean registry install/import/audit gates as of `2026-07-17T20:44:56Z`; exact live consumer calls and forced-unreachable fallback remain | Hide/disable unavailable SDK paths if the remaining live gate fails; retain gateway/metadata paths |
 | Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
@@ -398,6 +398,10 @@ rollback/containment procedure.
   forced-unreachable Varsten self-test from a clean consumer with locally supplied
   provider credentials. No provider credentials are present in this execution
   environment, and vaulted production keys were intentionally not extracted.
+- The official provider-SDK production suite was rerun after custody hardening on
+  `2026-07-17`: OpenAI, Anthropic, and Google Gen AI streaming/non-streaming tests
+  all passed (3 tests, 6 real requests). This proves the live gateway dialects but
+  does not replace the public-wrapper direct-fallback test above.
 
 ## Provider-key custody hardening evidence
 
@@ -425,8 +429,29 @@ rollback/containment procedure.
   credentials. The temporary Varsten project key previously exposed in chat must
   also be revoked and replaced.
 - Remaining AWS custody gates: replace the broad long-lived operator access path
-  with MFA-protected least privilege, establish durable CloudTrail evidence, and
-  separate provider-secret write authority from the request-serving runtime.
+  with MFA-protected least privilege and separate provider-secret write authority
+  from the request-serving runtime.
+
+### Durable AWS audit trail
+
+- Terraform configuration: `infra/aws/terraform/audit.tf`.
+- Production apply completed `2026-07-17`: 8 resources added, 0 changed, 0
+  destroyed. No application, identity-provider, billing, database, or secret
+  resource changed.
+- `varsten-production-audit` reports `IsLogging: true`. It is multi-region,
+  includes global service events and all read/write management events, has no
+  excluded management-event sources, and enables log-file validation.
+- CloudTrail digest objects were observed in the archive after enablement, proving
+  delivery rather than configuration alone.
+- Archive bucket `varsten-production-cloudtrail-749534911289` blocks all public
+  access, requires TLS, uses bucket-owner enforcement, enables versioning and
+  default encryption, transitions older evidence to archival storage, and expires
+  current/noncurrent objects after 2,555 days.
+- Root MFA is enabled and root has no access keys. The only IAM user,
+  `varsten-admin-cli`, still has console access, one active long-lived access key,
+  `AdministratorAccess`, and no MFA device. The lockout-safe transition procedure
+  is documented in `docs/security/aws-operator-access.md` and requires the account
+  owner to complete and verify it before customer key onboarding.
 
 ## Evidence update procedure
 

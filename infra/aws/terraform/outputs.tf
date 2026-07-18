@@ -17,3 +17,13 @@ output "provider_key_kms_key_arn" {
   description = "Customer-managed KMS key used only for provider API-key secrets."
   value       = aws_kms_key.provider_keys.arn
 }
+
+output "cloudtrail_name" {
+  description = "Account-wide multi-region CloudTrail used for durable control-plane audit evidence."
+  value       = aws_cloudtrail.account.name
+}
+
+output "cloudtrail_bucket_name" {
+  description = "Private, versioned S3 bucket retaining validated CloudTrail logs."
+  value       = aws_s3_bucket.cloudtrail.id
+}
