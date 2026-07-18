@@ -1,10 +1,10 @@
 # Provider key vaulting: migration to AWS Secrets Manager
 
 Status: AWS Secrets Manager storage is live behind `PROVIDER_KEY_BACKEND`.
-Customer-managed KMS enforcement and shorter plaintext cache residency are
-implemented in code/Terraform but require the migration below before they are
-true of existing production secrets. Human IAM removal, durable CloudTrail, and
-read/write workload separation remain separate custody-hardening gates.
+Customer-managed KMS enforcement and a 30-second plaintext cache are deployed,
+and the existing OpenAI, Anthropic, and Gemini secrets were migrated in place on
+2026-07-17. Human IAM removal, durable CloudTrail, provider-side key rotation,
+and read/write workload separation remain separate custody-hardening gates.
 
 ## Today (interim, Phase 1)
 
@@ -131,6 +131,21 @@ request. Mitigation:
 This sequence intentionally separates infrastructure creation from key rotation.
 Do not narrow or remove the old decrypt path until all existing secrets have been
 migrated and a controlled request has passed.
+
+### Production migration evidence (2026-07-17)
+
+- Dedicated key alias: `alias/varsten-production-provider-keys`; automatic annual
+  rotation is enabled.
+- The App Runner runtime uses the exact provider-key KMS ARN and a 30-second
+  provider-key cache TTL. Its KMS permission is limited to decrypt/data-key use
+  through Secrets Manager.
+- All three existing project/provider secrets report the dedicated KMS key and
+  production, data-class, project, and provider tags. Migration used metadata-only
+  `UpdateSecret` calls; no `GetSecretValue` or plaintext export was performed.
+- One minimal production request each through OpenAI, Anthropic, and Gemini
+  returned HTTP 200 with provider usage metadata after migration.
+- The provider-side rotation and revocation steps remain required. This migration
+  does not make an already-issued upstream credential new.
 
 ### Migration steps (no downtime)
 

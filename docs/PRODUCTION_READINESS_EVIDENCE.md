@@ -20,7 +20,7 @@ documentation only and did not change the application release candidate.
 | Repository branch | `main` | Verified | `git branch --show-current` | Application baseline `024f56559f9265e1130bbec3e46a2dbeec87a9d3` |
 | Local and remote revision | `HEAD` equaled `origin/main` at capture and was rechecked after the Phase 0 push | Verified | Compare `git rev-parse HEAD` and `git rev-parse origin/main` | Phase 0 documentation begins at `da8f7aa` |
 | Release candidate | Remediation will continue from `main`; no production release candidate is frozen yet | Established | Freeze the final candidate only after Phases 1–11 pass | Application baseline `024f56559f9265e1130bbec3e46a2dbeec87a9d3` |
-| Production API image | ECR `varsten-api:cf334bdbcac5fd6c7ea730616c1c3712947a45f0` | Verified; behind `main` | Read App Runner image identifier | `cf334bdbcac5fd6c7ea730616c1c3712947a45f0` |
+| Production API image | ECR `varsten-api:95a63f0c4a2bd06556d498bd067c89991c718c20` | Verified; custody-hardened release | Read App Runner image identifier | `95a63f0c4a2bd06556d498bd067c89991c718c20` |
 | Production API service | App Runner `varsten-production`, status `RUNNING` | Verified | `aws apprunner describe-service` in `us-east-1` | Production image SHA above |
 | Production API domain | `api.varsten.ai`, App Runner custom-domain status `active` | Verified | App Runner custom-domain query, DNS lookup, and readiness request | Production image SHA above |
 | API readiness | `https://api.varsten.ai/health/ready` returns `200` | Verified | Public HTTPS request | Production image SHA above |
@@ -92,7 +92,7 @@ HTTPS verification.
 
 | Component | Intended responsibility | Baseline reconciliation |
 | --- | --- | --- |
-| AWS App Runner | Run the API/proxy image promoted by immutable SHA | Live and healthy; production is behind current `main` |
+| AWS App Runner | Run the API/proxy image promoted by immutable SHA | Live and healthy on the custody-hardened `95a63f0` image; later documentation-only commits are not deployed |
 | Neon Postgres | Production transactional and evidence database | Live and migrated; recovery plan and restore drill unverified |
 | AWS Secrets Manager | Database, Sentry, Stripe, and provider-key secrets | Wired; provider-key IAM/persistence is tested in later gates |
 | Vercel | Host marketing and dashboard applications | Both public sites live; immutable deployment IDs need human-authenticated verification |
@@ -120,6 +120,8 @@ rollback/containment procedure.
 | Marketing dependency security | Engineering | Passed | Zero-vulnerability production audit, lint, typecheck, and build passed at `2026-07-16T21:36:45Z` | Revert `32d5296`; no deployment was made |
 | Production pricing initialization | Engineering | Passed | Hardened sync at `47aa031`; checkpoint `br-icy-scene-aimmtj6f`; 2,506 catalog and price identities verified at `2026-07-17T15:38:52Z` | Restore the checkpoint if necessary, or append corrected versioned price rows and reconcile affected events |
 | Real cost derivation | Engineering | Passed | Six production SDK requests across OpenAI, Anthropic, and Gemini reconciled exactly at `aef5515` on `2026-07-17T18:54:31Z` | Disable affected model/route; mark events unpriced rather than inventing cost |
+| Provider-key CMK migration | Engineering | Passed | Dedicated rotating CMK deployed; three existing secrets migrated without plaintext export; all three controlled provider requests returned 200 on `2026-07-17` | Restore the prior App Runner image/config only if retrieval fails; do not export key material |
+| Provider-key rotation and operator custody | Founder + Engineering | Blocked on human action | Rotate upstream keys, reconnect through Varsten, revoke superseded keys; remove broad human IAM and require MFA; enable durable audit trail | Pause customer key onboarding until the affected control is complete |
 | Public SDK availability | Engineering + npm owner | In progress | All four `0.1.0` packages are public and pass clean registry install/import/audit gates as of `2026-07-17T20:44:56Z`; exact live consumer calls and forced-unreachable fallback remain | Hide/disable unavailable SDK paths if the remaining live gate fails; retain gateway/metadata paths |
 | Auth0 production hardening | Auth0 owner + Engineering | Blocked on human confirmation | Tenant designation, MFA, allowlists, protections, token settings, fresh signup, isolation tests | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
@@ -396,6 +398,35 @@ rollback/containment procedure.
   forced-unreachable Varsten self-test from a clean consumer with locally supplied
   provider credentials. No provider credentials are present in this execution
   environment, and vaulted production keys were intentionally not extracted.
+
+## Provider-key custody hardening evidence
+
+- Verification completed: `2026-07-17`.
+- Implementation commits: `9b3b993` (runtime/CMK enforcement) and `95a63f0`
+  (migration runbook). Terraform secret payload drift protection is recorded at
+  `24df562`.
+- Dedicated KMS key ID: `785950b3-51c6-49e2-b36d-a221c5ad1b72`; alias
+  `alias/varsten-production-provider-keys`; automatic rotation is enabled.
+- Production App Runner image `95a63f0c4a2bd06556d498bd067c89991c718c20`
+  is `RUNNING`. Readiness passed through both the App Runner service URL and
+  `https://api.varsten.ai/health/ready` after deployment.
+- The runtime configuration contains the exact provider-key CMK ARN and a
+  30-second cache TTL. The live Auth0 issuer, API audience, billing settings, and
+  existing secret references were preserved during the zero-create/zero-destroy
+  service update.
+- Existing OpenAI, Anthropic, and Gemini secrets were re-encrypted in place with
+  the dedicated key and tagged by environment, data class, project, and provider.
+  The migration did not retrieve, print, or copy any secret value.
+- Post-migration controlled production requests returned HTTP 200 for OpenAI
+  `gpt-4o-mini`, Anthropic `claude-haiku-4-5-20251001`, and Gemini
+  `gemini-3.1-flash-lite`; each response included provider usage metadata.
+- Remaining human custody gate: create replacement credentials in all three
+  provider consoles, reconnect them through Varsten, and revoke the superseded
+  credentials. The temporary Varsten project key previously exposed in chat must
+  also be revoked and replaced.
+- Remaining AWS custody gates: replace the broad long-lived operator access path
+  with MFA-protected least privilege, establish durable CloudTrail evidence, and
+  separate provider-secret write authority from the request-serving runtime.
 
 ## Evidence update procedure
 
