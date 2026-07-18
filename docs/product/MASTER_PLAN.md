@@ -311,9 +311,12 @@ On 2026-07-17, the founder designated
 The generated `dev-` hostname is retained; production status is an operational
 designation and hardening posture, not a hostname migration.
 
-## 4.2 Auth0 configuration
+## 4.2 Auth0 configuration (In progress)
 
 **Owner: You — manual dashboard work, guided by me**
+
+Use `docs/security/auth0-production-hardening.md` as the authoritative worksheet
+and return only its non-secret evidence summary.
 
 Configure:
 
