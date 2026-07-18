@@ -112,6 +112,9 @@ Dashboard: **Security → Attack Protection**.
 
 ## 6. MFA policy
 
+Progress (`2026-07-18`): outstanding; the actions in this section still need to
+be completed.
+
 Dashboard administrator MFA is mandatory and separate from customer MFA.
 
 - [ ] All tenant administrators use MFA, preferably passkeys or hardware security
@@ -126,6 +129,10 @@ Dashboard administrator MFA is mandatory and separate from customer MFA.
 
 ## 7. Production email and recovery
 
+Progress (`2026-07-18`): Resend is the selected provider, but it is not configured
+in Auth0. A new or safely retrieved Resend API key may be required; do not record
+the key in this worksheet.
+
 Dashboard: **Branding → Email Provider** and **Email Templates**.
 
 - [ ] Configure a company-controlled email provider; the Auth0 test provider is
@@ -139,6 +146,9 @@ Dashboard: **Branding → Email Provider** and **Email Templates**.
       disabled where the tenant exposes the setting.
 
 ## 8. Logs and incident evidence
+
+Progress (`2026-07-18`): outstanding; a guided configuration walkthrough is
+required.
 
 Auth0's native retention is plan-dependent and short. Production authentication
 evidence must be exported.
