@@ -136,7 +136,7 @@ rollback/containment procedure.
 | Production billing lifecycle | Stripe owner + Engineering | Not started | Checkout/cancel/webhook/idempotency/trial/past-due/cancel/reactivate states verified | Disable self-serve billing; preserve existing entitlements for review |
 | Legal and privacy package | Founder + counsel | Blocked on human/counsel review | Approved Terms/MSA, Privacy Policy, DPA, subprocessors, retention, support terms | Limit engagement to explicitly contracted design pilot |
 | Security and marketing claims | Founder + Engineering + counsel | Not started | Every reliability, data, pricing, savings, and compliance claim maps to evidence | Remove or qualify unsupported claim |
-| Operational documentation | Engineering | Not started | Deployment, Neon recovery, incident, monitoring, billing, SDK, and rollback docs match production | Treat observed control-plane state as authoritative during correction |
+| Operational documentation | Engineering | In progress | Deployment, Neon recovery, incident, monitoring, billing, SDK, and rollback docs match production | Treat observed control-plane state as authoritative during correction |
 | Final immutable release | Engineering + Founder approval | Not started | All P0 gates passed; exact SHA deployed; smoke/funnel/soak evidence complete | App Runner rollback plus project/global bypass |
 
 ## Phase 1 evidence
@@ -500,6 +500,24 @@ rollback/containment procedure.
   callback probe; perform fresh Google signup/login, logout, password/email
   recovery where applicable, expired-session renewal, and a live cross-account
   isolation walkthrough after Phase 4.2 policy changes are finalized.
+
+## Phase 5 evidence
+
+### Neon recovery kickoff
+
+- Production recovery documentation now reflects the observed Neon database in
+  AWS `us-east-1`; stale RDS provisioning, retention, password-rotation, and
+  restore instructions were removed.
+- `docs/security/neon-production-recovery.md` separates provider/account facts,
+  proposed recovery objectives, and the isolated drill record. No secret values
+  belong in that worksheet.
+- Existing branch `br-icy-scene-aimmtj6f` is evidence of prior branch creation,
+  not proof of the current restore window or a completed restore drill.
+- The configured restore window, snapshot policy, plan/billing state, MFA,
+  recovery-capable administrators, and compute allowance remain human-console
+  evidence gates. No provider-side restore operation has been attempted.
+- Proposed internal targets are one-hour RPO and four-hour RTO. They are not an
+  SLA or public promise until an isolated drill measures and validates them.
 
 ## Evidence update procedure
 

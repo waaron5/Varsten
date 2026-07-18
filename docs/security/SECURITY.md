@@ -60,8 +60,9 @@ organization's audit log from the dashboard.
   via KMS.
 - Errors go to Sentry with PII attachment disabled (no headers, cookies, or
   bodies).
-- Automated database backups with point-in-time recovery; restore is drilled (see
-  `OPERATIONS_DEPLOY.md`).
+- Neon recovery capability and configured retention are being verified; do not
+  claim the database restore is drilled until the isolated Phase 5 exercise passes
+  (see `OPERATIONS_DEPLOY.md`).
 - CI enforces lint, type, security scan, complexity, and the full test suite on
   every change.
 

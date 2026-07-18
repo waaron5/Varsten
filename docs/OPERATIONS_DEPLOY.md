@@ -6,11 +6,9 @@ back, and the migration-safety rules. Read it before the first production deploy
 For what the engine can and cannot claim before packaging/onboarding, see
 `ENGINE_RELIABILITY_BOUNDARIES.md`.
 
-> Status: the Terraform under `infra/aws/terraform/` has not yet been applied
-> against a live AWS account. The first run must be a reviewed `terraform plan`.
-> Until that plan succeeds end to end (including an App Runner deploy that passes
-> `/health/ready` and a tested restore), production is not proven. Do not route a
-> customer's traffic before then.
+> Status: Terraform is applied in AWS and the production App Runner service is
+> live. The database is Neon Postgres in AWS `us-east-1`; Terraform does not create
+> or back it up. A tested isolated Neon restore is still a launch gate.
 
 ## Architecture
 
@@ -21,7 +19,7 @@ Vercel (Next.js dashboard + marketing)
 AWS App Runner  ── varsten-api image from ECR ──┐
    │  instance role: read varsten/<env>/* secrets, kms:Decrypt
    │  health check: GET /health/ready
-   ├── VPC connector ──► RDS Postgres 16 (private, encrypted, PITR on)
+   ├──────────────────► Neon Postgres (AWS us-east-1, TLS)
    ├──────────────────► Redis / ElastiCache (required before horizontal scale)
    ├──────────────────► AWS Secrets Manager (DATABASE_URL, provider keys, Sentry DSN)
    └──────────────────► OpenAI / Anthropic / Gemini upstreams
@@ -47,26 +45,31 @@ move it to an external job runner before scaling the API horizontally.
 
 `staging` and `production` are the same Terraform, separated by the `environment`
 variable and, critically, by **separate state** (distinct Terraform workspaces or
-backend keys). They get distinct RDS instances, distinct secret prefixes
-(`varsten/staging/*` vs `varsten/production/*`), and distinct App Runner services.
-Never point staging at the production database.
+backend keys). They get distinct secret prefixes (`varsten/staging/*` vs
+`varsten/production/*`) and distinct App Runner services. Their Neon databases
+must also use isolated projects or branches and credentials. Never point a
+staging application at the production branch.
 
 ## First-time setup
 
 1. Create the remote-state bucket + lock table once, fill in the `backend "s3"`
    block in `versions.tf`, and `terraform init` per environment.
-2. `terraform apply` with a `terraform.tfvars` (see the example). This creates the
-   ECR repo, RDS, secrets, IAM, the VPC connector, and the App Runner service.
-3. Build and push the API image, then set `image_tag` and apply again:
+2. Provision the Neon database separately, require TLS, store its connection URL
+   in the environment's AWS Secrets Manager database secret, and record the Neon
+   project/branch identifiers without recording credentials.
+3. `terraform apply` with a `terraform.tfvars` (see the example). This creates the
+   ECR repository, application secrets, IAM, audit infrastructure, and App Runner
+   service; it does not create Neon.
+4. Build and push the API image, then set `image_tag` and apply again:
    ```bash
    aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_URL"
    docker build -t "$ECR_URL:$GIT_SHA" ./backend
    docker push "$ECR_URL:$GIT_SHA"
    terraform apply -var "image_tag=$GIT_SHA"
    ```
-4. Run migrations against the new database (see below).
-5. Verify: `curl https://<api_url>/health/ready` returns `{"ok": true, ...}`.
-6. Connect a provider key through the dashboard Connections flow and confirm the
+5. Run migrations against the new database (see below).
+6. Verify: `curl https://<api_url>/health/ready` returns `{"ok": true, ...}`.
+7. Connect a provider key through the dashboard Connections flow and confirm the
    secret lands at `varsten/<env>/provider-keys/<project_id>/<provider>`.
 
 ## Routine deploy
@@ -109,25 +112,31 @@ Do not raise `app_max_instances` above `1` until all checks pass:
 
 ## Backups and restore
 
-Backups are automatic: `db_backup_retention_period = 14` enables daily snapshots
-**and** point-in-time recovery (PITR) to any second in the window. There is
-nothing to schedule.
+Production recovery uses Neon's **Backup & Restore**, instant restore/history,
+snapshots, and isolated branches. The configured restore window and snapshot
+schedule are plan-dependent; record the actual console values in
+`security/neon-production-recovery.md`. Never infer retention from an old Neon
+default or from this repository.
 
 **A backup you have never restored is not a backup.** Run this drill on staging
 before the first customer and quarterly after:
 
-1. Restore to a new instance at a chosen timestamp:
-   ```bash
-   aws rds restore-db-instance-to-point-in-time \
-     --source-db-instance-identifier varsten-production \
-     --target-db-instance-identifier varsten-restore-test \
-     --restore-time "2026-06-15T12:00:00Z" \
-     --no-publicly-accessible --db-subnet-group-name varsten-production
-   ```
-2. Point a staging API (or a psql session) at the restored endpoint and verify row
-   counts and a recent `usage_events` record are present.
-3. Record the wall-clock restore time (this is your real RTO) and the timestamp
-   gap (RPO). Tear the restore instance down.
+1. Record the production branch ID, current UTC time, Alembic revision, and safe
+   aggregate counts. Do not print a connection string.
+2. In Neon **Backup & Restore**, select a timestamp inside the configured restore
+   window. Preview the timestamp if the plan supports it.
+3. Restore to a **new isolated branch/endpoint**, never in place. Name it
+   `restore-drill-YYYYMMDD` and set an expiry where available.
+4. Do not point App Runner, Vercel, scheduled jobs, provider-key connections,
+   Stripe webhooks, or email delivery at the restored branch. Connect only a
+   temporary read-only verification process.
+5. Verify Alembic revision, safe table counts, tenant relationships, API-key
+   metadata (never plaintext), price coverage, usage, billing state, and provider
+   connection metadata. Run no provider or billing requests.
+6. Record the selected recovery timestamp, branch-ready time, verification-ready
+   time, measured recovery-point gap, and any errors.
+7. Delete the temporary endpoint/branch after evidence is captured. Confirm the
+   production connection and readiness never changed.
 
 Document the measured RTO/RPO in the customer security package.
 
@@ -162,5 +171,6 @@ Document the measured RTO/RPO in the customer security package.
   secrets, and provider keys are written at runtime by the Connections flow.
 - The instance role can read only `varsten/<env>/*` and write only under
   `provider-keys/*`. It cannot read another environment's secrets.
-- Rotating the DB password: rotate in RDS, update the `database-url` secret, then
-  force a new App Runner deploy so the running task re-reads it.
+- Rotating the DB password: rotate the Neon role password, update the
+  `database-url` secret, then force a new App Runner deploy so the running task
+  re-reads it. Verify readiness before revoking the old credential.

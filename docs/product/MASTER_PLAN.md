@@ -369,11 +369,14 @@ Verify:
 
 ---
 
-# Phase 5 — Prove backup, restore, and data recovery
+# Phase 5 — Prove backup, restore, and data recovery (In progress)
 
 **Owners:** Me and You
 **Risk:** Critical
-**Current blocker:** Production uses Neon while recovery documentation describes RDS
+**Current blocker:** Founder console evidence is required for the production Neon
+plan, configured recovery window, account access controls, and available compute.
+The RDS-specific production runbook has been replaced with a Neon procedure, but
+an isolated restore has not yet been performed.
 
 ## 5.1 Establish the Neon recovery capability
 
@@ -389,6 +392,9 @@ Confirm and provide non-secret evidence of:
 - Account recovery and MFA
 - Authorized administrators
 - Billing status
+
+Record the result in `docs/security/neon-production-recovery.md`. Do not include
+credentials, recovery codes, personal email addresses, or database URLs.
 
 ## 5.2 Define recovery objectives
 
