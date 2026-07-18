@@ -85,6 +85,10 @@ resource "aws_secretsmanager_secret_version" "rate_limit_redis_url" {
   count         = local.redis_enabled ? 1 : 0
   secret_id     = aws_secretsmanager_secret.rate_limit_redis_url[0].id
   secret_string = var.rate_limit_redis_url
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_apprunner_service" "api" {
@@ -143,13 +147,14 @@ resource "aws_apprunner_service" "api" {
     precondition {
       condition = (
         !var.self_serve_billing_enabled ||
+        var.billing_secrets_preprovisioned ||
         (
           var.stripe_secret_key != "" &&
           var.stripe_publishable_key != "" &&
           var.stripe_webhook_secret != ""
         )
       )
-      error_message = "Stripe keys/secrets must be set when self_serve_billing_enabled=true."
+      error_message = "Stripe values must be supplied or explicitly marked preprovisioned when self_serve_billing_enabled=true."
     }
   }
 }
@@ -173,4 +178,8 @@ resource "aws_secretsmanager_secret" "sentry_dsn" {
 resource "aws_secretsmanager_secret_version" "sentry_dsn" {
   secret_id     = aws_secretsmanager_secret.sentry_dsn.id
   secret_string = var.sentry_dsn
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }

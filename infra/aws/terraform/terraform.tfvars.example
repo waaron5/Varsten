@@ -42,3 +42,9 @@ app_max_instances = 4
 # pooled endpoint (Neon pooler / PgBouncer) when scaling out.
 db_pool_size    = 5
 db_max_overflow = 5
+
+# Existing production only: use these together when the Stripe secrets are
+# already populated in Secrets Manager. This avoids retrieving their values into
+# a Terraform command merely to preserve the existing App Runner references.
+# self_serve_billing_enabled   = true
+# billing_secrets_preprovisioned = true

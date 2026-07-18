@@ -100,6 +100,12 @@ variable "allow_disabled_self_serve_billing" {
   default     = false
 }
 
+variable "billing_secrets_preprovisioned" {
+  description = "Assert that the live Stripe secret resources already contain valid values managed out of band. Use only for an existing environment; it avoids retrieving secret payloads solely to satisfy a Terraform plan."
+  type        = bool
+  default     = false
+}
+
 variable "stripe_secret_key" {
   description = "Stripe live secret key. Stored in Secrets Manager and injected into App Runner as STRIPE_SECRET_KEY."
   type        = string

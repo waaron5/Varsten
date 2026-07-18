@@ -33,6 +33,10 @@ resource "aws_secretsmanager_secret" "database_url" {
 resource "aws_secretsmanager_secret_version" "database_url" {
   secret_id     = aws_secretsmanager_secret.database_url.id
   secret_string = var.database_url
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_secretsmanager_secret" "stripe_secret_key" {
@@ -49,6 +53,10 @@ resource "aws_secretsmanager_secret_version" "stripe_secret_key" {
   count         = var.self_serve_billing_enabled ? 1 : 0
   secret_id     = aws_secretsmanager_secret.stripe_secret_key[0].id
   secret_string = var.stripe_secret_key
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_secretsmanager_secret" "stripe_publishable_key" {
@@ -65,6 +73,10 @@ resource "aws_secretsmanager_secret_version" "stripe_publishable_key" {
   count         = var.self_serve_billing_enabled ? 1 : 0
   secret_id     = aws_secretsmanager_secret.stripe_publishable_key[0].id
   secret_string = var.stripe_publishable_key
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_secretsmanager_secret" "stripe_webhook_secret" {
@@ -81,4 +93,8 @@ resource "aws_secretsmanager_secret_version" "stripe_webhook_secret" {
   count         = var.self_serve_billing_enabled ? 1 : 0
   secret_id     = aws_secretsmanager_secret.stripe_webhook_secret[0].id
   secret_string = var.stripe_webhook_secret
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
