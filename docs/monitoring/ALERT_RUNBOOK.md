@@ -39,7 +39,8 @@ the underlying incident is fully resolved.
 
 ## Known Phase 6 gaps
 
-- SNS email delivery is not active until the recipient confirms the subscription.
+- The production SNS email subscription was confirmed on `2026-07-20`; delivery
+  remains unproven until the Phase 6.4 test notification and alarm drill arrive.
 - External uptime monitoring and its phone/email delivery are configured outside
   AWS and require a human-operated account.
 - Sentry alert rules, release tracking, source maps, and server-side scrubbing

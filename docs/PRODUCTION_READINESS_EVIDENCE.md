@@ -126,7 +126,7 @@ rollback/containment procedure.
 | Auth0 production hardening | Auth0 owner + Engineering | In progress | Permanent tenant selected and drift-guarded; remaining: dashboard MFA/recovery, allowlists, protections, token settings, fresh signup, and full application validation | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
 | Database restore drill | Engineering + Neon owner | Not started | Isolated restore succeeds; revision/counts/tenancy verified; measured RPO/RTO recorded | Destroy isolated restore; production remains untouched |
-| AWS/application monitoring | Engineering | In progress | Nine alarms, eight log metric filters, deployment-failure rule, SNS topic, and no-drift plan verified `2026-07-20`; recipient confirmation, alert drill, pricing/unpriced metrics, and baseline-dependent signals remain | Disable noisy alarm; never disable underlying telemetry |
+| AWS/application monitoring | Engineering | In progress | Nine alarms, eight log metric filters, deployment-failure rule, SNS topic, confirmed human recipient, and no-drift plan verified `2026-07-20`; alert drill, pricing/unpriced metrics, and baseline-dependent signals remain | Disable noisy alarm; never disable underlying telemetry |
 | Sentry alerting and scrubbing | Sentry owner + Engineering | Not started | Test event reaches human; release linked; sensitive fields demonstrably scrubbed | Disable faulty integration or alert; retain error capture only if data-safe |
 | External uptime monitoring | Human operations owner | Blocked on human setup | Three monitors active; test notification reaches phone/email | Use secondary provider/manual checks during repair |
 | Container and supply-chain security | Engineering | Not started | Image scan/SBOM reviewed; no actionable critical/high findings; secrets scan clean | Do not promote image; retain last known-good SHA |
@@ -564,8 +564,10 @@ rollback/containment procedure.
   the EventBridge target existed, and `https://api.varsten.ai/health/ready`
   returned `{"ok":true,"database":"ok"}`. The App Runner image remained
   `95a63f0c4a2bd06556d498bd067c89991c718c20` throughout.
-- The founder email subscription remains `PendingConfirmation`; notification
-  delivery and alarm recovery have not been drilled. Do not mark Phase 6 passed.
+- The founder confirmed the email subscription on `2026-07-20`. Direct SNS
+  subscription attributes and refreshed Terraform state both report
+  `pending_confirmation=false`. Notification delivery and alarm recovery have not
+  been drilled. Do not mark Phase 6 passed.
 - Remaining 6.1 gaps are pricing/catalog misses, excessive unpriced usage,
   authentication-rate anomalies, and traffic disappearance. The latter two need
   a stable customer baseline or independent synthetic heartbeat to avoid false
