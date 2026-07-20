@@ -126,7 +126,7 @@ rollback/containment procedure.
 | Auth0 production hardening | Auth0 owner + Engineering | In progress | Permanent tenant selected and drift-guarded; remaining: dashboard MFA/recovery, allowlists, protections, token settings, fresh signup, and full application validation | Revert Auth0/Vercel config together; preserve prior callback until verified |
 | Neon backup capability | Neon owner + Engineering | Blocked on human account evidence | Plan, retention, PITR/branch capability, account recovery, and admins recorded | Stop data-changing launch work until recoverability is known |
 | Database restore drill | Engineering + Neon owner | Not started | Isolated restore succeeds; revision/counts/tenancy verified; measured RPO/RTO recorded | Destroy isolated restore; production remains untouched |
-| AWS/application monitoring | Engineering | In progress | Nine alarms, eight log metric filters, deployment-failure rule, SNS topic, confirmed human recipient, and no-drift plan verified `2026-07-20`; alert drill, pricing/unpriced metrics, and baseline-dependent signals remain | Disable noisy alarm; never disable underlying telemetry |
+| AWS/application monitoring | Engineering | In progress | Nine alarms, eight log metric filters, deployment-failure rule, SNS topic, and no-drift plan verified `2026-07-20`; native SNS email delivery failed three direct tests and must be replaced and drilled before launch | Disable noisy alarm; never disable underlying telemetry |
 | Sentry alerting and scrubbing | Sentry owner + Engineering | Not started | Test event reaches human; release linked; sensitive fields demonstrably scrubbed | Disable faulty integration or alert; retain error capture only if data-safe |
 | External uptime monitoring | Human operations owner | Blocked on human setup | Three monitors active; test notification reaches phone/email | Use secondary provider/manual checks during repair |
 | Container and supply-chain security | Engineering | Not started | Image scan/SBOM reviewed; no actionable critical/high findings; secrets scan clean | Do not promote image; retain last known-good SHA |
@@ -564,11 +564,11 @@ rollback/containment procedure.
   the EventBridge target existed, and `https://api.varsten.ai/health/ready`
   returned `{"ok":true,"database":"ok"}`. The App Runner image remained
   `95a63f0c4a2bd06556d498bd067c89991c718c20` throughout.
-- The founder confirmed the initial email subscription on `2026-07-20`, but later
-  received an AWS unsubscription notice. SNS subsequently listed that subscription
-  as `Deleted`; it was not a viable delivery destination. A replacement
-  subscription was created and is awaiting confirmation. Do not mark Phase 6
-  passed until the replacement receives the repeated drill messages.
+- The founder confirmed multiple email subscription attempts on `2026-07-20`.
+  SNS ultimately listed the Gmail endpoint as `Deleted`, including after the
+  subscription was moved outside Terraform. Native SNS email is not an
+  operational human destination for this deployment and must be replaced before
+  Phase 6 can pass.
 - Remaining 6.1 gaps are pricing/catalog misses, excessive unpriced usage,
   authentication-rate anomalies, and traffic disappearance. The latter two need
   a stable customer baseline or independent synthetic heartbeat to avoid false
@@ -599,9 +599,15 @@ rollback/containment procedure.
   confirmation occurs outside Terraform. Email subscription lifecycle management
   was therefore removed from Terraform; the topic, policy, alarms, and EventBridge
   target remain managed with a no-drift plan.
-- The broken record was removed and a new email subscription was initiated
-  directly through SNS. It is correctly listed as `PendingConfirmation`. Repeat a
-  single direct test only after this out-of-band subscription is confirmed.
+- The broken record was removed and a new email subscription was initiated and
+  confirmed directly through SNS. CloudTrail showed no later `Unsubscribe` API
+  call, but SNS nevertheless returned the endpoint with subscription state
+  `Deleted`.
+- A third direct test was accepted with message ID
+  `9d69fff2-2488-5a57-b56e-9d2aae501ba9`. CloudWatch recorded the publication at
+  approximately `2026-07-20T20:40:00Z`, but recorded no corresponding delivery,
+  and the founder received no email. No further native SNS email retries should
+  be treated as progress; configure and drill a different human delivery path.
 
 ## Evidence update procedure
 

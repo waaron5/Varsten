@@ -44,10 +44,11 @@ the underlying incident is fully resolved.
 
 ## Known Phase 6 gaps
 
-- The first production SNS email subscription was deleted during setup. Although
-  AWS accepted the Phase 6.4 direct, `ALARM`, and `OK` publications, none reached
-  the founder; that drill failed. A replacement subscription must be confirmed
-  and the drill repeated before delivery is considered operational.
+- Native SNS email delivery to the founder is not operational. Three confirmed
+  subscription attempts ended with SNS listing the endpoint as `Deleted`; the
+  latest direct test was published successfully but produced no delivery and no
+  email. Do not spend the launch gate on further SNS email retries. A different
+  human delivery path must be configured and drilled end to end.
 - External uptime monitoring and its phone/email delivery are configured outside
   AWS and require a human-operated account.
 - Sentry alert rules, release tracking, source maps, and server-side scrubbing
