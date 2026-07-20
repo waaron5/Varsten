@@ -564,10 +564,11 @@ rollback/containment procedure.
   the EventBridge target existed, and `https://api.varsten.ai/health/ready`
   returned `{"ok":true,"database":"ok"}`. The App Runner image remained
   `95a63f0c4a2bd06556d498bd067c89991c718c20` throughout.
-- The founder confirmed the email subscription on `2026-07-20`. Direct SNS
-  subscription attributes and refreshed Terraform state both report
-  `pending_confirmation=false`. Notification delivery and alarm recovery have not
-  been drilled. Do not mark Phase 6 passed.
+- The founder confirmed the initial email subscription on `2026-07-20`, but later
+  received an AWS unsubscription notice. SNS subsequently listed that subscription
+  as `Deleted`; it was not a viable delivery destination. A replacement
+  subscription was created and is awaiting confirmation. Do not mark Phase 6
+  passed until the replacement receives the repeated drill messages.
 - Remaining 6.1 gaps are pricing/catalog misses, excessive unpriced usage,
   authentication-rate anomalies, and traffic disappearance. The latter two need
   a stable customer baseline or independent synthetic heartbeat to avoid false
@@ -588,9 +589,13 @@ rollback/containment procedure.
 - The alarm was restored to `OK` with a test-complete reason. CloudWatch action
   history also reports successful publication of the recovery action. All nine
   alarms subsequently reported `OK`, and API readiness remained healthy.
-- Human confirmation that the direct, `ALARM`, and `OK` emails arrived is still
-  required. AWS SNS delivery metrics had not populated at verification time, so
-  end-to-end delivery is not yet marked passed.
+- The founder received none of the direct, `ALARM`, or `OK` emails. SNS recorded
+  three messages published and zero delivered notifications, while listing the
+  destination subscription as `Deleted`. The drill therefore failed end to end.
+- Terraform replaced only the deleted email subscription. The new subscription
+  is correctly listed as `PendingConfirmation`; all other monitoring resources
+  remained unchanged and Terraform reported no drift. Repeat the drill only after
+  the new confirmation is complete.
 
 ## Evidence update procedure
 
