@@ -43,9 +43,9 @@ app_max_instances = 4
 db_pool_size    = 5
 db_max_overflow = 5
 
-# Required in production. AWS sends a confirmation message after the first apply;
-# alarms cannot deliver until the recipient confirms the SNS subscription.
-alert_email = "oncall@example.com"
+# After applying, add and confirm a human-operated email subscription directly on
+# the p0_alert_topic_arn output. Email confirmation is an out-of-band workflow and
+# is deliberately not managed by Terraform. See docs/monitoring/ALERT_RUNBOOK.md.
 
 # Existing production only: use these together when the Stripe secrets are
 # already populated in Secrets Manager. This avoids retrieving their values into

@@ -149,14 +149,3 @@ variable "cloudtrail_retention_days" {
     error_message = "cloudtrail_retention_days must be at least 365 days."
   }
 }
-
-variable "alert_email" {
-  description = "Human-operated email destination for P0 production SNS alerts. The recipient must confirm the AWS subscription before alerts can be delivered."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.alert_email == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))
-    error_message = "alert_email must be empty or a valid email address."
-  }
-}

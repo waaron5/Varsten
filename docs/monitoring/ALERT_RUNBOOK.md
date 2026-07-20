@@ -5,6 +5,11 @@ topic. The founder owns acknowledgment until a formal on-call rotation exists.
 Never paste credentials, provider keys, request bodies, prompts, or customer data
 into an incident ticket or chat.
 
+The SNS topic, policies, alarms, and EventBridge target are managed by Terraform.
+Email subscriptions are created and confirmed directly in SNS because the AWS
+Terraform provider classifies the email protocol as partially supported: its
+confirmation occurs outside Terraform. Record and drill every human destination.
+
 ## First response
 
 1. Record the alert name, UTC time, service, and AWS request or event identifier.

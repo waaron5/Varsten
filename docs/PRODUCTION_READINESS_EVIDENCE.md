@@ -592,10 +592,16 @@ rollback/containment procedure.
 - The founder received none of the direct, `ALARM`, or `OK` emails. SNS recorded
   three messages published and zero delivered notifications, while listing the
   destination subscription as `Deleted`. The drill therefore failed end to end.
-- Terraform replaced only the deleted email subscription. The new subscription
-  is correctly listed as `PendingConfirmation`; all other monitoring resources
-  remained unchanged and Terraform reported no drift. Repeat the drill only after
-  the new confirmation is complete.
+- A second Terraform-managed email subscription was confirmed, but SNS again did
+  not enumerate it as an active target and a direct test produced no delivered or
+  failed notification metric. The founder received no test email.
+- HashiCorp documents SNS email subscriptions as only partially supported because
+  confirmation occurs outside Terraform. Email subscription lifecycle management
+  was therefore removed from Terraform; the topic, policy, alarms, and EventBridge
+  target remain managed with a no-drift plan.
+- The broken record was removed and a new email subscription was initiated
+  directly through SNS. It is correctly listed as `PendingConfirmation`. Repeat a
+  single direct test only after this out-of-band subscription is confirmed.
 
 ## Evidence update procedure
 

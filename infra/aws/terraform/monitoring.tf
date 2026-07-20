@@ -45,20 +45,6 @@ locals {
 
 resource "aws_sns_topic" "p0_alerts" {
   name = local.monitoring_topic_name
-
-  lifecycle {
-    precondition {
-      condition     = var.environment != "production" || var.alert_email != ""
-      error_message = "Production monitoring requires alert_email so alarms reach a human."
-    }
-  }
-}
-
-resource "aws_sns_topic_subscription" "p0_email" {
-  count     = var.alert_email == "" ? 0 : 1
-  topic_arn = aws_sns_topic.p0_alerts.arn
-  protocol  = "email"
-  endpoint  = var.alert_email
 }
 
 data "aws_iam_policy_document" "p0_alerts" {
