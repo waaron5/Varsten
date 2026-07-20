@@ -573,6 +573,25 @@ rollback/containment procedure.
   a stable customer baseline or independent synthetic heartbeat to avoid false
   positives.
 
+### Phase 6.4 AWS alert drill — 2026-07-20
+
+- Founder approved a safe synthetic notification drill. No production request,
+  deployment, application configuration, database, or customer data was changed.
+- SNS accepted a clearly labeled direct test notification with message ID
+  `44258d49-8497-5435-9461-ef91d9358c92`.
+- `varsten-production-apprunner-5xx` was moved from `OK` to `ALARM` with the
+  explicit reason `TEST ONLY — approved Phase 6.4 notification drill; no
+  production incident exists`.
+- CloudWatch action history reports successful publication to the production SNS
+  topic. The published alarm identified the service, region, metric, synthetic
+  reason, and production alert runbook.
+- The alarm was restored to `OK` with a test-complete reason. CloudWatch action
+  history also reports successful publication of the recovery action. All nine
+  alarms subsequently reported `OK`, and API readiness remained healthy.
+- Human confirmation that the direct, `ALARM`, and `OK` emails arrived is still
+  required. AWS SNS delivery metrics had not populated at verification time, so
+  end-to-end delivery is not yet marked passed.
+
 ## Evidence update procedure
 
 For each gate:
