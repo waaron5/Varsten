@@ -18,21 +18,44 @@ completed restore drill.
 
 Complete these fields from the Neon console:
 
-- Plan name:
-- Billing status (`active` or `action required`):
-- Production project name:
-- Production branch ID:
+- Plan name: Launch
+- Billing status (`active` or `action required`): active; monthly spend cap is $5
+- Production project name: unverified
+- Production branch name: `production`
+- Production branch ID: `br-frosty-river-aijf782g`
 - Production branch is the root branch (`yes` or `no`):
-- Configured instant-restore window:
+- Configured instant-restore window: 6 hours
 - Oldest selectable restore timestamp (UTC):
-- Snapshots available (`yes` or `no`):
+- Snapshots available (`yes` or `no`): plan supports snapshots; console state unverified
 - Scheduled snapshot frequency:
-- Scheduled snapshot retention:
-- Project region:
-- Account MFA enabled (`yes` or `no`):
-- Authorized project/account administrators (count only):
-- Second recovery-capable administrator (`yes` or `no`):
+- Scheduled snapshot retention: 14 days reported; schedule and active status unverified
+- Project region: AWS `us-east-1`
+- Account MFA enabled (`yes` or `no`): yes
+- Authorized project/account administrators (count only): 1
+- Second recovery-capable administrator (`yes` or `no`): no
 - Account recovery method tested (`yes` or `no`):
+
+Assessment recorded 2026-07-20:
+
+- Launch currently permits a configurable restore window up to 7 days. The
+  production project is configured for only 6 hours.
+- Paid plans currently include up to 10 manual snapshots. Scheduled snapshots do
+  not count against that manual limit. Console confirmation is still required to
+  prove that a production schedule is active and retained for 14 days.
+- Reported spend is $1.92 and 18 CU-hours, leaving $3.08 below the founder's cap.
+  At the current published Launch compute rate of $0.106/CU-hour, that is at most
+  about 29 additional CU-hours if no storage, history, branch, or other usage is
+  charged. It is not a guaranteed compute allowance.
+- Single-administrator access is a recovery continuity risk and does not meet the
+  Phase 5 exit criterion for two recovery-capable accounts where possible.
+- The remaining $3.08 is probably sufficient for a brief, tightly monitored
+  restore drill, but it is not safe production headroom for a first enterprise
+  customer. Raise the cap and configure billing alerts before customer traffic.
+- Phase 5.1 remains in progress until the unchecked console facts below are
+  verified. Before the first enterprise customer, extend the restore window to at
+  least 24 hours (7 days preferred while usage is small), confirm a daily 14-day
+  snapshot schedule, test account recovery, add a second MFA-protected owner, and
+  establish production billing headroom.
 
 Confirm in **Backup & Restore**:
 

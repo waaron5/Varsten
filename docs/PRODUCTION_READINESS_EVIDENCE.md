@@ -519,6 +519,30 @@ rollback/containment procedure.
 - Proposed internal targets are one-hour RPO and four-hour RTO. They are not an
   SLA or public promise until an isolated drill measures and validates them.
 
+### Phase 5.1 account evidence assessment — 2026-07-20
+
+- Founder-reported console state: Launch plan, active billing with a $5 spend cap,
+  production branch `br-frosty-river-aijf782g` (display name `production`), 6-hour
+  restore window, AWS `us-east-1`, account MFA enabled, and one administrator.
+  The project name remains unverified.
+- A 14-day snapshot retention value was reported, but snapshot availability,
+  schedule frequency, active schedule state, and oldest selectable restore time
+  remain unverified. Restoration to a new branch was reported tentatively and is
+  not yet evidence.
+- Neon currently documents up to 7 days of restore history on Launch, 10 manual
+  snapshots on paid plans, and scheduled snapshots outside the manual limit. The
+  production 6-hour setting is therefore below the plan capability.
+- Reported use is $1.92 and 18 CU-hours, leaving $3.08 under the founder's cap.
+  At $0.106/CU-hour this is a theoretical maximum of about 29 further CU-hours,
+  excluding storage, history, branch, and other metered costs. This is likely
+  enough for a short controlled drill, but is not acceptable production headroom
+  for first-customer traffic.
+- Phase 5.1 remains in progress. Required closure evidence: production root-branch
+  status, oldest restore timestamp, active daily snapshot schedule and retention,
+  new-branch restore option, account recovery test, and a second MFA-protected
+  recovery-capable administrator where organizationally possible. Production
+  billing headroom and alerts must also be established before onboarding.
+
 ## Evidence update procedure
 
 For each gate:

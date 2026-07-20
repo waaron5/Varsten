@@ -373,10 +373,12 @@ Verify:
 
 **Owners:** Me and You
 **Risk:** Critical
-**Current blocker:** Founder console evidence is required for the production Neon
-plan, configured recovery window, account access controls, and available compute.
-The RDS-specific production runbook has been replaced with a Neon procedure, but
-an isolated restore has not yet been performed.
+**Current blocker:** Phase 5.1 has partial founder console evidence. Remaining:
+production root-branch status, oldest restore timestamp, active snapshot schedule,
+new-branch restore confirmation, tested account recovery, and a second
+MFA-protected recovery-capable administrator where possible. The configured
+6-hour window should be extended before the first customer. An isolated restore
+has not yet been performed.
 
 ## 5.1 Establish the Neon recovery capability
 
