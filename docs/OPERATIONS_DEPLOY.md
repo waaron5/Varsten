@@ -158,11 +158,17 @@ Document the measured RTO/RPO in the customer security package.
 
 - Sentry captures unhandled errors (required: the app refuses to boot in
   production without `SENTRY_DSN`).
-- App Runner request/error/latency metrics + CloudWatch logs (JSON). Set a CPU and
-  a 5xx-rate CloudWatch alarm to an on-call email/Slack.
+- Terraform manages production App Runner 5xx, latency, CPU, memory, database,
+  scheduler, provider-key vault, Stripe, and provider-circuit alarms. Deployment
+  failures route through EventBridge. All P0 paths publish to the
+  `varsten-production-p0-alerts` SNS topic and link to
+  `monitoring/ALERT_RUNBOOK.md`.
 - `/health/ready` is the orchestration health check; `/health` is liveness.
-- Application-level budget/alert delivery is a separate workstream (Phase 5); this
-  section is infrastructure health only.
+- SNS email subscriptions must be confirmed and drilled; an alarm existing in
+  CloudWatch is not proof that a human received it.
+- Pricing coverage, excessive unpriced usage, authentication-rate, and
+  request-disappearance alerts remain Phase 6 work because they require durable
+  custom metrics or a stable synthetic/customer traffic baseline.
 
 ## Secrets
 

@@ -27,3 +27,8 @@ output "cloudtrail_bucket_name" {
   description = "Private, versioned S3 bucket retaining validated CloudTrail logs."
   value       = aws_s3_bucket.cloudtrail.id
 }
+
+output "p0_alert_topic_arn" {
+  description = "SNS topic receiving production P0 alarm and App Runner failure notifications."
+  value       = aws_sns_topic.p0_alerts.arn
+}

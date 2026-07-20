@@ -448,12 +448,12 @@ Replace RDS-specific production claims with the actual Neon procedure. Do not cl
 
 ---
 
-# Phase 6 — Implement production monitoring and alerting
+# Phase 6 — Implement production monitoring and alerting (In progress)
 
 **Owners:** Me and You
 **Risk:** Critical operational gap
 
-## 6.1 AWS and application alarms
+## 6.1 AWS and application alarms (In progress)
 
 **Owner: Me**
 
