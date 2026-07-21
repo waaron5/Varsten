@@ -239,7 +239,7 @@ export function PageCta({
 function pageCtaEvent(intent: "trial" | "observe" | "early-access" | "sales") {
   const events = {
     trial: "trial intent started",
-    observe: "observe intent started",
+    observe: "free audit started",
     "early-access": "early access intent started",
     sales: "sales intent started",
   } as const;

@@ -22,6 +22,7 @@ const PAGE_LABELS_BY_SEGMENT: Record<string, string> = {
   enterprise: "Enterprise",
   faq: "FAQ",
   pricing: "Pricing",
+  "product-tour": "Product tour",
   privacy: "Privacy",
   proof: "Proof",
   security: "Security",
@@ -35,6 +36,7 @@ const RESOURCE_GROUPS: NavDropdownGroup[] = [
   {
     title: "Learn",
     links: [
+      { label: "Product tour", href: "/product-tour", detail: "See the dashboard, automation controls, and savings proof" },
       { label: "Docs", href: "/docs/quickstart", detail: "Guides, API notes, and integration reference" },
       { label: "FAQ", href: "/faq", detail: "Answers for engineering, finance, and procurement" },
       { label: "Changelog", href: "/changelog", detail: "Recent product updates" },

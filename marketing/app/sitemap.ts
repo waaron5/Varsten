@@ -5,6 +5,7 @@ import { getAllDocs } from "@/lib/content/docs";
 const staticRoutes = [
   "",
   "/pricing",
+  "/product-tour",
   "/proof",
   "/early-access",
   "/enterprise",

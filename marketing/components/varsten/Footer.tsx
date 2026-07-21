@@ -10,6 +10,7 @@ export function Footer() {
         ["Levers", "/#levers"],
         ["Integrations", "/#integrations"],
         ["Pricing", "/pricing"],
+        ["Product tour", "/product-tour"],
         ["Proof", "/proof"],
         ["Changelog", "/changelog"],
       ],
