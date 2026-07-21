@@ -1,20 +1,72 @@
-# Varsten Production-Readiness Implementation Plan
+# Varsten Public-Launch Plan and Enterprise-Readiness Backlog
 
 ## Goal
 
-Make Varsten safe and credible for its first enterprise customer, with:
+Get Varsten live and credible enough to announce publicly, let prospective users
+understand the product, and capture interest without claiming that unattended
+enterprise onboarding or general availability is complete.
 
-- A tested release running in production
-- A completely functional customer onboarding funnel
-- Accurate model pricing and cost attribution
-- Installable production SDKs
-- Patched dependencies
-- Proven backup and recovery
-- Actionable monitoring and incident response
-- Production-grade identity, billing, and secrets handling
-- Accurate operational, security, legal, and marketing claims
+The immediate launch is a **public preview / early-access launch**, not a claim
+that Varsten is ready for every enterprise workload. A visitor must be able to:
 
-The launch gate is not “the deployment succeeded.” It is a real, fresh customer account generating correctly priced production traffic while monitoring, recovery, billing, and fallback controls are proven.
+- Reach the marketing site and understand what Varsten does.
+- Follow working calls to action and register interest or contact the founder.
+- Reach the application/login surface without encountering a broken deployment.
+- Read accurate, appropriately qualified claims about current capabilities.
+
+Varsten does not need automated billing, a perfect self-service onboarding funnel,
+a completed enterprise assurance package, or proven high-scale operations before
+this announcement. Those controls remain required before accepting the relevant
+customer data, traffic, payment, or contractual commitment.
+
+## Immediate public-preview launch gate
+
+Only the following are blockers to the LinkedIn announcement:
+
+1. **Public availability:** `www.varsten.ai`, `app.varsten.ai`, and the API
+   readiness endpoint resolve over HTTPS and return the intended production
+   experience.
+2. **Honest positioning:** public copy does not describe Varsten as generally
+   available, fully enterprise-ready, compliant, guaranteed, or operationally
+   proven where evidence is incomplete. Use “early access,” “public preview,” or
+   “design partner” language where appropriate.
+3. **Working conversion path:** primary CTAs, contact/enterprise forms, and the
+   founder's reply destination work end to end. If self-service onboarding is not
+   dependable, the CTA must set an accurate expectation rather than strand users.
+4. **Visitor safety:** no known critical/high dependency issue, exposed secret,
+   cross-tenant access, or obviously unsafe production configuration remains.
+5. **Release confidence:** builds/checks pass for the deployed surfaces; a focused
+   desktop/mobile smoke test covers navigation, authentication entry, forms, and
+   error-free page loading.
+6. **Basic operations:** the founder can check health, receive lead/contact
+   messages, disable or bypass risky product behavior, and follow the existing
+   incident runbook. Native SNS email delivery is not a public-preview blocker
+   while no customer workload depends on it, but it remains unresolved.
+7. **Scope control:** no live payment is required for preview access, and any first
+   real customer is manually reviewed before provider keys or production traffic
+   are accepted.
+
+### Explicitly deferred until demanded by a real customer
+
+- Fully automated fresh-user onboarding and every onboarding edge case.
+- Live billing lifecycle certification and unattended entitlement changes.
+- Completed restore drill, measured RPO/RTO, and multi-operator recovery.
+- Verified P0 alert delivery, full Sentry setup, and external uptime coverage.
+- Load/capacity certification and multi-instance scaling.
+- Enterprise MSA/DPA/security questionnaire package and counsel review.
+- A general-availability or “production-ready for enterprise” claim.
+
+These items are not cancelled. Before onboarding a customer, review the proposed
+use case against the deferred backlog and complete the controls that protect that
+customer's data, credentials, traffic, payments, and contractual expectations.
+
+## Immediate execution order
+
+1. Audit the live public surfaces, links, forms, metadata, and desktop/mobile UX.
+2. Correct unsupported launch claims and make the early-access/contact path clear.
+3. Run focused security, dependency, build, and production smoke checks.
+4. Confirm lead delivery and a manual first-customer intake procedure.
+5. Record the exact deployed release and publish a concise go/no-go report.
 
 ## Operating rules
 
@@ -26,7 +78,10 @@ The launch gate is not “the deployment succeeded.” It is a real, fresh custo
 - Back up or confirm recovery capability before changing production data.
 - Test every material production change immediately after deployment.
 - Keep a written evidence record for every launch gate.
-- Do not route a customer’s meaningful production traffic until all P0 gates pass.
+- Do not route a customer’s meaningful production traffic until the controls
+  relevant to that customer's use case pass.
+- Do not let a public-preview announcement imply general availability or
+  enterprise production readiness.
 
 ---
 
@@ -161,7 +216,8 @@ The PostCSS finding is transitive through Next.js. Do not run a blind forced dow
 
 **Owner:** Me
 **Risk:** High to product correctness
-**Current blocker:** Production has zero catalog and price records
+**Status:** Done. The production catalog and representative real cost derivation
+are verified in `PRODUCTION_READINESS_EVIDENCE.md`.
 
 ## 2.1 Inspect the pricing sync path (Done)
 
@@ -212,7 +268,9 @@ Send controlled real requests through each launch-supported integration and veri
 
 **Owners:** Me and You
 **Risk:** High to onboarding
-**Current blocker:** Public package installation returns `E404`
+**Status:** All four version `0.1.0` packages are publicly installable. Remaining
+live consumer/fallback checks are first-customer gates unless the public site
+advertises those paths as immediately self-service.
 
 ## 3.1 Package preparation (Done)
 
@@ -369,7 +427,7 @@ Verify:
 
 ---
 
-# Phase 5 — Prove backup, restore, and data recovery (In progress)
+# Phase 5 — Prove backup, restore, and data recovery (Deferred for public preview)
 
 **Owners:** Me and You
 **Risk:** Critical
@@ -448,7 +506,7 @@ Replace RDS-specific production claims with the actual Neon procedure. Do not cl
 
 ---
 
-# Phase 6 — Implement production monitoring and alerting (In progress)
+# Phase 6 — Implement production monitoring and alerting (Foundation complete; delivery deferred for public preview)
 
 **Owners:** Me and You
 **Risk:** Critical operational gap
@@ -524,7 +582,7 @@ Trigger safe synthetic failures or test notifications and prove:
 
 ---
 
-# Phase 7 — Harden infrastructure and release controls
+# Phase 7 — Harden infrastructure and release controls (Focused launch checks only)
 
 **Owner:** Me
 **Risk:** Medium to high
@@ -584,10 +642,11 @@ The current one-instance configuration avoids distributed-state inconsistencies 
 
 ---
 
-# Phase 8 — Complete the real production onboarding funnel
+# Phase 8 — Complete the real production onboarding funnel (Deferred until first-customer intake)
 
 **Owners:** Me and You
-**Risk:** Critical launch gate
+**Risk:** Critical before accepting unattended customer traffic; not a
+public-preview announcement blocker
 
 ## 8.1 Create a clean customer-like identity
 
@@ -661,7 +720,7 @@ Verify:
 
 ---
 
-# Phase 9 — Verify production billing
+# Phase 9 — Verify production billing (Deferred; do not require live payment)
 
 **Owners:** Me and You
 **Risk:** Critical if accepting payment
@@ -716,7 +775,7 @@ Use the smallest safe real transaction only if a true live charge test is requir
 
 ---
 
-# Phase 10 — Legal, privacy, and enterprise readiness
+# Phase 10 — Legal, privacy, and enterprise readiness (Claims check now; full package deferred)
 
 **Owners:** You, qualified counsel, and Me for technical accuracy
 **Risk:** Commercial and contractual
@@ -791,7 +850,7 @@ Every claim must be demonstrably true, carefully qualified, or removed.
 
 ---
 
-# Phase 11 — Documentation and operational handoff
+# Phase 11 — Documentation and operational handoff (Minimum founder runbook now; full handoff deferred)
 
 **Owner:** Me
 
@@ -827,7 +886,7 @@ A competent operator can deploy, observe, bypass, recover, and roll back Varsten
 
 ---
 
-# Phase 12 — Final release and launch gate
+# Phase 12 — Public-preview release and launch gate
 
 **Owners:** Me and You
 
@@ -835,7 +894,8 @@ A competent operator can deploy, observe, bypass, recover, and roll back Varsten
 
 **Owner: Me**
 
-1. Confirm all preceding phases pass.
+1. Confirm the immediate public-preview launch gate passes; deferred enterprise
+   phases do not need to pass.
 2. Ensure the repository is clean and synchronized.
 3. Record the exact release SHA.
 4. Run the complete CI-equivalent suite.
@@ -857,7 +917,8 @@ A competent operator can deploy, observe, bypass, recover, and roll back Varsten
 6. Check error, latency, database, and deployment telemetry.
 7. Run production smoke tests.
 8. Verify dashboard and marketing deployments.
-9. Repeat the critical customer funnel checks.
+9. Repeat the critical public navigation, CTA, form, and authentication-entry
+   checks.
 10. Observe production for a defined soak period.
 
 ## 12.3 Rollback conditions
@@ -880,7 +941,7 @@ Immediately roll back or activate bypass if:
 - Exact release SHA is running
 - All automated gates are green
 - Production smoke tests pass
-- Real end-to-end onboarding passes
+- Public navigation and the advertised conversion path pass
 - Alerts remain quiet except for expected drill events
 - Rollback and bypass controls are immediately available
 
@@ -929,7 +990,22 @@ These actions require you or another authorized human:
 
 Each category should be pushed after its tests pass. Production should be promoted only from the final audited SHA.
 
-# Final definition of “production-ready”
+# Final definitions
+
+## Ready for a public-preview announcement
+
+Varsten is ready to announce on LinkedIn when:
+
+- The three public production surfaces are reachable over HTTPS.
+- Public navigation, primary CTAs, and the lead/contact path work end to end.
+- Copy accurately says early access/public preview and contains no unsupported
+  enterprise, compliance, savings, reliability, or coverage promise.
+- Focused security, dependency, build, and production smoke checks pass.
+- No live payment or unattended production workload is required to participate.
+- The founder can inspect health, respond to leads, and disable risky behavior.
+- The exact deployed release and remaining limitations are recorded.
+
+## Ready for an enterprise production customer
 
 Varsten is ready for its first enterprise customer only when all of these are true:
 
@@ -951,4 +1027,6 @@ Varsten is ready for its first enterprise customer only when all of these are tr
 - The deployed SHA exactly matches the tested release candidate
 - A post-deployment soak period completes without unexplained errors
 
-Until then, Varsten should be positioned as a controlled design-partner pilot rather than generally available enterprise software.
+Until then, Varsten must be positioned as public preview / early access or a
+controlled design-partner pilot rather than generally available enterprise
+software.
