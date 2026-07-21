@@ -9,14 +9,14 @@ const jetbrainsMono = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "Varsten — Reduce AI spend without sacrificing quality",
+  title: "Varsten — Measure and reduce AI spend",
   description:
     "A drop-in AI proxy that caches exact hits, routes traffic to the most cost-effective models, and proves quality with concurrent holdback evals.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Varsten — Reduce AI spend without sacrificing quality",
+    title: "Varsten — Measure and reduce AI spend",
     description:
       "A drop-in AI proxy that caches exact hits, routes traffic to the most cost-effective models, and proves quality with concurrent holdback evals.",
     url: "/",

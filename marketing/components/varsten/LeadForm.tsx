@@ -169,18 +169,25 @@ function LeadFormShell({ form, mode, submitLabel }: LeadFormViewProps) {
     >
       <div className={isEnterprise ? "grid gap-4 border border-border bg-background p-4 md:grid-cols-2 md:p-6" : "contents"}>
         <BaseLeadFields isEnterprise={isEnterprise} />
-        {mode === "enterprise" ? (
-          <EnterpriseFields primaryProviders={form.primaryProviders} onPrimaryProvidersChange={form.setPrimaryProviders} />
-        ) : mode === "early-access" ? (
-          <EarlyAccessFields />
-        ) : (
-          <ContactFields />
-        )}
+        <ModeLeadFields mode={mode} form={form} />
         <LeadFormActions isEnterprise={isEnterprise} state={form.state} submitLabel={submitLabel} />
       </div>
-      {isEnterprise ? <EnterpriseAside /> : null}
+      <LeadFormAside visible={isEnterprise} />
     </form>
   );
+}
+
+function ModeLeadFields({ mode, form }: { mode: LeadFormMode; form: LeadFormController }) {
+  if (mode === "enterprise") {
+    return <EnterpriseFields primaryProviders={form.primaryProviders} onPrimaryProvidersChange={form.setPrimaryProviders} />;
+  }
+  if (mode === "early-access") return <EarlyAccessFields />;
+  return <ContactFields />;
+}
+
+function LeadFormAside({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return <EnterpriseAside />;
 }
 
 function LeadFormSuccessState({ form, mode, source }: LeadFormViewProps) {
@@ -428,7 +435,7 @@ function LeadFormActions({
 
 function LeadFormHelperText({ isEnterprise, state }: { isEnterprise: boolean; state: FormState }) {
   if (state === "error") {
-    return <p className="text-[12px] leading-5 text-ink-soft">Something failed. Email mail@varsten.ai if this keeps happening.</p>;
+    return <p className="text-[12px] leading-5 text-ink-soft">Something failed. Email contact@varsten.ai if this keeps happening.</p>;
   }
   if (isEnterprise) return null;
   return <p className="text-[12px] leading-5 text-ink-soft">No prompt text, provider keys, or message content belongs in this form.</p>;

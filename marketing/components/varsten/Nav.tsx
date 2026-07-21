@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
-import { APP_URL, CONTACT_HREF, EARLY_ACCESS_HREF } from "@/app/site-links";
+import { CONTACT_HREF, EARLY_ACCESS_HREF, SIGN_IN_HREF } from "@/app/site-links";
 import { trackMarketingEvent } from "./analytics/AnalyticsProvider";
 
 const NAV_DROPDOWN_CLOSE_DELAY_MS = 250;
@@ -15,16 +15,15 @@ const PRODUCT_LINKS = [
 
 const PAGE_LABELS_BY_SEGMENT: Record<string, string> = {
   about: "About",
-  changelog: "Changelog",
   contact: "Contact",
   docs: "Docs",
   "early-access": "Early access",
   enterprise: "Enterprise",
   faq: "FAQ",
   pricing: "Pricing",
-  "product-tour": "Product tour",
+  "product-tour": "Product",
   privacy: "Privacy",
-  proof: "Proof",
+  proof: "Savings proof",
   security: "Security",
   terms: "Terms",
 };
@@ -36,7 +35,7 @@ const RESOURCE_GROUPS: NavDropdownGroup[] = [
   {
     title: "Learn",
     links: [
-      { label: "Product tour", href: "/product-tour", detail: "See the dashboard, automation controls, and savings proof" },
+      { label: "Product", href: "/product-tour", detail: "Explore the dashboard for spend, savings, and cost drivers" },
       { label: "Docs", href: "/docs/quickstart", detail: "Guides, API notes, and integration reference" },
       { label: "FAQ", href: "/faq", detail: "Answers for engineering, finance, and procurement" },
     ],
@@ -44,9 +43,8 @@ const RESOURCE_GROUPS: NavDropdownGroup[] = [
   {
     title: "Evaluate",
     links: [
-      { label: "Proof", href: "/proof", detail: "How verified savings are measured" },
+      { label: "Savings proof", href: "/proof", detail: "How verified savings are measured" },
       { label: "Security", href: "/security", detail: "Fail-open design and data handling" },
-      { label: "Enterprise", href: "/enterprise", detail: "Deployment, procurement, and security review paths" },
     ],
   },
   {
@@ -256,7 +254,7 @@ export function Nav() {
         </div>
         <div className="flex items-center gap-3">
           <a
-            href={APP_URL}
+            href={SIGN_IN_HREF}
             className="hidden text-[13px] text-ink-soft transition-colors hover:text-ink md:inline"
           >
             Sign in

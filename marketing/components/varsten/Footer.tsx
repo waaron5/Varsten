@@ -10,8 +10,8 @@ export function Footer() {
         ["Levers", "/#levers"],
         ["Integrations", "/#integrations"],
         ["Pricing", "/pricing"],
-        ["Product tour", "/product-tour"],
-        ["Proof", "/proof"],
+        ["Product", "/product-tour"],
+        ["Savings proof", "/proof"],
       ],
     },
     {
@@ -20,7 +20,6 @@ export function Footer() {
         ["Quickstart", "/docs/quickstart"],
         ["OpenAI SDK", "/docs/openai-sdk"],
         ["Architecture", "/docs/integration-paths"],
-        ["Security", "/security"],
       ],
     },
     {
@@ -30,6 +29,12 @@ export function Footer() {
         ["About", "/about"],
         ["Contact", CONTACT_HREF],
         ["FAQ", "/faq"],
+      ],
+    },
+    {
+      head: "Legal",
+      links: [
+        ["Security", "/security"],
         ["Terms", "/terms"],
         ["Privacy", "/privacy"],
       ],
@@ -39,8 +44,8 @@ export function Footer() {
   return (
     <footer className="bg-background">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <div className="grid gap-12 py-16 md:grid-cols-12 md:py-20">
-          <div className="md:col-span-5">
+        <div className="grid gap-x-10 gap-y-12 py-24 md:grid-cols-2 md:py-32 lg:grid-cols-12">
+          <div className="md:col-span-2 lg:col-span-4 lg:pr-8">
             <div className="flex items-center">
               <Image
                 src="/varsten-logo.svg"
@@ -85,25 +90,27 @@ export function Footer() {
             </div>
           </div>
 
-          {cols.map((c) => (
-            <div key={c.head} className="md:col-span-2">
-              <div className="mono mb-5 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
-                {c.head}
+          <div className="grid gap-x-10 gap-y-12 md:col-span-2 md:grid-cols-2 lg:col-span-8 lg:grid-cols-4 lg:justify-items-end">
+            {cols.map((c) => (
+              <div key={c.head} className="w-fit">
+                <div className="mono mb-5 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
+                  {c.head}
+                </div>
+                <ul className="grid gap-3">
+                  {c.links.map(([label, href]) => (
+                    <li key={label}>
+                      <a
+                        href={href}
+                        className="text-[13px] text-ink transition-colors hover:text-blueprint"
+                      >
+                        {label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="grid gap-3">
-                {c.links.map(([label, href]) => (
-                  <li key={label}>
-                    <a
-                      href={href}
-                      className="text-[13px] text-ink transition-colors hover:text-blueprint"
-                    >
-                      {label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         <div className="mono flex flex-col items-start justify-between gap-4 border-t border-border py-6 text-[11px] uppercase tracking-[0.24em] text-ink-soft md:flex-row md:items-center">

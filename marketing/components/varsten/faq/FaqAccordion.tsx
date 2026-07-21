@@ -8,29 +8,29 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "What is Varsten?",
     answer:
-      "Varsten is an AI infrastructure platform that automatically reduces LLM costs by intelligently optimizing every AI request.",
+      "Varsten is AI cost infrastructure for measuring spend, identifying savings opportunities, and applying approved optimizations with traceable results.",
   },
   {
     question: "How does Varsten work?",
     answer:
-      "Varsten sits between your application and your AI providers, analyzes every request, applies intelligent optimizations, and forwards the optimized request to the provider.",
+      "Varsten can ingest usage metadata or sit in the request path through a base URL or SDK integration. Inline integrations can apply enabled optimizations while the dashboard records spend, decisions, and measured savings.",
   },
   {
     question: "How much can Varsten save?",
     answer:
-      "Savings depend on your workload, but organizations typically see savings between 5% and 20%+, with some workloads achieving even greater reductions.",
+      "Savings depend on model mix, repeated work, prompt size, quality requirements, and which optimizations are safe for the workload. Varsten audits the traffic first rather than promising a universal percentage.",
   },
   {
     question: "Which AI providers does Varsten support?",
-    answer: "Varsten currently supports OpenAI, Anthropic, and Google Gemini, with additional providers being added over time.",
+    answer: "Varsten supports OpenAI, Anthropic, and Google Gemini. OpenAI is the recommended first controlled rollout; Anthropic and Gemini remain founder-supervised beta paths.",
   },
   {
     question: "How do I integrate Varsten?",
-    answer: "Most teams integrate by changing a single base URL. Varsten also supports an SDK integration and sidecar deployments.",
+    answer: "Choose metadata-only ingestion for observation without inline risk, a base URL change for evaluation, or a Varsten SDK wrapper for production routes that require direct provider fallback. An in-VPC sidecar is planned but is not currently available.",
   },
   {
     question: "How long does integration take?",
-    answer: "Most teams can begin routing requests through Varsten in just a few minutes.",
+    answer: "A narrow evaluation can begin quickly, but production timing depends on provider setup, fallback testing, security review, and the workload features you use.",
   },
   {
     question: "Is Varsten an AI gateway?",
@@ -40,11 +40,11 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "What optimizations does Varsten perform?",
     answer:
-      "Varsten automatically performs model routing, exact caching, semantic caching, prompt trimming, prompt compression, and other intelligent optimizations when they provide measurable value.",
+      "Varsten supports routing, exact and semantic caching, token trimming, compression, downshift, and eligible asynchronous batching. Only enabled and eligible mechanisms should be applied to a workload.",
   },
   {
     question: "Does Varsten reduce response quality?",
-    answer: "No. Varsten applies optimizations while respecting configurable quality guardrails, only using optimizations that meet your quality requirements.",
+    answer: "Any optimization can introduce risk, so Varsten uses configurable quality and latency guardrails, evidence, and rollback controls. Teams should validate each workload and approve the mechanisms appropriate to it.",
   },
   {
     question: "Can I see what Varsten changed?",
@@ -57,15 +57,15 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Does Varsten store my prompts?",
     answer:
-      "No by default. Prompt storage is opt-in. Varsten stores the metadata needed to optimize and measure requests, while organizations control whether prompts and responses are retained.",
+      "The savings ledger is metadata-oriented and does not use prompt or completion text as its default record. Inline requests still process content in transit, and content-backed features such as semantic caching require explicit storage and retention decisions.",
   },
   {
     question: "Is Varsten secure?",
-    answer: "Yes. Varsten is designed to securely proxy AI requests and supports deployment options that allow organizations to keep AI traffic within their own infrastructure.",
+    answer: "Varsten uses scoped credentials, tenant boundaries, metadata-first records, and explicit fallback paths. It is not yet SOC 2 certified, and teams with formal requirements should review the current security documentation before production use.",
   },
   {
     question: "Can Varsten run in our own infrastructure?",
-    answer: "Yes. Varsten supports multiple deployment models, including gateway and sidecar deployments.",
+    answer: "Not currently. The hosted service and SDK integrations are available today. An in-VPC sidecar is planned, so teams that require customer-hosted processing should contact Varsten before evaluating.",
   },
   {
     question: "Does Varsten support streaming responses?",
@@ -81,19 +81,19 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     question: "Can Varsten work with LiteLLM?",
-    answer: "Yes. Varsten can be deployed alongside LiteLLM as an optimization sidecar.",
+    answer: "Varsten may be evaluated alongside an existing gateway through metadata ingestion or a compatible inline path, but the planned Varsten sidecar is not currently available. Compatibility should be validated against the exact request path.",
   },
   {
     question: "How do I know Varsten is working?",
-    answer: "Varsten shows every optimization it applied, the estimated savings from each optimization, and your overall cost reduction.",
+    answer: "The dashboard separates actual spend, baseline cost, savings by mechanism, and data-confidence signals. Estimates remain distinct from verified savings.",
   },
   {
     question: "Why should I use Varsten?",
-    answer: "Varsten lets you reduce AI costs automatically without changing your application logic or sacrificing output quality.",
+    answer: "Varsten gives engineering and finance one place to identify AI cost drivers, approve appropriate savings mechanisms, and review the evidence behind the result.",
   },
   {
     question: "What is Varsten's goal?",
-    answer: "Varsten's goal is to make AI dramatically cheaper by automatically applying the smartest optimization strategy to every AI request.",
+    answer: "Varsten's goal is to make production AI costs understandable and controllable without hiding the mechanism, evidence, or operational risk behind the result.",
   },
 ];
 

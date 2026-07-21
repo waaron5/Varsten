@@ -1,44 +1,32 @@
 import type { Metadata } from "next";
 import { CONTACT_EMAIL } from "../site-links";
-import { CardGrid, InfoCard, SecondaryHero, SecondarySection, SecondaryShell } from "@/components/varsten/SecondaryPage";
+import { PolicyDocument, PolicyList, type PolicySection } from "@/components/varsten/PolicyDocument";
+import { SecondaryShell } from "@/components/varsten/SecondaryPage";
 import { pageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
   title: "Terms — Varsten",
-  description: "Varsten website, app, proxy, AI optimization, billing, and acceptable use terms.",
+  description: "Terms governing access to the Varsten website, application, APIs, SDKs, and related services.",
   path: "/terms",
 });
 
+const sections: PolicySection[] = [
+  { id: "agreement", title: "Agreement and eligibility", content: <p>These terms govern access to services provided by Varsten Systems, Inc. By using the service, you agree to these terms and represent that you can bind the organization you act for. If you use Varsten under an order form or other signed agreement, that agreement controls where it conflicts with these terms.</p> },
+  { id: "service", title: "The service", content: <p>Varsten provides AI spend observation, request routing, optimization controls, evaluation, guardrails, and savings-measurement tools. Features, provider coverage, and preview functionality may change. Preview and beta features may be less reliable and should be evaluated before production use.</p> },
+  { id: "accounts", title: "Accounts and credentials", content: <PolicyList><li>Provide accurate account information and keep it current.</li><li>Protect login credentials, Varsten keys, and provider credentials.</li><li>Use server-side credentials only and promptly revoke exposed keys.</li><li>Remain responsible for activity performed through your accounts and projects.</li></PolicyList> },
+  { id: "acceptable-use", title: "Acceptable use", content: <p>You may not use the service to violate law or third-party rights; distribute malware; interfere with service integrity; bypass access, budget, or security controls; probe systems without authorization; resell access without permission; or submit content or credentials you lack authority to process.</p> },
+  { id: "customer-data", title: "Customer data", content: <><p>You retain rights in prompts, responses, configurations, metadata, and other material submitted to the service. You grant Varsten the limited rights necessary to host, process, transmit, secure, and support that data and to provide requested functionality.</p><p>You are responsible for notices, permissions, provider terms, and lawful instructions needed for Varsten to process customer data.</p></> },
+  { id: "privacy-security", title: "Privacy and security", content: <p>The Privacy Policy describes general data practices. Enterprise customers may request a data processing addendum where appropriate. You are responsible for choosing an integration and retention posture suitable for your workload and for not placing secrets or customer content in metadata fields.</p> },
+  { id: "fees", title: "Fees and verified savings", content: <><p>Paid plans, usage limits, gain-share percentages, savings floors, billing periods, and payment terms are determined by the applicable checkout terms or order form. Taxes are additional unless stated otherwise.</p><p>Opportunity estimates and recommendations are not invoices. Where fees depend on savings, the applicable agreement defines the accepted baseline, evidence, exclusions, caps, disputes, and reconciliation process.</p></> },
+  { id: "third-parties", title: "Providers and third-party services", content: <p>Varsten interoperates with third-party model providers and infrastructure. Their services and terms remain separate from Varsten. Varsten is not responsible for provider availability, output, pricing changes, or conduct outside Varsten’s control.</p> },
+  { id: "ip-feedback", title: "Intellectual property and feedback", content: <p>Varsten and its licensors retain rights in the service, software, documentation, and branding. SDK packages are governed by their included open-source licenses. If you provide feedback, Varsten may use it without restriction or obligation.</p> },
+  { id: "suspension", title: "Suspension and termination", content: <p>We may limit or suspend access to protect the service, respond to security threats, prevent unlawful use, enforce payment or usage limits, or comply with law. Either party may terminate as permitted by an applicable plan or agreement. Provisions that logically survive termination—including payment, ownership, disclaimers, and liability terms—continue to apply.</p> },
+  { id: "disclaimers", title: "Disclaimers", content: <p>To the extent permitted by law, the service is provided “as is” and “as available.” Varsten disclaims implied warranties, including merchantability, fitness for a particular purpose, non-infringement, and uninterrupted or error-free operation. AI outputs and optimization recommendations require customer review.</p> },
+  { id: "liability", title: "Limitation of liability", content: <p>To the extent permitted by law, neither party is liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or lost profits, revenues, goodwill, or data. Unless a signed agreement states otherwise, each party’s aggregate liability arising from the service will not exceed amounts paid or payable to Varsten for the service during the twelve months before the event giving rise to liability. Some jurisdictions do not allow certain limitations.</p> },
+  { id: "general", title: "General terms", content: <p>Neither party may assign these terms without the other party’s consent, except in connection with a merger, acquisition, reorganization, or sale of substantially all assets. Failure to enforce a provision is not a waiver. Invalid provisions will be limited to the minimum extent necessary. These terms and applicable order forms are the entire agreement about the service. Governing law and dispute terms in a signed order form control; otherwise applicable law determines those questions.</p> },
+  { id: "changes-contact", title: "Changes and contact", content: <p>We may update these terms and will identify the current version by the date above. Material changes apply prospectively as required by law. Questions may be sent to <a className="text-ink underline underline-offset-4" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.</p> },
+];
+
 export default function TermsPage() {
-  return (
-    <SecondaryShell>
-      <SecondaryHero
-        eyebrow="Terms"
-        title="The terms for using Varsten"
-        description="Last updated July 9, 2026. These terms summarize the basic rules for the Varsten website, app, proxy, and related services."
-      />
-      <SecondarySection title="Service terms">
-        <CardGrid columns={2}>
-          <InfoCard title="The service">
-            <p>Varsten provides AI spend monitoring, proxy routing, response reuse, evals, guardrails, and savings proof tools.</p>
-          </InfoCard>
-          <InfoCard title="Accounts and access">
-            <p>You are responsible for protecting credentials, limiting access, and reporting lost or stolen keys promptly.</p>
-          </InfoCard>
-          <InfoCard title="Fees and savings">
-            <p>Optimize plans may charge a percentage of verified savings. Estimates and recommendations are not invoices by themselves.</p>
-          </InfoCard>
-          <InfoCard title="Customer data">
-            <p>You keep rights to prompts, responses, configurations, and application data, and allow Varsten to process data as needed to run the service.</p>
-          </InfoCard>
-        </CardGrid>
-      </SecondarySection>
-      <SecondarySection title="Questions" tone="muted">
-        <p className="max-w-3xl text-[15px] leading-7 text-ink-soft">
-          For legal, procurement, or contract questions, email{" "}
-          <a className="text-blueprint underline underline-offset-4" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
-        </p>
-      </SecondarySection>
-    </SecondaryShell>
-  );
+  return <SecondaryShell><PolicyDocument title="Terms" description="The rules governing access to the Varsten website, application, APIs, SDKs, and related services." updated="July 21, 2026" sections={sections} /></SecondaryShell>;
 }

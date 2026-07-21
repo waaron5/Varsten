@@ -16,14 +16,14 @@ export function Hero() {
             <h1 className="text-[44px] font-medium leading-[1.02] tracking-[-0.03em] text-ink sm:text-[64px] md:text-[80px] lg:text-[92px]">
               Cut your AI bill
               <br />
-              without changing
+              without rebuilding
               <br />
-              your code.
+              your stack.
             </h1>
 
             <p className="mt-10 max-w-xl text-[17px] leading-[1.55] text-ink-soft">
-              A drop-in optimization engine that captures, routes, and reprices
-              your LLM traffic in real-time.
+              Measure where AI spend goes, then apply approved optimizations
+              with fallback and traceable savings.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
@@ -34,9 +34,6 @@ export function Hero() {
                 className="inline-flex h-11 items-center gap-3 bg-ink px-5 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
               >
                 Request early access
-                <span aria-hidden className="mono text-[11px] opacity-70">
-                  Founder-led
-                </span>
               </TrackedLink>
               <TrackedLink
                 href={START_OBSERVE_HREF}

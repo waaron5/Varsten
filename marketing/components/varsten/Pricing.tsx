@@ -30,11 +30,11 @@ const plans = [
     tag: "Early access",
     body: "Unlocks the optimization engine: inline routing, cache, trim, compression, and downshift, plus async batching for eligible jobs. Pricing is capped at 25% of verified savings.",
     features: [
+      "Everything in free + ",
       "Automated cost savings",
       "Unlimited requests/month",
       "Production-safe SDK integration",
       "Controls, guardrails, rollback",
-      "Advanced proof, reports, retention",
     ],
     cta: "Request early access",
     highlighted: true,
@@ -105,10 +105,8 @@ export function Pricing() {
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
         <SectionIntro eyebrow="Section 04 · Pricing" title="Verified savings, or you pay nothing.">
           <p className="text-[16px] leading-[1.6] text-ink-soft">
-            We don&apos;t publish arbitrary percentages. Every dollar of billed
-            usage is measured against a counterfactual replay of the same
-            request without Varsten in the path — the delta is your verified
-            savings.
+            Opportunity estimates are free. Paid savings use an accepted evidence method—such as direct avoided cost, holdback comparison,
+            or approved replay—with applicable overhead subtracted before fees are calculated.
           </p>
           <div className="mono mt-6 border-t border-border pt-4 text-[11px] uppercase tracking-[0.24em] text-ink">
             Fee &lt; Savings · always
