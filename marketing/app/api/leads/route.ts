@@ -10,6 +10,8 @@ import { captureServerEvent } from "@/lib/analytics/server";
 // loudly instead of silently discarding leads. In dev it logs and succeeds.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LEAD_SOURCES = ["contact", "early-access", "enterprise"] as const;
+type LeadSource = (typeof LEAD_SOURCES)[number];
 
 type LeadPayload = {
   email: string;
@@ -20,7 +22,7 @@ type LeadPayload = {
   primaryProvidersOther: string;
   mainGoal: string;
   note: string;
-  source: string;
+  source: LeadSource;
   submittedAt: string;
   anonymousId: string;
   pagePath: string;
@@ -78,13 +80,13 @@ function safeNote(value: string): string {
   return value.replace(/[<>]/g, "").slice(0, 1200);
 }
 
-function requiredEnterpriseField(body: Record<string, unknown>, key: string, label: string, source: string): string {
+function requiredEnterpriseField(body: Record<string, unknown>, key: string, label: string, source: LeadSource): string {
   const value = safeLeadField(readString(body, key));
   if (source !== "enterprise" || value.length >= 2) return value;
   throw new LeadValidationError(`invalid ${label}`);
 }
 
-function primaryProvidersOtherFromBody(body: Record<string, unknown>, source: string): string {
+function primaryProvidersOtherFromBody(body: Record<string, unknown>, source: LeadSource): string {
   const primaryProviders = readString(body, "primaryProviders");
   const value = safeLeadField(readString(body, "primaryProvidersOther"));
   if (source !== "enterprise" || primaryProviders !== "Other" || value.length >= 2) return value;
@@ -96,9 +98,21 @@ function anonymousIdFromBody(body: Record<string, unknown>): string {
   return anonymousId || `lead-${crypto.randomUUID()}`;
 }
 
+function leadSourceFromBody(body: Record<string, unknown>): LeadSource {
+  const source = readString(body, "source");
+  if (LEAD_SOURCES.includes(source as LeadSource)) return source as LeadSource;
+  throw new LeadValidationError("invalid lead source");
+}
+
+function noteFromBody(body: Record<string, unknown>, source: LeadSource): string {
+  const note = safeNote(readString(body, "note"));
+  if (source !== "contact" || note.length >= 2) return note;
+  throw new LeadValidationError("invalid message");
+}
+
 function leadFromBody(body: Record<string, unknown>): LeadPayload | NextResponse {
   try {
-    const source = readString(body, "source") || "landing";
+    const source = leadSourceFromBody(body);
     return {
       email: requiredEmail(body),
       fullName: requiredLeadString(body, "fullName", "full name"),
@@ -107,7 +121,7 @@ function leadFromBody(body: Record<string, unknown>): LeadPayload | NextResponse
       primaryProviders: requiredEnterpriseField(body, "primaryProviders", "primary providers", source),
       primaryProvidersOther: primaryProvidersOtherFromBody(body, source),
       mainGoal: requiredEnterpriseField(body, "mainGoal", "main goal", source),
-      note: safeNote(readString(body, "note")),
+      note: noteFromBody(body, source),
       source,
       submittedAt: new Date().toISOString(),
       anonymousId: anonymousIdFromBody(body),
@@ -201,11 +215,32 @@ function requestDetails(lead: LeadPayload): string[] {
 
 function buyerEmailText(lead: LeadPayload, calendlyUrl: string): string {
   const details = requestDetails(lead);
+  const detailBlock = details.length ? `${details.join("\n")}\n\n` : "";
+  if (lead.source === "contact") {
+    return `Hey ${buyerFirstName(lead)},
+
+We received your message to Varsten and will follow up as soon as possible.
+
+No prompt text, provider keys, or customer message content is needed to continue the conversation.
+
+-Aaron`;
+  }
+  if (lead.source === "early-access") {
+    return `Hey ${buyerFirstName(lead)},
+
+We received your Varsten early-access request.
+
+${detailBlock}We will review the fit and follow up with the right next step. Submitting the request does not automatically activate production optimization.
+
+No prompt text, provider keys, or customer message content is needed during review.
+
+-Aaron`;
+  }
   return `Hey ${buyerFirstName(lead)},
 
-We received your Varsten enterprise request.
+We received your request to discuss an enterprise pilot with Varsten.
 
-${details.length ? `${details.join("\n")}\n\n` : ""}We will review the details and follow up with the right next step for your rollout.
+${detailBlock}We will review the details and follow up with the right next step for your rollout.
 
 If you want to pick a time now, you can use this setup-call link:
 ${calendlyUrl}
@@ -221,7 +256,7 @@ function presentOrNa(value: string): string {
 
 function notifyEmailText(lead: LeadPayload): string {
   const provider = providerDetail(lead);
-  return `New Varsten setup request
+  return `New Varsten ${lead.source} request
 
 Name: ${lead.fullName}
 Company: ${lead.companyName}
@@ -236,12 +271,30 @@ Submitted: ${lead.submittedAt}
 Buyer autoresponder: sent`;
 }
 
+function buyerEmailSubject(source: LeadSource): string {
+  const subjects = {
+    contact: "Your message to Varsten was received",
+    "early-access": "Your Varsten early-access request was received",
+    enterprise: "Your Varsten enterprise call request was received",
+  };
+  return subjects[source];
+}
+
+function notifyEmailSubject(lead: LeadPayload): string {
+  const requestTypes = {
+    contact: "contact message",
+    "early-access": "early-access request",
+    enterprise: "enterprise call request",
+  };
+  return `New Varsten ${requestTypes[lead.source]}: ${lead.companyName}`;
+}
+
 async function sendBuyerEmail(apiKey: string, fromEmail: string, calendlyUrl: string, lead: LeadPayload): Promise<void> {
   await sendResendEmail({
     apiKey,
     from: fromEmail,
     to: lead.email,
-    subject: "Varsten enterprise request received",
+    subject: buyerEmailSubject(lead.source),
     text: buyerEmailText(lead, calendlyUrl),
   });
 }
@@ -256,7 +309,7 @@ async function sendNotifyEmail(
     apiKey,
     from: fromEmail,
     to: notifyEmail,
-    subject: `New Varsten setup request: ${lead.companyName}`,
+    subject: notifyEmailSubject(lead),
     text: notifyEmailText(lead),
   });
 }

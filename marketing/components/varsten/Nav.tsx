@@ -18,6 +18,7 @@ const PAGE_LABELS_BY_SEGMENT: Record<string, string> = {
   changelog: "Changelog",
   contact: "Contact",
   docs: "Docs",
+  "early-access": "Early access",
   enterprise: "Enterprise",
   faq: "FAQ",
   pricing: "Pricing",
@@ -268,7 +269,7 @@ export function Nav() {
                   destination: EARLY_ACCESS_HREF,
                 };
                 trackMarketingEvent("cta clicked", properties);
-                trackMarketingEvent("sales intent started", properties);
+                trackMarketingEvent("early access intent started", properties);
               }
             }
             className="inline-flex h-8 items-center gap-2 bg-ink px-3 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90"

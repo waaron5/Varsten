@@ -9,7 +9,14 @@ export const ANALYTICS_EVENTS = [
   "lead form failed",
   "trial intent started",
   "observe intent started",
+  "free audit started",
   "sales intent started",
+  "contact intent started",
+  "early access intent started",
+  "enterprise call intent started",
+  "contact request submitted",
+  "early access requested",
+  "enterprise call requested",
   "resource nav opened",
 ] as const;
 

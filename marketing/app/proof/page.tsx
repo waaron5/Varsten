@@ -104,7 +104,7 @@ export default function ProofPage() {
         description="Start with a narrow workload where the baseline, fallback path, and savings ledger are easy to audit."
         href={EARLY_ACCESS_HREF}
         label="Request early access"
-        intent="sales"
+        intent="early-access"
       />
     </SecondaryShell>
   );

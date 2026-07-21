@@ -1,6 +1,6 @@
 import { FlowDiagram } from "./FlowDiagram";
-import Link from "next/link";
 import { EARLY_ACCESS_HREF, START_OBSERVE_HREF } from "@/app/site-links";
+import { TrackedLink } from "./TrackedLink";
 
 export function Hero() {
   return (
@@ -27,21 +27,25 @@ export function Hero() {
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
-              <Link
+              <TrackedLink
                 href={EARLY_ACCESS_HREF}
+                event="early access intent started"
+                eventProperties={{ cta: "Request early access", source: "hero" }}
                 className="inline-flex h-11 items-center gap-3 bg-ink px-5 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
               >
                 Request early access
                 <span aria-hidden className="mono text-[11px] opacity-70">
                   Founder-led
                 </span>
-              </Link>
-              <Link
+              </TrackedLink>
+              <TrackedLink
                 href={START_OBSERVE_HREF}
+                event="free audit started"
+                eventProperties={{ cta: "Start a free audit", source: "hero" }}
                 className="inline-flex h-11 items-center gap-2 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
               >
                 Start a free audit
-              </Link>
+              </TrackedLink>
             </div>
 
             <dl className="mono mt-16 grid max-w-lg grid-cols-3 gap-x-6 border-t border-border pt-6 text-[11px] uppercase tracking-[0.2em] text-ink-soft">

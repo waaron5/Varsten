@@ -14,6 +14,7 @@ const pageCategoryRules = [
   { prefix: "/docs", category: "docs" },
   { prefix: "/pricing", category: "pricing" },
   { prefix: "/proof", category: "proof" },
+  { prefix: "/early-access", category: "early_access" },
   { prefix: "/enterprise", category: "enterprise" },
   { prefix: "/security", category: "security" },
   { prefix: "/contact", category: "contact" },

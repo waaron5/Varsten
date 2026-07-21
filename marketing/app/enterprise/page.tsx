@@ -19,7 +19,7 @@ export default function EnterprisePage() {
             Enterprise
           </h1>
           <div id="enterprise-form" className="mt-10 grid min-w-0 scroll-mt-20 md:mt-12">
-            <LeadForm source="enterprise" mode="enterprise" submitLabel="Book a call" />
+            <LeadForm source="enterprise" mode="enterprise" submitLabel="Request a call" />
           </div>
         </div>
       </section>

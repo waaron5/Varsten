@@ -209,7 +209,7 @@ export function PageCta({
   description: string;
   href: string;
   label: string;
-  intent: "trial" | "observe" | "sales";
+  intent: "trial" | "observe" | "early-access" | "sales";
 }) {
   const event = pageCtaEvent(intent);
 
@@ -236,10 +236,11 @@ export function PageCta({
   );
 }
 
-function pageCtaEvent(intent: "trial" | "observe" | "sales") {
+function pageCtaEvent(intent: "trial" | "observe" | "early-access" | "sales") {
   const events = {
     trial: "trial intent started",
     observe: "observe intent started",
+    "early-access": "early access intent started",
     sales: "sales intent started",
   } as const;
   return events[intent];

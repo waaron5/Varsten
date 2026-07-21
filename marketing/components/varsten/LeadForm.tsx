@@ -7,9 +7,11 @@ import { getMarketingAnonymousId, trackMarketingEvent } from "./analytics/Analyt
 
 type LeadFormProps = {
   source: string;
-  mode?: "basic" | "enterprise";
+  mode?: LeadFormMode;
   submitLabel?: string;
 };
+
+type LeadFormMode = "contact" | "early-access" | "enterprise";
 
 type FormState = "idle" | "submitting" | "success" | "error";
 type LeadResponse = {
@@ -71,7 +73,19 @@ function trackLeadFailure(source: string, status: number | "network") {
   trackMarketingEvent("lead form failed", { source, status });
 }
 
-function useLeadFormController(source: string) {
+const intentEventsByMode = {
+  contact: "contact intent started",
+  "early-access": "early access intent started",
+  enterprise: "enterprise call intent started",
+} as const;
+
+const submittedEventsByMode = {
+  contact: "contact request submitted",
+  "early-access": "early access requested",
+  enterprise: "enterprise call requested",
+} as const;
+
+function useLeadFormController(source: string, mode: LeadFormMode) {
   const [state, setState] = useState<FormState>("idle");
   const [started, setStarted] = useState(false);
   const [buyerEmailSent, setBuyerEmailSent] = useState(false);
@@ -81,7 +95,7 @@ function useLeadFormController(source: string) {
     if (started) return;
     setStarted(true);
     trackMarketingEvent("lead form started", { source });
-    trackMarketingEvent("sales intent started", { source });
+    trackMarketingEvent(intentEventsByMode[mode], { source });
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -101,6 +115,7 @@ function useLeadFormController(source: string) {
     setState("success");
     setPrimaryProviders("");
     form.reset();
+    trackMarketingEvent(submittedEventsByMode[mode], { source });
   }
 
   return {
@@ -113,11 +128,11 @@ function useLeadFormController(source: string) {
   };
 }
 
-export function LeadForm({ source, mode = "basic", submitLabel = "Request a setup call" }: LeadFormProps) {
+export function LeadForm({ source, mode = "contact", submitLabel = "Send message" }: LeadFormProps) {
   return (
     <LeadFormView
-      form={useLeadFormController(source)}
-      isEnterprise={mode === "enterprise"}
+      form={useLeadFormController(source, mode)}
+      mode={mode}
       source={source}
       submitLabel={submitLabel}
     />
@@ -127,7 +142,7 @@ export function LeadForm({ source, mode = "basic", submitLabel = "Request a setu
 type LeadFormController = ReturnType<typeof useLeadFormController>;
 type LeadFormViewProps = {
   form: LeadFormController;
-  isEnterprise: boolean;
+  mode: LeadFormMode;
   source: string;
   submitLabel: string;
 };
@@ -144,7 +159,8 @@ function LeadFormView(props: LeadFormViewProps) {
   return <View {...props} />;
 }
 
-function LeadFormShell({ form, isEnterprise, submitLabel }: LeadFormViewProps) {
+function LeadFormShell({ form, mode, submitLabel }: LeadFormViewProps) {
+  const isEnterprise = mode === "enterprise";
   return (
     <form
       onFocus={form.markStarted}
@@ -153,9 +169,13 @@ function LeadFormShell({ form, isEnterprise, submitLabel }: LeadFormViewProps) {
     >
       <div className={isEnterprise ? "grid gap-4 border border-border bg-background p-4 md:grid-cols-2 md:p-6" : "contents"}>
         <BaseLeadFields isEnterprise={isEnterprise} />
-        {isEnterprise ? (
+        {mode === "enterprise" ? (
           <EnterpriseFields primaryProviders={form.primaryProviders} onPrimaryProvidersChange={form.setPrimaryProviders} />
-        ) : null}
+        ) : mode === "early-access" ? (
+          <EarlyAccessFields />
+        ) : (
+          <ContactFields />
+        )}
         <LeadFormActions isEnterprise={isEnterprise} state={form.state} submitLabel={submitLabel} />
       </div>
       {isEnterprise ? <EnterpriseAside /> : null}
@@ -163,8 +183,8 @@ function LeadFormShell({ form, isEnterprise, submitLabel }: LeadFormViewProps) {
   );
 }
 
-function LeadFormSuccessState({ form, isEnterprise, source }: LeadFormViewProps) {
-  return <LeadFormSuccess buyerEmailSent={form.buyerEmailSent} isEnterprise={isEnterprise} source={source} />;
+function LeadFormSuccessState({ form, mode, source }: LeadFormViewProps) {
+  return <LeadFormSuccess buyerEmailSent={form.buyerEmailSent} mode={mode} source={source} />;
 }
 
 function leadFormClass(isEnterprise: boolean): string {
@@ -175,23 +195,23 @@ function leadFormClass(isEnterprise: boolean): string {
 
 function LeadFormSuccess({
   buyerEmailSent,
-  isEnterprise,
+  mode,
   source,
 }: {
   buyerEmailSent: boolean;
-  isEnterprise: boolean;
+  mode: LeadFormMode;
   source: string;
 }) {
   return (
-    <div className={successShellClass(isEnterprise)} role="status">
+    <div className={successShellClass(mode === "enterprise")} role="status">
       <p className="mono text-[10px] uppercase tracking-[0.28em] text-blueprint">Request received</p>
-      <h2 className={successTitleClass(isEnterprise)}>
+      <h2 className={successTitleClass(mode === "enterprise")}>
         We have what we need.
       </h2>
-      <p className={successBodyClass(isEnterprise)}>
-        {successMessage(buyerEmailSent)}
+      <p className={successBodyClass(mode === "enterprise")}>
+        {successMessage(mode, buyerEmailSent)}
       </p>
-      <SuccessActions isEnterprise={isEnterprise} source={source} />
+      <SuccessActions isEnterprise={mode === "enterprise"} source={source} />
     </div>
   );
 }
@@ -208,10 +228,14 @@ function successBodyClass(isEnterprise: boolean): string {
   return ["mt-3 max-w-2xl text-[14px] leading-6", isEnterprise ? "text-white/70" : "text-ink-soft"].join(" ");
 }
 
-function successMessage(buyerEmailSent: boolean): string {
-  return buyerEmailSent
-    ? "A confirmation is on its way to your work email. We will review your provider mix, spend range, and rollout goal before following up."
-    : "We received your request. We will review your provider mix, spend range, and rollout goal before following up.";
+function successMessage(mode: LeadFormMode, buyerEmailSent: boolean): string {
+  const confirmation = buyerEmailSent ? " A confirmation is on its way to your work email." : "";
+  const messages = {
+    contact: `Your message is in. We will follow up as soon as possible.${confirmation}`,
+    "early-access": `Your early-access request is in. We will review the fit and follow up with the right next step.${confirmation}`,
+    enterprise: `Your call request is in. We will review your provider mix, spend range, and rollout goal before following up.${confirmation}`,
+  };
+  return messages[mode];
 }
 
 function SuccessActions({ isEnterprise, source }: { isEnterprise: boolean; source: string }) {
@@ -261,6 +285,46 @@ function BaseLeadFields({ isEnterprise }: { isEnterprise: boolean }) {
       <label className={fieldClass}>
         Company
         <input required name="companyName" autoComplete="organization" className={input} />
+      </label>
+    </>
+  );
+}
+
+function ContactFields() {
+  return (
+    <label className={`${labelClass} md:col-span-2`}>
+      How can we help?
+      <textarea
+        required
+        name="note"
+        rows={5}
+        className="min-h-32 resize-y border border-border bg-background px-3 py-3 text-[14px] outline-none transition-colors focus:border-ink"
+      />
+    </label>
+  );
+}
+
+function EarlyAccessFields() {
+  return (
+    <>
+      <label className={labelClass}>
+        Primary AI provider <span className="font-normal text-ink-soft">(optional)</span>
+        <select name="primaryProviders" className={inputClass} defaultValue="">
+          <option value="">Select provider</option>
+          <option>OpenAI</option>
+          <option>Anthropic</option>
+          <option>Google Gemini</option>
+          <option>Mixed / multiple</option>
+          <option>Other</option>
+        </select>
+      </label>
+      <label className={`${labelClass} md:col-span-2`}>
+        What would you like Varsten to help with? <span className="font-normal text-ink-soft">(optional)</span>
+        <textarea
+          name="note"
+          rows={4}
+          className="min-h-28 resize-y border border-border bg-background px-3 py-3 text-[14px] outline-none transition-colors focus:border-ink"
+        />
       </label>
     </>
   );

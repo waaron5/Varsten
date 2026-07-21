@@ -40,7 +40,7 @@ export function NextStepCta({ invert, source }: { invert?: boolean; source: stri
         <div className="flex flex-wrap items-center gap-3">
           <TrackedLink
             href={EARLY_ACCESS_HREF}
-            event="sales intent started"
+            event="early access intent started"
             eventProperties={{ cta: "Request early access", source }}
             className={primaryCtaClass(invert)}
           >
@@ -49,11 +49,11 @@ export function NextStepCta({ invert, source }: { invert?: boolean; source: stri
           </TrackedLink>
           <TrackedLink
             href={ENTERPRISE_FORM_HREF}
-            event="sales intent started"
-            eventProperties={{ cta: "Talk to sales", source }}
+            event="enterprise call intent started"
+            eventProperties={{ cta: "Discuss an enterprise pilot", source }}
             className={secondaryCtaClass(invert)}
           >
-            Talk to sales
+            Discuss an enterprise pilot
             <span aria-hidden>→</span>
           </TrackedLink>
         </div>

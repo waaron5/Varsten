@@ -31,7 +31,7 @@ const plans = [
     ],
     cta: "Start a free audit",
     href: START_OBSERVE_HREF,
-    event: "observe intent started" as const,
+    event: "free audit started" as const,
   },
   {
     id: "optimize",
@@ -49,7 +49,7 @@ const plans = [
     ],
     cta: "Request early access",
     href: EARLY_ACCESS_HREF,
-    event: "sales intent started" as const,
+    event: "early access intent started" as const,
     highlighted: true,
   },
   {
@@ -66,9 +66,9 @@ const plans = [
       "Custom retention terms",
       "Procurement support",
     ],
-    cta: "Talk to sales",
+    cta: "Discuss an enterprise pilot",
     href: ENTERPRISE_FORM_HREF,
-    event: "sales intent started" as const,
+    event: "enterprise call intent started" as const,
   },
 ] as const;
 

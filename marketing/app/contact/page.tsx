@@ -16,9 +16,9 @@ export default function ContactPage() {
       <SecondaryHero
         eyebrow="Contact"
         title="How can we help?"
-        description="Fill out the form below and we will get back to you as soon as possible. If you'd like to speak with our sales team, follow the link here."
+        description="Send a general, support, security, or partnership question and we will route it to the right place."
       >
-        <LeadForm source="contact" />
+        <LeadForm source="contact" mode="contact" submitLabel="Send message" />
       </SecondaryHero>
       <SecondarySection title="Direct contacts" tone="muted">
         <CardGrid columns={3}>

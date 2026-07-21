@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { EARLY_ACCESS_HREF, ENTERPRISE_FORM_HREF, START_OBSERVE_HREF } from "@/app/site-links";
 import { SectionIntro } from "./SectionIntro";
+import { TrackedLink } from "./TrackedLink";
 import { PricingFeatureList, PricingPlanBody, PricingPlanPrice, pricingToneClass } from "./PricingPlanParts";
 
 const plans = [
@@ -20,6 +20,7 @@ const plans = [
     ],
     cta: "Start a free audit",
     href: START_OBSERVE_HREF,
+    event: "free audit started" as const,
   },
   {
     id: "performance",
@@ -38,6 +39,7 @@ const plans = [
     cta: "Request early access",
     highlighted: true,
     href: EARLY_ACCESS_HREF,
+    event: "early access intent started" as const,
   },
 ];
 
@@ -81,8 +83,10 @@ function PricingCard({ index, plan }: { index: number; plan: Plan }) {
       <PricingPlanBody plan={plan} />
       <PricingFeatureList plan={plan} />
 
-      <Link
+      <TrackedLink
         href={plan.href}
+        event={plan.event}
+        eventProperties={{ cta: plan.cta, plan: plan.id, source: "homepage_pricing" }}
         className={[
           "mt-12 inline-flex h-11 items-center gap-3 px-5 text-[13px] font-medium transition-opacity hover:opacity-90",
           pricingToneClass(plan, "bg-white text-ink", "bg-ink text-primary-foreground"),
@@ -90,7 +94,7 @@ function PricingCard({ index, plan }: { index: number; plan: Plan }) {
       >
         {plan.cta}
         <span aria-hidden>→</span>
-      </Link>
+      </TrackedLink>
     </div>
   );
 }
@@ -134,13 +138,15 @@ export function Pricing() {
           </div>
 
           <div className="mt-8 md:mt-0">
-            <Link
+            <TrackedLink
               href={ENTERPRISE_FORM_HREF}
+              event="enterprise call intent started"
+              eventProperties={{ cta: "Discuss an enterprise pilot", source: "homepage_pricing" }}
               className="inline-flex h-11 shrink-0 items-center gap-3 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
             >
-              Talk to sales
+              Discuss an enterprise pilot
               <span aria-hidden>→</span>
-            </Link>
+            </TrackedLink>
           </div>
         </div>
       </div>
