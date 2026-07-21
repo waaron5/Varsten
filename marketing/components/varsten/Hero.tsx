@@ -1,6 +1,6 @@
 import { FlowDiagram } from "./FlowDiagram";
 import Link from "next/link";
-import { ENTERPRISE_FORM_HREF, START_TRIAL_HREF } from "@/app/site-links";
+import { EARLY_ACCESS_HREF, ENTERPRISE_FORM_HREF } from "@/app/site-links";
 
 export function Hero() {
   return (
@@ -10,7 +10,7 @@ export function Hero() {
           <div className="lg:col-span-7">
             <div className="mono mb-8 flex items-center gap-3 text-[11px] uppercase tracking-[0.28em] text-ink-soft">
               <span className="inline-block h-1.5 w-1.5 bg-blueprint" />
-              LLM cost optimization · live
+              LLM cost optimization · public preview
             </div>
 
             <h1 className="text-[44px] font-medium leading-[1.02] tracking-[-0.03em] text-ink sm:text-[64px] md:text-[80px] lg:text-[92px]">
@@ -28,12 +28,12 @@ export function Hero() {
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
               <Link
-                href={START_TRIAL_HREF}
+                href={EARLY_ACCESS_HREF}
                 className="inline-flex h-11 items-center gap-3 bg-ink px-5 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
               >
-                Start free trial
+                Request early access
                 <span aria-hidden className="mono text-[11px] opacity-70">
-                  14 days
+                  Founder-led
                 </span>
               </Link>
               <Link

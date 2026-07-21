@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ENTERPRISE_FORM_HREF, START_OBSERVE_HREF, START_TRIAL_HREF } from "../site-links";
+import { EARLY_ACCESS_HREF, ENTERPRISE_FORM_HREF, START_OBSERVE_HREF } from "../site-links";
 import { pageMetadata } from "@/lib/seo";
 import { SecondaryShell } from "@/components/varsten/SecondaryPage";
 import { TrackedLink } from "@/components/varsten/TrackedLink";
@@ -38,7 +38,7 @@ const plans = [
     name: "Optimize",
     price: "25%",
     priceNote: "of savings",
-    tag: "14-day trial",
+    tag: "Early access",
     body: "Turn on approved savings levers and pay only from savings Varsten can prove.",
     features: [
       "Everything in Observe",
@@ -47,9 +47,9 @@ const plans = [
       "Guardrails and rollback",
       "Proof reports",
     ],
-    cta: "Start 14-day trial",
-    href: START_TRIAL_HREF,
-    event: "trial intent started" as const,
+    cta: "Request early access",
+    href: EARLY_ACCESS_HREF,
+    event: "sales intent started" as const,
     highlighted: true,
   },
   {

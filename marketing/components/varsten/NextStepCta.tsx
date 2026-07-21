@@ -1,4 +1,4 @@
-import { ENTERPRISE_FORM_HREF, START_TRIAL_HREF } from "@/app/site-links";
+import { EARLY_ACCESS_HREF, ENTERPRISE_FORM_HREF } from "@/app/site-links";
 import { TrackedLink } from "@/components/varsten/TrackedLink";
 
 function shellClass(invert: boolean | undefined): string {
@@ -39,12 +39,12 @@ export function NextStepCta({ invert, source }: { invert?: boolean; source: stri
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <TrackedLink
-            href={START_TRIAL_HREF}
-            event="trial intent started"
-            eventProperties={{ cta: "Start a 14-day trial", source }}
+            href={EARLY_ACCESS_HREF}
+            event="sales intent started"
+            eventProperties={{ cta: "Request early access", source }}
             className={primaryCtaClass(invert)}
           >
-            Start a 14-day trial
+            Request early access
             <span aria-hidden>→</span>
           </TrackedLink>
           <TrackedLink

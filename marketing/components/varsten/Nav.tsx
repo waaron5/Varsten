@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
-import { APP_URL, CONTACT_HREF, START_TRIAL_HREF } from "@/app/site-links";
+import { APP_URL, CONTACT_HREF, EARLY_ACCESS_HREF } from "@/app/site-links";
 import { trackMarketingEvent } from "./analytics/AnalyticsProvider";
 
 const NAV_DROPDOWN_CLOSE_DELAY_MS = 250;
@@ -260,20 +260,20 @@ export function Nav() {
             Sign in
           </a>
           <Link
-            href={START_TRIAL_HREF}
+            href={EARLY_ACCESS_HREF}
             onClick={() =>
               {
                 const properties = {
-                  cta: "nav start free trial",
-                  destination: START_TRIAL_HREF,
+                  cta: "nav request early access",
+                  destination: EARLY_ACCESS_HREF,
                 };
                 trackMarketingEvent("cta clicked", properties);
-                trackMarketingEvent("trial intent started", properties);
+                trackMarketingEvent("sales intent started", properties);
               }
             }
             className="inline-flex h-8 items-center gap-2 bg-ink px-3 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
           >
-            Start free trial
+            Request access
             <span aria-hidden>→</span>
           </Link>
         </div>

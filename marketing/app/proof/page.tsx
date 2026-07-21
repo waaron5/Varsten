@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { START_TRIAL_HREF } from "../site-links";
+import { EARLY_ACCESS_HREF } from "../site-links";
 import { pageMetadata } from "@/lib/seo";
 import {
   CardGrid,
@@ -102,9 +102,9 @@ export default function ProofPage() {
       <PageCta
         title="Verify one lever before expanding the rollout."
         description="Start with a narrow workload where the baseline, fallback path, and savings ledger are easy to audit."
-        href={START_TRIAL_HREF}
-        label="Start a trial"
-        intent="trial"
+        href={EARLY_ACCESS_HREF}
+        label="Request early access"
+        intent="sales"
       />
     </SecondaryShell>
   );

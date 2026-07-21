@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ENTERPRISE_FORM_HREF, START_TRIAL_HREF, START_OBSERVE_HREF } from "@/app/site-links";
+import { EARLY_ACCESS_HREF, ENTERPRISE_FORM_HREF, START_OBSERVE_HREF } from "@/app/site-links";
 import { SectionIntro } from "./SectionIntro";
 import { PricingFeatureList, PricingPlanBody, PricingPlanPrice, pricingToneClass } from "./PricingPlanParts";
 
@@ -26,7 +26,7 @@ const plans = [
     name: "Optimize",
     price: "25%",
     priceNote: "of verified savings",
-    tag: "14-day free trial",
+    tag: "Early access",
     body: "Unlocks the optimization engine: inline routing, cache, trim, compression, and downshift, plus async batching for eligible jobs. Pricing is capped at 25% of verified savings.",
     features: [
       "Automated cost savings",
@@ -35,9 +35,9 @@ const plans = [
       "Controls, guardrails, rollback",
       "Advanced proof, reports, retention",
     ],
-    cta: "Start 14-day trial",
+    cta: "Request early access",
     highlighted: true,
-    href: START_TRIAL_HREF,
+    href: EARLY_ACCESS_HREF,
   },
 ];
 
