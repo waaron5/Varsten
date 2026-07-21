@@ -45,6 +45,7 @@ from sqlalchemy import delete, select
 from app.core.config import settings
 from app.core.security import hash_api_key
 from app.db.session import SessionLocal
+from app.engine.route_identity import DEFAULT_ROUTE
 from app.eval.openai_ops import replay_candidate
 from app.eval.runner import run_eval
 from app.main import app
@@ -136,7 +137,10 @@ def setup_workspace(db, holdback: Decimal) -> Project:
 def _activate_policy(db, org, project, lever: str, params: dict, holdback: Decimal) -> None:
     policy = db.scalar(
         select(ProxyPolicy).where(
-            ProxyPolicy.project_id == project.id, ProxyPolicy.lever == lever, ProxyPolicy.target_key == INCUMBENT
+            ProxyPolicy.project_id == project.id,
+            ProxyPolicy.lever == lever,
+            ProxyPolicy.target_key == INCUMBENT,
+            ProxyPolicy.route_key == DEFAULT_ROUTE,
         )
     )
     if policy is None:
@@ -146,6 +150,7 @@ def _activate_policy(db, org, project, lever: str, params: dict, holdback: Decim
             lever=lever,
             target_type="model",
             target_key=INCUMBENT,
+            route_key=DEFAULT_ROUTE,
         )
         db.add(policy)
     policy.params = params
@@ -409,7 +414,18 @@ async def stream_requests(requests: list[list[dict]], concurrency: int) -> Tally
                 try:
                     r = await client.post(
                         "/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {BENCH_API_KEY}"},
+                        headers={
+                            "Authorization": f"Bearer {BENCH_API_KEY}",
+                            # Content-free classification hints: this synthetic corpus is
+                            # non-personalized, non-tool-calling, low-risk Q&A/support
+                            # traffic. Without these the planner sees an unclassified
+                            # request and conservatively blocks routing/trim (fail-safe
+                            # default), so the benchmark would report 0% on both levers
+                            # regardless of the policies configured.
+                            "X-Varsten-Metadata": json.dumps(
+                                {"task_type": "classification.intent", "task_confidence": 0.98, "risk_level": "low"}
+                            ),
+                        },
                         json=body,
                     )
                 except Exception:
