@@ -4,7 +4,7 @@ description: Integrate Varsten with OpenAI-compatible chat completion traffic wh
 slug: openai-sdk
 category: SDKs
 order: 20
-updatedAt: 2026-07-09
+updatedAt: 2026-07-21
 ---
 ## Production path
 
@@ -18,7 +18,10 @@ import { VarstenOpenAI } from "@varsten/openai";
 export const ai = new VarstenOpenAI({
   varstenApiKey: process.env.VARSTEN_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
-  timeoutMs: 15_000,
+  timeouts: {
+    varstenTotalMs: 15_000,
+    providerTotalMs: 60_000,
+  },
   onFallback: (event) => {
     logger.warn({ reason: event.reasonCode }, "Varsten fallback");
   },
@@ -30,17 +33,29 @@ export const ai = new VarstenOpenAI({
 Add labels that help finance and engineering understand savings by workload. Do not put customer content, prompt text, or secrets in metadata.
 
 ```ts
-await ai.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages,
-  metadata: {
-    team: "support",
-    feature: "ticket_draft",
-    environment: "production",
+await ai.chat.completions.create(
+  {
+    model: "gpt-4o-mini",
+    messages,
   },
-});
+  {
+    varsten: {
+      team: "support",
+      feature: "ticket_draft",
+      environment: "production",
+    },
+  },
+);
 ```
 
 ## Streaming
 
 Streaming can fall back before output starts. Once tokens are flowing, a mid-stream provider or network error is surfaced to the caller instead of silently restarting the request and risking duplicate output.
+
+## Runtime and package format
+
+The package requires Node.js 18 or newer and is distributed as ESM. The `openai` package is a peer dependency.
+
+## Supported surface
+
+Version 0.1.0 wraps OpenAI chat completions. Validate request features such as tools and streaming in staging before moving a production route. Other OpenAI resources are not exposed by this wrapper yet.

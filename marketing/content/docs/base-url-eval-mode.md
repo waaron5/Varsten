@@ -4,7 +4,7 @@ description: Use an OpenAI-compatible base URL change for low-risk evaluation tr
 slug: base-url-eval-mode
 category: Integration modes
 order: 40
-updatedAt: 2026-07-09
+updatedAt: 2026-07-21
 ---
 ## Evaluation path
 
@@ -33,11 +33,9 @@ client = OpenAI(
 
 Each official SDK appends its own version segment, so the base URL differs per provider:
 
-| Provider SDK | Base URL |
-| --- | --- |
-| OpenAI | `https://api.varsten.ai/v1` |
-| Anthropic | `https://api.varsten.ai` (no `/v1` — the SDK appends `/v1/messages`) |
-| Gemini (`google-genai`) | `https://api.varsten.ai` with `api_version: "v1beta"` |
+- OpenAI: `https://api.varsten.ai/v1`
+- Anthropic: `https://api.varsten.ai` with no `/v1`; the SDK appends `/v1/messages`
+- Gemini using `google-genai`: `https://api.varsten.ai` with API version `v1beta`
 
 The in-app setup at app.varsten.ai generates the exact client construction for your provider and language.
 

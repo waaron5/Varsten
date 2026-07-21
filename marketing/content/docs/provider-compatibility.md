@@ -4,7 +4,7 @@ description: Understand Varsten provider support across OpenAI, Anthropic, and G
 slug: provider-compatibility
 category: Architecture
 order: 60
-updatedAt: 2026-07-09
+updatedAt: 2026-07-21
 ---
 ## Current recommendation
 
@@ -12,7 +12,7 @@ OpenAI is the production-recommended path for a first Varsten rollout.
 
 ## Provider status
 
-- **OpenAI:** GA for controlled production rollout.
+- **OpenAI:** production-recommended for a controlled first rollout; SDK version 0.1.0 remains beta.
 - **Anthropic:** beta and founder-supervised pilot.
 - **Gemini:** beta and founder-supervised pilot.
 
