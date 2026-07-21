@@ -28,7 +28,7 @@ import {
 } from "@/lib/integrationSnippets";
 import type { ApiKeyCreated, OnboardingIntegration, OnboardingStatus } from "@/lib/types";
 
-const SETUP_CALL_HREF = "mailto:mail@varsten.ai?subject=Varsten%20setup%20call";
+const SETUP_CALL_HREF = "mailto:contact@varsten.ai?subject=Varsten%20setup%20call";
 type ProviderId = IntegrationProviderId;
 type LanguageId = IntegrationLanguageId;
 type ProviderConnectionStatus = OnboardingStatus["provider_connections"][number];

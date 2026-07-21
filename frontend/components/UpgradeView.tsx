@@ -8,7 +8,7 @@ import { useSession } from "@/components/session";
 import { ApiError, api } from "@/lib/api";
 import type { Entitlements } from "@/lib/types";
 
-const CONTACT_HREF = "mailto:mail@varsten.ai?subject=Upgrade%20to%20Varsten%20Optimize";
+const CONTACT_HREF = "mailto:contact@varsten.ai?subject=Upgrade%20to%20Varsten%20Optimize";
 
 const OPTIMIZE_INCLUDES = [
   "Turn on savings automations with eval gates and rollback",

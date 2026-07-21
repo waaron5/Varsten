@@ -111,7 +111,7 @@ export const SIDECAR_PLANNED = {
   tagline:
     "Run the Varsten data plane inside your own cloud boundary. Prompt and completion content never leaves your VPC; only token counts and scores reach the control plane.",
   bestFor: "In-VPC deployments",
-  contactHref: "mailto:mail@varsten.ai?subject=Varsten%20in-VPC%20sidecar",
+  contactHref: "mailto:contact@varsten.ai?subject=Varsten%20in-VPC%20sidecar",
 };
 
 export const INTEGRATION_LANGUAGES: { id: IntegrationLanguageId; label: string }[] = [
