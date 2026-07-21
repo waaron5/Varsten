@@ -18,7 +18,7 @@ const plans = [
       "Quick Eval or Metadata",
       "No credit card required",
     ],
-    cta: "Start observing",
+    cta: "Start a free audit",
     href: START_OBSERVE_HREF,
   },
   {

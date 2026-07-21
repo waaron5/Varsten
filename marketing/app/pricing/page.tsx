@@ -29,7 +29,7 @@ const plans = [
       "Metadata-only setup",
       "No production changes",
     ],
-    cta: "Start observing",
+    cta: "Start a free audit",
     href: START_OBSERVE_HREF,
     event: "observe intent started" as const,
   },

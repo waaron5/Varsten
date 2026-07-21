@@ -49,7 +49,7 @@ export default function AboutPage() {
         title="Start with visibility, then optimize where the evidence is strongest."
         description="Observe mode gives the team a clean baseline before production optimization decisions."
         href={START_OBSERVE_HREF}
-        label="Start Observe"
+        label="Start a free audit"
         intent="observe"
       />
     </SecondaryShell>

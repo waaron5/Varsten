@@ -1,6 +1,6 @@
 import { FlowDiagram } from "./FlowDiagram";
 import Link from "next/link";
-import { EARLY_ACCESS_HREF, ENTERPRISE_FORM_HREF } from "@/app/site-links";
+import { EARLY_ACCESS_HREF, START_OBSERVE_HREF } from "@/app/site-links";
 
 export function Hero() {
   return (
@@ -37,10 +37,10 @@ export function Hero() {
                 </span>
               </Link>
               <Link
-                href={ENTERPRISE_FORM_HREF}
+                href={START_OBSERVE_HREF}
                 className="inline-flex h-11 items-center gap-2 border border-ink px-5 text-[13px] font-medium text-ink transition-colors hover:bg-ink hover:text-primary-foreground"
               >
-                Book a sales call
+                Start a free audit
               </Link>
             </div>
 
