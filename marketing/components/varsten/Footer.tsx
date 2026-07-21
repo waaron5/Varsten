@@ -12,7 +12,6 @@ export function Footer() {
         ["Pricing", "/pricing"],
         ["Product tour", "/product-tour"],
         ["Proof", "/proof"],
-        ["Changelog", "/changelog"],
       ],
     },
     {

@@ -39,7 +39,6 @@ const RESOURCE_GROUPS: NavDropdownGroup[] = [
       { label: "Product tour", href: "/product-tour", detail: "See the dashboard, automation controls, and savings proof" },
       { label: "Docs", href: "/docs/quickstart", detail: "Guides, API notes, and integration reference" },
       { label: "FAQ", href: "/faq", detail: "Answers for engineering, finance, and procurement" },
-      { label: "Changelog", href: "/changelog", detail: "Recent product updates" },
     ],
   },
   {

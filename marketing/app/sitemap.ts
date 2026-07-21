@@ -13,7 +13,6 @@ const staticRoutes = [
   "/security",
   "/about",
   "/contact",
-  "/changelog",
   "/privacy",
   "/terms",
 ];
