@@ -191,7 +191,7 @@ export interface FallbackCoverageRow {
 
 export interface DashboardSnapshot {
   period: string;
-  granularity: string;
+  granularity: "day" | "week" | "month";
   period_start: string;
   period_end: string;
   label: string;

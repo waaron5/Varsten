@@ -601,12 +601,17 @@ def measured_savings_series(db: Session, project: Project, window: PeriodWindow)
     series: list[dict] = []
     for day_value in _bucket_starts(window):
         optimized, saved = by_bucket.get(day_value, (Decimal("0"), Decimal("0")))
+        optimized_usd = _q(optimized)
+        saved_usd = _q(saved)
         series.append(
             {
                 "date": day_value,
-                "optimized_usd": _q(optimized),
-                "saved_usd": _q(saved),
-                "baseline_usd": _q(optimized + saved),
+                "optimized_usd": optimized_usd,
+                "saved_usd": saved_usd,
+                # Build the displayed baseline from the displayed stack segments.
+                # Independently rounding all three values can otherwise make a
+                # bar differ by a cent from its reported baseline.
+                "baseline_usd": optimized_usd + saved_usd,
             }
         )
     return series

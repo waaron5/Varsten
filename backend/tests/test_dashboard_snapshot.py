@@ -228,8 +228,23 @@ def test_snapshot_panels_reconcile(client, db_session, provision):
     # Chart series sums to gross (savings) and actual (optimized).
     saved_total = sum((Decimal(b["saved_usd"]) for b in snap["savings_trend"]), Decimal("0"))
     opt_total = sum((Decimal(b["optimized_usd"]) for b in snap["savings_trend"]), Decimal("0"))
+    baseline_total = sum((Decimal(b["baseline_usd"]) for b in snap["savings_trend"]), Decimal("0"))
     assert saved_total == gross
     assert opt_total == Decimal("5.00")
+    assert all(
+        Decimal(bucket["baseline_usd"]) == Decimal(bucket["optimized_usd"]) + Decimal(bucket["saved_usd"])
+        for bucket in snap["savings_trend"]
+    )
+    bucket_count = Decimal(len(snap["savings_trend"]))
+    assert Decimal(snap["trend_stats"]["avg_spend_per_bucket_usd"]) == (opt_total / bucket_count).quantize(
+        Decimal("0.01")
+    )
+    assert Decimal(snap["trend_stats"]["avg_saved_per_bucket_usd"]) == (saved_total / bucket_count).quantize(
+        Decimal("0.01")
+    )
+    assert Decimal(snap["trend_stats"]["effective_savings_rate"]) == (saved_total / baseline_total).quantize(
+        Decimal("0.0001")
+    )
 
     # Drivers and proof are populated and tenant-window-scoped.
     assert Decimal(snap["drivers"]["actual_total_usd"]) == Decimal("5.00")

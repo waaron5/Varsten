@@ -37,12 +37,30 @@ const periodData = {
   },
 } as const;
 
-const chartBars = [
+const chartWeights = [
   [30, 12], [42, 16], [36, 14], [54, 21], [48, 18], [63, 25], [58, 21],
   [71, 28], [61, 24], [76, 30], [69, 27], [82, 32], [74, 28], [88, 35],
   [78, 31], [91, 36], [84, 33], [96, 38], [87, 34], [102, 40], [94, 37],
   [108, 42], [99, 39], [114, 45], [104, 41], [119, 47], [111, 44], [124, 49],
 ];
+
+const monthActualUsd = 72_200;
+const monthSavingsUsd = 24_600;
+
+function allocateTotal(weights: number[], total: number): number[] {
+  const weightTotal = weights.reduce((sum, value) => sum + value, 0);
+  const allocated = weights.map((value) => Math.floor((value / weightTotal) * total));
+  allocated[allocated.length - 1] += total - allocated.reduce((sum, value) => sum + value, 0);
+  return allocated;
+}
+
+const actualByDay = allocateTotal(chartWeights.map(([actual]) => actual), monthActualUsd);
+const savingsByDay = allocateTotal(chartWeights.map(([, savings]) => savings), monthSavingsUsd);
+const chartBars = actualByDay.map((actual, index) => ({ actual, savings: savingsByDay[index] }));
+
+function usd(value: number): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+}
 
 const leverRows = [
   { id: "01", name: "Semantic cache", value: "$9,840", share: "40.0%", width: "100%", opacity: 1 },
@@ -151,6 +169,19 @@ function PanelHeader({ section, title, children }: { section: string; title: str
 }
 
 function DailyChart() {
+  const totalActual = chartBars.reduce((sum, point) => sum + point.actual, 0);
+  const totalSavings = chartBars.reduce((sum, point) => sum + point.savings, 0);
+  const totalBaseline = totalActual + totalSavings;
+  const maxBaseline = Math.max(...chartBars.map((point) => point.actual + point.savings)) * 1.1;
+  const chartBottom = 285;
+  const chartTop = 45;
+  const chartHeight = chartBottom - chartTop;
+  const yTicks = Array.from({ length: 5 }, (_, index) => (maxBaseline / 4) * (4 - index));
+  const stats = [
+    ["Avg daily spend", usd(totalActual / chartBars.length)],
+    ["Avg daily savings", usd(totalSavings / chartBars.length)],
+    ["Effective savings rate", `${((totalSavings / totalBaseline) * 100).toFixed(1)}%`],
+  ];
   return (
     <article className="border border-border bg-white">
       <PanelHeader section="Section 01 · Trend" title="Daily Savings">
@@ -161,21 +192,24 @@ function DailyChart() {
       </PanelHeader>
       <div className="px-5 pb-2 sm:px-8">
         <svg viewBox="0 0 1200 330" className="block h-auto w-full" role="img" aria-label="Daily stacked actual spend and savings chart">
-          {[45, 105, 165, 225, 285].map((y, index) => (
+          {yTicks.map((value, index) => {
+            const y = chartTop + index * (chartHeight / 4);
+            return (
             <g key={y}>
               <line x1="54" x2="1184" y1={y} y2={y} stroke="#e5e5e5" />
-              <text x="44" y={y + 4} textAnchor="end" fill="#6b6b6b" fontSize="10" fontFamily="monospace">${[40, 30, 20, 10, 0][index]}k</text>
+              <text x="44" y={y + 4} textAnchor="end" fill="#6b6b6b" fontSize="10" fontFamily="monospace">{value >= 1000 ? `$${(value / 1000).toFixed(1)}k` : usd(value)}</text>
             </g>
-          ))}
-          {chartBars.map(([actual, savings], index) => {
+            );
+          })}
+          {chartBars.map(({ actual, savings }, index) => {
             const x = 66 + index * 39;
-            const actualHeight = actual * 1.65;
-            const savingsHeight = savings * 1.65;
-            const bottom = 285;
+            const actualHeight = (actual / maxBaseline) * chartHeight;
+            const savingsHeight = (savings / maxBaseline) * chartHeight;
+            const bottom = chartBottom;
             return (
               <g key={index}>
-                <rect x={x} y={bottom - actualHeight} width="23" height={actualHeight} fill="#d4d4d4" />
-                <rect x={x} y={bottom - actualHeight - savingsHeight} width="23" height={savingsHeight} fill="#1447e6" />
+                <rect x={x} y={bottom - actualHeight} width="23" height={actualHeight} fill="#d4d4d4"><title>{`Day ${index + 1} · Actual ${usd(actual)}`}</title></rect>
+                <rect x={x} y={bottom - actualHeight - savingsHeight} width="23" height={savingsHeight} fill="#1447e6"><title>{`Day ${index + 1} · Savings ${usd(savings)}`}</title></rect>
               </g>
             );
           })}
@@ -185,7 +219,7 @@ function DailyChart() {
         </svg>
       </div>
       <div className="mx-5 mt-4 grid border-t border-border sm:mx-8 sm:grid-cols-3">
-        {[["Avg daily spend", "$2,579"], ["Avg daily savings", "$879"], ["Effective savings rate", "25.4%"]].map(([label, value], index) => (
+        {stats.map(([label, value], index) => (
           <div key={label} className={`py-5 sm:px-5 ${index ? "border-t border-border sm:border-l sm:border-t-0" : "sm:pl-0"}`}>
             <span className="mono block text-[9px] uppercase tracking-[0.22em] text-ink-soft">{label}</span>
             <b className="mt-2 block text-[20px] font-semibold text-ink">{value}</b>

@@ -425,7 +425,7 @@ export function SavingsDashboard() {
     <div className="lv-dashboard">
       <FirstRunBanner grossSavings={vm.leverTotalDisplay} />
       <KpiStrip kpis={vm.kpis} />
-      <DailySavingsChart data={vm.daily} stats={vm.dailyStats} />
+      <DailySavingsChart data={vm.daily} stats={vm.dailyStats} granularity={vm.trendGranularity} />
       <section className="lv-panel-grid">
         <SavingsByLever activeCount={vm.activeLeverCount} levers={vm.levers} totalDisplay={vm.leverTotalDisplay} />
         <SpendDrivers actualTotalDisplay={vm.drivers.actualTotalDisplay} feature={vm.drivers.feature} team={vm.drivers.team} />

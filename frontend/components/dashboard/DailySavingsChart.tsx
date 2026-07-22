@@ -25,7 +25,15 @@ function Stat({ stat, bordered }: { stat: DashboardStatView; bordered?: boolean 
   );
 }
 
-export function DailySavingsChart({ data, stats }: { data: DashboardDailyPointView[]; stats: DashboardStatView[] }) {
+export function DailySavingsChart({
+  data,
+  stats,
+  granularity,
+}: {
+  data: DashboardDailyPointView[];
+  stats: DashboardStatView[];
+  granularity: "day" | "week" | "month";
+}) {
   const chartData = data.filter(hasChartValues);
   const width = 1400;
   const height = 340;
@@ -40,13 +48,14 @@ export function DailySavingsChart({ data, stats }: { data: DashboardDailyPointVi
   const barW = Math.max(3, step * 0.7);
   const ticks = Array.from({ length: 5 }, (_, index) => (max / 4) * index);
   const showLabelEvery = Math.max(1, Math.ceil(chartData.length / 10));
+  const intervalLabel = granularity === "day" ? "Daily" : granularity === "week" ? "Weekly" : "Monthly";
 
   return (
     <article className="lv-panel lv-daily-panel">
       <header className="lv-panel-head">
         <div>
           <div className="lv-section-kicker">Section 01 · Trend</div>
-          <h3>Daily Savings</h3>
+          <h3>{intervalLabel} Savings</h3>
         </div>
         <ul className="lv-chart-legend" aria-label="Chart legend">
           <li><span className="actual" aria-hidden="true" />Actual spend</li>
@@ -57,7 +66,7 @@ export function DailySavingsChart({ data, stats }: { data: DashboardDailyPointVi
       {chartData.length ? (
         <>
           <div className="lv-svg-chart">
-            <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Daily stacked spend and savings">
+            <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${intervalLabel} stacked spend and savings`}>
               {ticks.map((value, index) => {
                 const y = padT + innerH - (value / max) * innerH;
                 return (

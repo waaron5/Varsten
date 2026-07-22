@@ -94,6 +94,7 @@ export interface DashboardViewModel {
   kpis: DashboardKpiView[];
   daily: DashboardDailyPointView[];
   dailyStats: DashboardStatView[];
+  trendGranularity: "day" | "week" | "month";
   levers: DashboardLeverView[];
   activeLeverCount: number;
   leverTotalDisplay: string;
@@ -128,6 +129,7 @@ const KPI_COPY: Record<string, { label: string; detail: (feePercent: string | nu
 };
 
 export function dashboardViewModel(snapshot: DashboardSnapshot, period: DashboardPeriod): DashboardViewModel {
+  const bucketLabel = snapshot.granularity === "day" ? "daily" : snapshot.granularity === "week" ? "weekly" : "monthly";
   return {
     period,
     periodLabel: snapshot.label,
@@ -135,10 +137,11 @@ export function dashboardViewModel(snapshot: DashboardSnapshot, period: Dashboar
     kpis: orderedKpis(snapshot.kpis).map((kpi) => kpiView(kpi, snapshot.fee_percent)),
     daily: snapshot.savings_trend.map(dailyPointView),
     dailyStats: [
-      { label: "Avg daily spend", value: moneyDisplay(snapshot.trend_stats.avg_spend_per_bucket_usd) },
-      { label: "Avg daily savings", value: moneyDisplay(snapshot.trend_stats.avg_saved_per_bucket_usd), positive: true },
+      { label: `Avg ${bucketLabel} spend`, value: moneyDisplay(snapshot.trend_stats.avg_spend_per_bucket_usd) },
+      { label: `Avg ${bucketLabel} savings`, value: moneyDisplay(snapshot.trend_stats.avg_saved_per_bucket_usd), positive: true },
       { label: "Effective savings rate", value: percentDisplay(snapshot.trend_stats.effective_savings_rate, 1) },
     ],
+    trendGranularity: snapshot.granularity,
     levers: leverViews(snapshot.levers),
     activeLeverCount: snapshot.levers.filter((lever) => lever.enabled).length,
     leverTotalDisplay: moneyDisplay(snapshot.gross_savings_usd),
