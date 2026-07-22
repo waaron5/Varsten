@@ -6,7 +6,7 @@ This file reflects the current product direction, decided in design work that ca
 
 `docs/product/VARSTEN_PRODUCT_GUIDE.md` is the detailed reference for the measurement layer: ingestion fields, the pricing catalog, cost derivation, pricing trust, and schema mechanics.
 
-`docs/product/varsten-ui-mockup.html` is the canonical reference for the UI and information architecture. It is a clickable, self-contained mockup of the engine-first layout. When in doubt about screens, tabs, or flow, open it. It supersedes any older mockup.
+The implemented routes in `frontend/app/` are the source of truth for the UI and information architecture.
 
 ## What Varsten is
 
@@ -32,7 +32,7 @@ This raises the bar on execution, not on surface area. "Done over complete" stil
 
 ### Current phase: close the capacity gate before engine freeze
 
-Varsten is an inline Smart Proxy Gateway that intercepts, optimizes, and forwards live LLM traffic under a gain-share model. The Phase 1 "lean slice" framing (OpenAI-only, semantic-cache-only) is obsolete, and so is the "close the learning loop" framing that replaced it: the engine's full A–F roadmap and its adversarial validation plan are both complete as of 2026-07-05 (`docs/design/ENGINE_IMPLEMENTATION_PLAN.md`, `docs/design/ENGINE_VALIDATION_PLAN.md`). What exists and works today:
+Varsten is an inline Smart Proxy Gateway that intercepts, optimizes, and forwards live LLM traffic under a gain-share model. The Phase 1 "lean slice" framing (OpenAI-only, semantic-cache-only) is obsolete, and so is the "close the learning loop" framing that replaced it: the engine's full A–F roadmap and its adversarial validation work are both complete as of 2026-07-05. What exists and works today:
 
 - **Execution (hot path):** six levers execute for real. Exact + semantic cache (pgvector, model-scoped, TTL-bound), model routing via `ProxyPolicy` with per-request predicates plus bandit selection among eval-cleared candidates (quality-gated Thompson draw, exploits on measured savings; off by default, `shadow` mode available), deterministic per-request token trim, learned prompt compression (off-path generation, exact-hash substitution at request time, always approve-mode and eval-gated), OpenAI batch submission with measured discount capture. Three client dialects (OpenAI, Anthropic native, Gemini native) with cross-provider routing and an ineligibility audit trail. Every lookup fails open; per-project circuit breakers, budget hard caps, rate limiting, project-level bypass, canary ramp on policy activation, same-provider non-streaming retry/fallback, optional Redis-backed shared state for multi-instance deploys.
 - **Measurement:** live holdback A/B per route on always-valid sequential inference (time-uniform confidence sequences, not a fixed 95% CI checked continuously) for both savings and drift rollback, adaptive holdback sizing (steps down as confidence firms up, restores on ambiguity), direct-measured `saved_usd` on ledger events, strict measurement vocabulary where `estimated` never rolls into "verified" (`savings_measurement.py`).
@@ -40,13 +40,13 @@ Varsten is an inline Smart Proxy Gateway that intercepts, optimizes, and forward
 - **Learning:** content-free request classification; the planner is the live authorization layer for cache/routing/trim/compression (cache/routing/trim consult `draft.optimization_plan`, and a `None` plan fails open); persisted outcome priors feed it; outcome scoring aggregates decision evidence + feedback into per-segment readiness tiers (`insufficient_data → savings_unproven → quality_risk → recommendable → auto_apply_candidate`) and promotes cleared segments into open recommendations on an interval sweep — promotion never applies anything, the eval-gated apply path stays the sole authorization point that turns a recommendation into a live policy.
 - **Governance:** a first-class `ChangeRequest` object (`app/models/governance.py`, design in `docs/design/PALANTIR_ONTOLOGY_DESIGN.md` §2) — one row per proposed model-swap change with the frozen evidence bundle, state machine `proposed → approved/rejected → active → rolled_back`, named-approver decision with rationale, immutable audit event. Proposed automatically off a completed routing-lever eval. Enforcement (blocking apply without an approved request) is off by default globally, with a per-org default-on option for enterprise.
 
-Roadmap A–F is done; `docs/design/ENGINE_IMPLEMENTATION_PLAN.md` §2 has the slice-by-slice record of what shipped and why some things landed out of the stated order (B1 and parts of D/E moved earlier when they had no unfinished prerequisites and unblocked later work). Two things landed default-off rather than fully live: bandit routing (E) and `ChangeRequest` enforcement (F) — both exist, are tested, and wait on an explicit flag/org setting rather than more code.
+Roadmap A–F is done. Two things landed default-off rather than fully live: bandit routing (E) and `ChangeRequest` enforcement (F) — both exist, are tested, and wait on an explicit flag/org setting rather than more code.
 
 **Current phase is capacity, not features.** Per `docs/ENGINE_FINAL_PROOF_STATUS.md` (2026-07-06): the engine is functionally complete for a controlled pilot but not frozen. A 200 RPS HTTP load benchmark still fails locally and a 100 RPS diagnostic misses its added-p99 target (`docs/ENGINE_LOAD_BENCHMARK*.md`). Closing that gate — or validating against a real staging deployment — comes before packaging/onboarding becomes the primary workstream. Disclosed, deliberate backlog behind that, not blocking a pilot unless one depends on it: streaming-path fallback (retries cover streaming, mid-SSE model fallback does not), cross-provider fallback (same-provider only until the provider-key vault work lands), and variance-based Thompson sampling in the bandit (currently exploits on mean measured savings, no persisted variance).
 
 The production-hardening work already done (tenant-isolated auth, containerized deploy, CI, recompute off the read path) is the foundation under all of this and still holds. Streaming remains non-negotiable: never buffer a completion before streaming it to the client; capture token/billing metadata asynchronously.
 
-`docs/design/ENGINE_IMPLEMENTATION_PLAN.md` is the historical, slice-by-slice record of how the engine was built — read it for schemas, invariants, and design rationale on any engine module. `docs/ENGINE_FINAL_PROOF_STATUS.md` is the current source of truth for what's blocking a freeze.
+`docs/ENGINE_FINAL_PROOF_STATUS.md` is the current source of truth for what's blocking a freeze. Use the implementation and tests for schemas, invariants, and module-level behavior.
 
 #### Zero-retention, honestly
 
@@ -230,7 +230,7 @@ The inline proxy is part of this backend: a multi-dialect reverse proxy (OpenAI,
 - The `ChangeRequest` governance object (`app/models/governance.py`): propose-from-evidence, named-human decide, activate-on-apply, roll-back-with-drift; enforcement is opt-in (global flag, per-org default-on option for enterprise)
 - Tenant-isolated auth, containerized deploy + CI, recompute off the read path
 
-**Current build:** the engine's A–F roadmap and its adversarial validation plan (`docs/design/ENGINE_VALIDATION_PLAN.md`, workstreams V0–V8) are both complete as of 2026-07-05. The open blocker is operational capacity, not features — a 200 RPS HTTP load benchmark still fails locally (`docs/ENGINE_FINAL_PROOF_STATUS.md`, 2026-07-06). Closing that gate, or validating against a real staging deployment, comes before packaging/onboarding becomes the primary workstream. See "Current phase" above.
+**Current build:** the engine's A–F roadmap and adversarial validation work are both complete as of 2026-07-05. The open blocker is operational capacity, not features — a 200 RPS HTTP load benchmark still fails locally (`docs/ENGINE_FINAL_PROOF_STATUS.md`, 2026-07-06). Closing that gate, or validating against a real staging deployment, comes before packaging/onboarding becomes the primary workstream. See "Current phase" above.
 
 **Not in scope at all for now:**
 - Billing-grade invoice reconciliation
@@ -240,7 +240,7 @@ The inline proxy is part of this backend: a multi-dialect reverse proxy (OpenAI,
 - Multi-cloud infrastructure optimization
 - API key rotation flow (one key per project is fine for now)
 
-Build simple before complex. Do not pretend a capability exists in the codebase when it does not — and do not pretend a capability that already shipped is still hypothetical. Check `app/levers.py`, `docs/design/ENGINE_IMPLEMENTATION_PLAN.md` §2, and `docs/ENGINE_FINAL_PROOF_STATUS.md` before describing what phase the engine is in; this file gets stale faster than the code does.
+Build simple before complex. Do not pretend a capability exists in the codebase when it does not — and do not pretend a capability that already shipped is still hypothetical. Check `app/levers.py`, the relevant implementation and tests, and `docs/ENGINE_FINAL_PROOF_STATUS.md` before describing what phase the engine is in; this file gets stale faster than the code does.
 
 ## Database design notes (current thinking)
 
@@ -331,8 +331,7 @@ varsten/
 ├── Makefile
 ├── docs/
 │   └── product/
-│       ├── VARSTEN_PRODUCT_GUIDE.md
-│       └── varsten-ui-mockup.html   # canonical UI / IA reference
+│       └── VARSTEN_PRODUCT_GUIDE.md
 ├── backend/
 │   ├── pyproject.toml           # uv
 │   ├── alembic/

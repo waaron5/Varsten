@@ -1,8 +1,8 @@
 """V8 — the engine validation runner and proof pack.
 
 Runs the validation scenario suites (tests/validation/) with report emission
-on, aggregates every scenario's JSON report, evaluates the acceptance gates
-from docs/design/ENGINE_VALIDATION_PLAN.md, and writes:
+on, aggregates every scenario's JSON report, evaluates the built-in acceptance
+gates, and writes:
 
     <report-dir>/validation_report.json   machine-readable roll-up
     <report-dir>/PROOF_PACK.md            the human-readable proof pack

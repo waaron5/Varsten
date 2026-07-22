@@ -32,6 +32,9 @@ coverage.xml
 
 # Other
 
+# JavaScript dependencies and generated package output
+node_modules/
+
 /memory
 
 # Benchmark dataset cache (downloaded ShareGPT subsets)

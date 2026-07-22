@@ -162,8 +162,8 @@ number is verified (methodology) â†’ what it costs (25% of verified, $0 if $0) â
 
 - **Primary CTA everywhere: run the analyzer.** It is the lowest-friction high-signal action.
   Secondary: "connect observe mode free" for the already-convinced.
-- Observe-mode signup must be genuinely self-serve end to end (MASTER_PLAN Phase 8 finishes
-  this). Every hour between "convinced" and "data flowing" leaks leads you cannot afford.
+- Observe-mode signup must be genuinely self-serve end to end. Every hour between
+  "convinced" and "data flowing" leaks leads you cannot afford.
 - Add the security page prominently in the nav path: for this product, the security story is
   a conversion feature, not compliance boilerplate.
 - Analytics: a privacy-respecting tool (Plausible/Fathom class), events on analyzer runs,

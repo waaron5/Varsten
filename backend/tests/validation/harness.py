@@ -1,4 +1,4 @@
-"""V0 — the engine validation harness (docs/design/ENGINE_VALIDATION_PLAN.md).
+"""V0 — the engine validation harness.
 
 Unlike the unit/integration suite, validation scenarios run the engine **the way
 production runs it**: real committed rows, the app's own session factories on

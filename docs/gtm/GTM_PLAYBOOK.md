@@ -20,7 +20,7 @@ Strategy has to fit the actual constraints, so name them.
   holdback measurement. This is the differentiator.
 - Gain-share pricing (25% of verified savings, free observe mode). Zero-budget ask.
 - Free observe-only mode already built. This is a productized audit, not a promise of one.
-- Production infrastructure most of the way there (MASTER_PLAN phases 0-4 done, 5 in progress).
+- Production infrastructure is most of the way there; backup and restore proof remains in progress.
 
 **Constraints:**
 - Solo founder, no brand, no references, no SOC 2 Type II. Enterprise is out of reach and should
@@ -279,7 +279,7 @@ conversation from "trust me" to "here's what happened at [Company]."
 ## 9. 90-day execution plan
 
 **Weeks 1-2: package.**
-- Finish MASTER_PLAN Phase 5 (backup/restore proof); keep phases 6-9 moving in parallel.
+- Finish backup and restore proof; keep the remaining production-readiness work moving in parallel.
 - Write: methodology one-pager (public), security one-pager + DPA + data-flow diagram, teardown
   template v1, design-partner terms one-pager, pilot success-criteria template.
 - Build the 150-name prospect list with the specific-observation column filled in.
