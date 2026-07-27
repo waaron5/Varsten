@@ -114,6 +114,34 @@ The principal running Terraform (your CLI identity, and the CI `AWS_DEPLOY_ROLE_
 needs `s3:{Get,Put,List}Object` on the bucket and `dynamodb:{GetItem,PutItem,
 DeleteItem}` on the lock table, in addition to the resource permissions in `iam.tf`.
 
+## Dormant production mode
+
+When Varsten is not serving users, pause App Runner so there is no application
+compute and nothing can wake Neon:
+
+```sh
+make production-sleep
+make production-status  # PAUSED
+```
+
+Bring the existing service back without recreating infrastructure:
+
+```sh
+make production-wake
+make production-status  # RUNNING
+```
+
+After the first wake from the July 2026 dormant transition, deploy the current
+Terraform configuration so the database-free health check and disabled scheduler
+replace the older live service configuration.
+
+Production health checks use the database-free `/health` endpoint, and the
+in-process scheduler is disabled by default. Consequently, even while App Runner
+is running, an unused Neon compute can scale to zero. Re-enable
+`SCHEDULER_ENABLED` only when periodic drift, batch, cache, alert, trial, and
+learning jobs are operationally required; those jobs intentionally query the
+database without visitor traffic.
+
 ## Deployment lifecycle (migrate before promote)
 
 The API image no longer migrates on boot. The schema is brought to head by a
@@ -162,7 +190,7 @@ Set these on the service (plain env for non-secrets, Secrets Manager refs for th
 | `BATCH_STORAGE_BACKEND` | `s3` | switches storage off local disk |
 | `BATCH_S3_BUCKET` | `varsten-batches-staging` | |
 | `BATCH_S3_REGION` | `us-east-1` | |
-| `SCHEDULER_ENABLED` | `true` | runs the drift sweep + batch poller |
+| `SCHEDULER_ENABLED` | `false` | enable only when background jobs justify keeping the database active |
 | `SENTRY_DSN` | … | optional |
 
 ## Runbook

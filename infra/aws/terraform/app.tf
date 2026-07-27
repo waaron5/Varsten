@@ -31,7 +31,9 @@ locals {
       PROVIDER_KEY_KMS_KEY_ID         = aws_kms_key.provider_keys.arn
       PROVIDER_KEY_CACHE_TTL_SECONDS  = "30"
       PROXY_DEFAULT_PROVIDER          = "openai"
-      SCHEDULER_ENABLED               = "true"
+      # Keep periodic database work off unless production traffic justifies an
+      # always-active database. Visitor-driven requests still work normally.
+      SCHEDULER_ENABLED = "false"
       # Multi-instance coordination: each background sweep takes a per-job Postgres
       # advisory lock, so only one instance runs a given sweep at a time. Required
       # whenever app_max_instances > 1.
@@ -133,8 +135,10 @@ resource "aws_apprunner_service" "api" {
   }
 
   health_check_configuration {
-    protocol            = "HTTP"
-    path                = "/health/ready" # readiness: in rotation only when the DB is reachable
+    protocol = "HTTP"
+    # Liveness must not query Neon. Using /health/ready here executes SELECT 1 every
+    # ten seconds and prevents a quiet database from ever scaling to zero.
+    path                = "/health"
     interval            = 10
     timeout             = 5
     healthy_threshold   = 1

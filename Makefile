@@ -1,4 +1,4 @@
-.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate release-migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code backend-sdk-smoke walkthrough walkthrough-traffic walkthrough-status walkthrough-down walkthrough-proof
+.PHONY: up down logs sync-prices demo-seed seed-demo-tenant migrate release-migrate test backend-check backend-lint backend-typecheck backend-test backend-security backend-complexity backend-audit backend-dead-code backend-sdk-smoke walkthrough walkthrough-traffic walkthrough-status walkthrough-down walkthrough-proof production-sleep production-wake production-status
 
 # Bring up the full local stack (Postgres + API + frontend). The API container
 # applies migrations on boot. First run builds the API image.
@@ -37,6 +37,17 @@ down:
 # Tail logs for all services.
 logs:
 	docker compose logs -f
+
+# Pause/resume the live App Runner service without deleting its configuration.
+# Sleeping stops AWS application compute and all background Neon queries.
+production-sleep:
+	infra/aws/production_compute.sh sleep
+
+production-wake:
+	infra/aws/production_compute.sh wake
+
+production-status:
+	infra/aws/production_compute.sh status
 
 # Refresh the pricing catalog from the public feed (manual for now; cron later).
 sync-prices:
