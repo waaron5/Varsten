@@ -1,5 +1,5 @@
-"""Observe-only enforcement: a Free workspace can never activate a
-behaviour-changing lever. Optimize can. Enforcement is backend-side."""
+"""Base enforcement: a Base workspace can never activate a
+behaviour-changing lever. Pro can. Enforcement is backend-side."""
 
 import uuid
 from decimal import Decimal
@@ -52,7 +52,7 @@ def test_free_cannot_apply_recommendation(client, provision, db_session):
     assert resp.status_code == 403
     assert resp.json()["detail"]["code"] == "feature_requires_performance"
 
-    # Observe-only held: recommendation stayed open and no policy was activated.
+    # Base held: recommendation stayed open and no policy was activated.
     db_session.refresh(rec)
     assert rec.status == "open"
     policies = db_session.scalar(

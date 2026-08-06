@@ -64,7 +64,7 @@ def sync_user(
                 user = User(email=email, name=name, auth_provider_subject=sub)
                 db.add(user)
                 db.flush()
-                # New signup: an Optimize-trialing org with a ready-to-use default
+                # New signup: a Pro-trialing org with a ready-to-use default
                 # project, so the 14-day trial is live and onboarding has somewhere to
                 # mint an API key without asking the user to create a project first.
                 provision_new_organization(

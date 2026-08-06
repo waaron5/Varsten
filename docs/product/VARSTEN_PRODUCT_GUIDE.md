@@ -137,7 +137,7 @@ The customer chooses the deployment mode and the honest answer follows from it, 
 
 Varsten offers two deployment modes.
 
-In **metadata mode**, Varsten ingests only usage metadata such as token counts, model, route, and latency, drawn from provider billing APIs and lightweight instrumentation. Content never reaches Varsten. This mode powers Analysis, Proof, and recommendations, but not inline caching or content-based routing, since those require seeing the request.
+With **Direct Monitoring**, Varsten automatically ingests usage details such as token counts, model, route, and latency from provider billing APIs and lightweight instrumentation while AI calls continue going directly to the provider. Content never reaches Varsten. This integration powers Analysis, Proof, and recommendations, but not inline caching or content-based routing, since those require seeing the request.
 
 In **inline gateway mode**, Varsten sees request content because caching and routing require it. The default and recommended deployment runs the data plane and the cache inside the customer's own cloud account, so content never leaves the customer's perimeter and only hashes, token counts, and eval scores flow back to Varsten's control plane. In that configuration the truthful answer to whether prompts leave the boundary is no, only counts and scores do, which turns security from a blocker into a selling point. Where a Varsten-hosted gateway is used instead, content is processed in memory and not persisted by default, with PII redaction before any logging, strict tenant isolation, and customer-managed encryption keys for the cache.
 

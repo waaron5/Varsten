@@ -58,7 +58,7 @@ Actual lifecycle for OpenAI-compatible chat completions:
 1. Authenticate project/API key.
 2. Parse body into an OpenAI chat-completion request.
 3. Parse optional request metadata from `X-Varsten-Metadata` and `X-Varsten-*` headers.
-4. Determine bypass/observe-only/performance entitlement.
+4. Determine bypass/Base/performance entitlement.
 5. Compute exact cache key from selected request fields.
 6. Look up exact cache entry.
 7. If exact miss and semantic cache is enabled, embed prompt text and run pgvector cosine nearest-neighbor search.
@@ -753,7 +753,7 @@ Serious internal teams can build a LiteLLM/Portkey/Cloudflare gateway plus LangS
 | Market | Honest status |
 | --- | --- |
 | Fortune 500 | Not currently credible as a production traffic owner. Security/compliance/proof maturity insufficient. |
-| Mid-market | Credible only as a tightly scoped pilot with explicit no-risk/observe mode and manually approved optimizations. |
+| Mid-market | Credible only as a tightly scoped pilot with explicit no-risk/Base mode and manually approved optimizations. |
 | Startups | Marketable as cost observability plus selected optimization if expectations are honest. |
 | Self-serve developer tool | Marketable if positioned as proxy + savings estimates + exact cache/batch/pilot routing, not autonomous quality-preserving optimizer. |
 | Services-led savings audit | Best near-term ICP. |

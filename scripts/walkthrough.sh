@@ -112,8 +112,8 @@ cmd_up() {
 
   echo
   bold "Ready. Walk the funnel:"
-  info "Trial (Optimize):      http://localhost:3000/start?intent=trial"
-  info "Observe (Free):        http://localhost:3000/start?intent=observe"
+  info "Trial (Pro):      http://localhost:3000/start?intent=trial"
+  info "Base (Free):        http://localhost:3000/start?intent=observe"
   info "Log in via Auth0, pick a connection path, create a key, and connect a"
   info "provider with any string (e.g. sk-fake-local-test — the stub accepts it)."
   echo

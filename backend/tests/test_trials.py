@@ -1,6 +1,6 @@
-"""Self-serve trial lifecycle: a new signup is an Optimize trial, the trial
-unlocks Optimize until it ends, and an unpaid trial that elapses falls back to
-Free observe-only (durably, by sweep and lazily on read) without blocking traffic.
+"""Self-serve trial lifecycle: a new signup is a Pro trial, the trial
+unlocks Pro until it ends, and an unpaid trial that elapses falls back to
+Base (durably, by sweep and lazily on read) without blocking traffic.
 """
 
 import uuid
@@ -151,7 +151,7 @@ def test_expired_unpaid_trial_falls_back_to_free_on_read(client, db_session, pro
     db_session.commit()
     billing_lifecycle._invalidate(org.id)
 
-    # The entitlement read both reports observe-only AND durably downgrades the row.
+    # The entitlement read both reports Base AND durably downgrades the row.
     body = _entitlements(client, p)
     assert body["observe_only"] is True
     assert body["plan_tier"] == PLAN_FREE

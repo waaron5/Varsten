@@ -26,7 +26,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     question: "How do I integrate Varsten?",
-    answer: "Choose metadata-only ingestion for observation without inline risk, a base URL change for evaluation, or a Varsten SDK wrapper for production routes that require direct provider fallback. An in-VPC sidecar is planned but is not currently available.",
+    answer: "Choose Direct Monitoring to track provider calls without putting Varsten inline, a base URL change for evaluation, or a Varsten SDK wrapper for production routes that require direct provider fallback. An in-VPC sidecar is planned but is not currently available.",
   },
   {
     question: "How long does integration take?",

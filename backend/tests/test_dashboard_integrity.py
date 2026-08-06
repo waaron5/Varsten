@@ -66,7 +66,7 @@ def _open_recommendation(project: Project, amount: str) -> Recommendation:
         target_type="route",
         target_key="proxy:chat_completion",
         title="Enable safe response reuse",
-        description="Repeated prompts can be served from cache on Optimize.",
+        description="Repeated prompts can be served from cache on Pro.",
         rationale="Seeded recommendation for Dashboard projection integrity.",
         estimated_monthly_savings_usd=Decimal(amount),
         monthly_request_volume=100,

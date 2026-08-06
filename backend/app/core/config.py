@@ -168,11 +168,11 @@ class Settings(BaseSettings):
     # Per user, on the provider-connect endpoint (cheap to abuse against providers).
     connect_rate_limit_per_minute: int = 20
     # Trial/quota soft paywall. Exceeding either limit never blocks traffic; it
-    # downshifts the proxy into observe-only mode and surfaces warning headers/UI.
+    # downshifts the proxy into Base mode and surfaces warning headers/UI.
     free_monthly_request_limit: int = 100_000
     free_trial_days: int = 14
-    # How often the trial sweep downgrades unpaid, elapsed Optimize trials to Free
-    # observe-only. The entitlement read path also does this lazily, so the sweep is
+    # How often the trial sweep downgrades unpaid, elapsed Pro trials to Free
+    # Base. The entitlement read path also does this lazily, so the sweep is
     # the durable-state backstop, not the only mechanism; hourly is plenty.
     trial_sweep_interval_seconds: int = 3600
     # Global kill switch. When true, every project's traffic bypasses all Varsten

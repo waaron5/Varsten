@@ -413,7 +413,7 @@ def _run_policy_proof(args) -> int:
         return _fail(
             org_id,
             "no holdback experiment events recorded — the trim lever is not applying. "
-            "Check the org is on Optimize (optimization enabled) and the policy is active.",
+            "Check the org is on Pro (optimization enabled) and the policy is active.",
         )
 
     print(f"Sending the remaining {total - warmup} requests…")

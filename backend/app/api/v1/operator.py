@@ -193,7 +193,7 @@ def set_organization_plan(
     operator: User = Depends(_operator_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Operator-only plan switch for testing Free vs Optimize. Gated by
+    """Operator-only plan switch for testing Free vs Pro. Gated by
     operator_admin_emails; there is deliberately no public/self-serve plan switch."""
     tier = payload.plan_tier.strip().lower()
     if tier not in PLAN_TIERS:

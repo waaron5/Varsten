@@ -8,7 +8,7 @@ import { useSession } from "@/components/session";
 import { ApiError, api } from "@/lib/api";
 import type { Entitlements } from "@/lib/types";
 
-const CONTACT_HREF = "mailto:contact@varsten.ai?subject=Upgrade%20to%20Varsten%20Optimize";
+const CONTACT_HREF = "mailto:contact@varsten.ai?subject=Upgrade%20to%20Varsten%20Pro";
 
 const OPTIMIZE_INCLUDES = [
   "Turn on savings automations with eval gates and rollback",
@@ -105,13 +105,13 @@ function trialBillingState(entitlements: Entitlements): BillingState | null {
 function billingHeading(state: BillingState): string {
   switch (state) {
     case "trial_needs_payment":
-      return "Optimize Trial Active";
+      return "Pro Trial Active";
     case "trial_payment_ready":
       return "Payment Method Ready";
     case "expired":
       return "Trial Ended";
     case "active":
-      return "Optimize Active";
+      return "Pro Active";
     case "past_due":
       return "Resolve Billing";
     case "performance_observe_only":
@@ -119,7 +119,7 @@ function billingHeading(state: BillingState): string {
     case "loading":
       return "Plan";
     default:
-      return "Upgrade to Optimize";
+      return "Upgrade to Pro";
   }
 }
 
@@ -131,15 +131,15 @@ function billingPill(state: BillingState, planTier: string | null): string {
     case "trial_payment_ready":
       return "Trial · Ready";
     case "expired":
-      return "Expired · Observe-only";
+      return "Expired · Base";
     case "active":
-      return "Optimize";
+      return "Pro";
     case "past_due":
       return "Past due";
     case "performance_observe_only":
-      return "Observe-only";
+      return "Base";
     default:
-      return "Free · Observe-only";
+      return "Base";
   }
 }
 
@@ -151,7 +151,7 @@ function OptimizationPaused({ reason }: { reason: string | null }) {
     <div className="card" style={{ borderColor: "var(--warn-line)", background: "var(--warn-faint)", marginBottom: 12 }}>
       <div className="card-head">
         <h3>Optimization paused</h3>
-        <div className="right"><span className="pill neutral">Observe-only</span></div>
+        <div className="right"><span className="pill neutral">Base</span></div>
       </div>
       <div className="es" style={{ padding: "0 12px 12px" }}>
         Your live traffic is still flowing through Varsten, but behavior-changing levers are paused because {reasonText}.
@@ -171,7 +171,7 @@ function PlanSummary({
     return (
       <>
         <div className="es">
-          Optimize is enabled through the trial. Add a payment method to
+          Pro is enabled through the trial. Add a payment method to
           continue after {formatTrialDate(trial?.trial_ends_at)}; setup-mode checkout only
           records payment readiness.
         </div>
@@ -184,7 +184,7 @@ function PlanSummary({
     return (
       <>
         <div className="es">
-          Optimize is enabled and the payment method is ready. When the
+          Pro is enabled and the payment method is ready. When the
           trial ends, Varsten continues on verified-savings pricing without changing your integration.
         </div>
         <BillingAction mode="portal" label="Manage payment method" />
@@ -219,10 +219,10 @@ function PlanSummary({
     return (
       <>
         <div className="es">
-          The workspace is in observe-only mode. Add a payment method to reactivate
-          Optimize and keep the same integration path.
+          The workspace is in Base mode. Add a payment method to reactivate
+          Pro and keep the same integration path.
         </div>
-        <BillingAction mode="checkout" label="Add payment method and reactivate Optimize" />
+        <BillingAction mode="checkout" label="Add payment method and reactivate Pro" />
         <PricingNote />
       </>
     );
@@ -230,7 +230,7 @@ function PlanSummary({
   return (
     <>
       <div className="es">
-        Free observes your AI traffic and surfaces estimated savings opportunities. Optimize
+        Base observes your AI traffic and surfaces estimated savings opportunities. Pro
         lets Varsten act on them — safely — and proves the savings it captures.
       </div>
       <ul style={{ margin: "12px 0 0", paddingLeft: 18, lineHeight: 1.8 }}>
@@ -245,7 +245,7 @@ function PlanSummary({
         through to your provider.
       </div>
       <div className="empty-actions" style={{ justifyContent: "flex-start", marginTop: 16 }}>
-        <Link className="btn primary" href="/start?intent=trial">Start 14-day Optimize trial</Link>
+        <Link className="btn primary" href="/start?intent=trial">Start 14-day Pro trial</Link>
         <a className="btn" href={CONTACT_HREF}>Talk to us</a>
       </div>
       <PricingNote />
@@ -256,7 +256,7 @@ function PlanSummary({
 function PricingNote() {
   return (
     <div className="es" style={{ marginTop: 10 }}>
-      Optimize uses verified-savings pricing: if Varsten saves nothing, you pay nothing.
+      Pro uses verified-savings pricing: if Varsten saves nothing, you pay nothing.
     </div>
   );
 }
@@ -355,7 +355,7 @@ function TrialUsageCard({
           <tr><td className="muted">Monthly observed requests</td><td>{quotaUsed}</td></tr>
           <tr><td className="muted">Requests remaining</td><td>{quota?.requests_remaining?.toLocaleString() ?? "—"}</td></tr>
           <tr><td className="muted">Trial ends</td><td>{trialEnds}</td></tr>
-          <tr><td className="muted">Mode</td><td>{observeOnly ? "Observe-only" : "Optimize"}</td></tr>
+          <tr><td className="muted">Mode</td><td>{observeOnly ? "Base" : "Pro"}</td></tr>
         </tbody>
       </table>
     </div>

@@ -9,7 +9,7 @@ so the cap actually stops spend. Three safety rules, in order of importance:
 2. **$0 is never blocked.** Cache hits are served before this check runs, so a
    cap never blocks a request that costs nothing.
 3. **Opt-in + kill-switchable.** Only hard-cap budgets (a deliberate customer
-   choice, Optimize-only) block, the global setting can disable it, and a
+   choice, Pro-only) block, the global setting can disable it, and a
    bypassed request is never blocked.
 
 Budget state is read through a short-TTL cache so the hot path does not sum the

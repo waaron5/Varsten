@@ -73,8 +73,8 @@ def provision(client, db_session):
     personal org), then create a project and an API key in it, all through the
     real authenticated endpoints. Returns the identifiers tests need.
 
-    Signup now grants a 14-day Optimize trial, but the bulk of the suite asserts
-    Free observe-only behaviour, so this fixture resets the org to a Free/active
+    Signup now grants a 14-day Pro trial, but the bulk of the suite asserts
+    Base behaviour, so this fixture resets the org to a Free/active
     baseline by default. Pass plan="performance" (active) or "trialing" to exercise
     the trial path; dedicated trial tests drive the sync endpoint directly instead.
     """
@@ -216,8 +216,8 @@ def async_provision(async_db_session):
         plan_tier: str = "performance",
     ) -> dict:
         # Async proxy tests exercise optimization (cache/route/trim), which is
-        # Optimize-only now that Free is observe-only, so default to Optimize.
-        # Observe-only tests pass plan_tier="free" explicitly.
+        # Pro-only now that Free is Base, so default to Pro.
+        # Base tests pass plan_tier="free" explicitly.
         org = Organization(name="async-test-org", plan_tier=plan_tier)
         async_db_session.add(org)
         await async_db_session.flush()

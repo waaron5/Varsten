@@ -1,4 +1,4 @@
-"""Stripe self-serve upgrade: collect a payment method for Optimize.
+"""Stripe self-serve upgrade: collect a payment method for Pro.
 
 Varsten's price is a percentage of verified savings (billed through the Invoice
 flow), not a fixed monthly charge, so Checkout runs in `setup` mode: it collects

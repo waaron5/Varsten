@@ -69,7 +69,7 @@ export default function AboutPage() {
         </div>
       </section>
 
-      <PageCta title="Start with a clear cost baseline." description="Observe mode shows where AI spend is going before anything in production changes." href={START_OBSERVE_HREF} label="Start a free audit" intent="observe" />
+      <PageCta title="Start with a clear cost baseline." description="Base mode shows where AI spend is going before anything in production changes." href={START_OBSERVE_HREF} label="Start a free audit" intent="observe" />
     </SecondaryShell>
   );
 }

@@ -12,8 +12,8 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.project import Project
 
-# Entitlement tiers. Free is observe-only: Varsten meters and recommends but may
-# never activate a behaviour-changing lever. Optimize unlocks the savings levers.
+# Entitlement tiers. Free is Base: Varsten meters and recommends but may
+# never activate a behaviour-changing lever. Pro unlocks the savings levers.
 # Enterprise is deferred (no extra capabilities modeled yet). The internal key
 # remains "performance" for compatibility with existing data and tests.
 PLAN_FREE = "free"
@@ -21,7 +21,7 @@ PLAN_PERFORMANCE = "performance"
 PLAN_TIERS = (PLAN_FREE, PLAN_PERFORMANCE)
 
 # Subscription lifecycle, independent of the entitlement tier. A new self-serve
-# workspace starts `trialing` on Optimize; Stripe activation drives it to
+# workspace starts `trialing` on Pro; Stripe activation drives it to
 # `active`; an unpaid trial that runs out is swept to `expired`. Operator config
 # can still set these directly.
 SUBSCRIPTION_TRIALING = "trialing"
@@ -29,7 +29,7 @@ SUBSCRIPTION_ACTIVE = "active"
 SUBSCRIPTION_PAST_DUE = "past_due"
 SUBSCRIPTION_CANCELED = "canceled"
 # Trial window elapsed without a payment method; the org has been downgraded to
-# Free observe-only. Distinct from `canceled` (a paid plan the customer ended).
+# Base. Distinct from `canceled` (a paid plan the customer ended).
 SUBSCRIPTION_EXPIRED = "expired"
 SUBSCRIPTION_STATUSES = (
     SUBSCRIPTION_TRIALING,
@@ -60,7 +60,7 @@ class Organization(Base, TimestampMixin):
     # Marks a seeded demo tenant. The demo seeder asserts this before any wipe, so
     # it can never touch a real customer org (is_demo=False is the default).
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    # Entitlement tier. Free (default) is observe-only; behaviour-changing levers
+    # Entitlement tier. Free (default) is Base; behaviour-changing levers
     # are gated to the internal "performance" key. The single source of truth for
     # feature gating.
     plan_tier: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text(f"'{PLAN_FREE}'"))
@@ -78,7 +78,7 @@ class Organization(Base, TimestampMixin):
     governance_enforced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     plan_effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Self-serve trial window. Set when the workspace is provisioned; trial_ends_at
-    # is the hard stop after which an unpaid org falls back to Free observe-only.
+    # is the hard stop after which an unpaid org falls back to Base.
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Stripe linkage for self-serve upgrade. The customer is created before hosted

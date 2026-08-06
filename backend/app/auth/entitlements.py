@@ -1,7 +1,7 @@
-"""Plan-tier entitlements and observe-only enforcement.
+"""Plan-tier entitlements and Base enforcement.
 
-Free is observe-only: Varsten meters, prices, records decision evidence, and
-recommends, but may never activate a behaviour-changing lever. Optimize unlocks
+Free is Base: Varsten meters, prices, records decision evidence, and
+recommends, but may never activate a behaviour-changing lever. Pro unlocks
 the savings levers. This is the single backend chokepoint that keeps a
 free workspace from accidentally altering production AI traffic.
 
@@ -9,7 +9,7 @@ Enforcement lives here (not in the frontend) and is applied at the points where
 an enabled, behaviour-changing proxy_policy / lever_config would be created:
 applying a recommendation, enabling a route/trim policy, enabling a lever or its
 automation, and submitting a batch. The proxy itself only ever acts on enabled
-policies, so a free org that can never create one stays observe-only by
+policies, so a free org that can never create one stays Base by
 construction.
 """
 
@@ -40,7 +40,7 @@ from app.models import (
 
 FEATURE_REQUIRES_PERFORMANCE = "feature_requires_performance"
 
-# Process-local plan-tier cache so the proxy hot path can decide observe-only
+# Process-local plan-tier cache so the proxy hot path can decide Base
 # without a DB read every request. Short TTL plus explicit invalidation on a plan
 # change keeps it from going stale. Single-process (mirrors the provider-key cache).
 _TIER_TTL_SECONDS = 60
@@ -183,7 +183,7 @@ def _entitlement_state_for_org(db: Session, org: Organization | None) -> Entitle
     # Lazy expiry: correct an elapsed unpaid trial the next time the org is read on
     # the control plane, so the durable state is right without waiting on the sweep.
     # The async proxy hot path deliberately does not write here (it stays read-only
-    # and fail-open); its state still reports observe-only via trial_expired.
+    # and fail-open); its state still reports Base via trial_expired.
     if org is not None and billing_lifecycle.maybe_expire(org, now=now):
         db.commit()
     monthly_requests = _monthly_proxy_requests(db, org.id, now) if org is not None else 0
@@ -223,16 +223,16 @@ async def entitlement_state_async(db: AsyncSession, organization_id: uuid.UUID) 
 
 
 async def observe_only_async(db: AsyncSession, organization_id: uuid.UUID) -> bool:
-    """Whether this org is observe-only (Free), for the async proxy hot path.
+    """Whether this org is Base (Free), for the async proxy hot path.
 
     Cached with a short TTL so it costs a dict lookup on the steady-state path.
-    Fail-open: any error treats the org as observe-only (the safe default that
+    Fail-open: any error treats the org as Base (the safe default that
     never silently changes a customer's production behaviour)."""
     return (await entitlement_state_async(db, organization_id)).observe_only
 
 
 def require_performance(db: Session, project: Project, *, action: str) -> None:
-    """Raise 403 unless the project's org is on the Optimize plan. ``action`` is
+    """Raise 403 unless the project's org is on the Pro plan. ``action`` is
     a short human phrase used in the error so the UI can show why it was blocked."""
     if is_performance(db, project):
         return
@@ -242,8 +242,8 @@ def require_performance(db: Session, project: Project, *, action: str) -> None:
             "code": FEATURE_REQUIRES_PERFORMANCE,
             "action": action,
             "message": (
-                f"{action} requires the Optimize plan. This workspace is in "
-                "observe-only mode: Varsten is measuring your AI traffic but is "
+                f"{action} requires the Pro plan. This workspace is in "
+                "Base mode: Varsten is measuring your AI traffic but is "
                 "not changing any production behaviour."
             ),
         },

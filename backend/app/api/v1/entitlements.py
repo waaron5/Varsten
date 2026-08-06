@@ -101,7 +101,7 @@ def entitlements(
         },
         "trial_progress": _trial_progress(db, project),
         "features": {
-            # Behaviour-changing levers, gated to Optimize (matches the backend
+            # Behaviour-changing levers, gated to Pro (matches the backend
             # enforcement points exactly).
             "apply_recommendations": performance,
             "enable_levers": performance,
@@ -111,7 +111,7 @@ def entitlements(
             "use_batching": performance,
             "guardrail_automation": performance,
             "submit_batches": performance,
-            # Advanced read surfaces: Free can preview, Optimize gets the full view.
+            # Advanced read surfaces: Free can preview, Pro gets the full view.
             "advanced_proof": performance,
             "advanced_reports": performance,
             "extended_retention": performance,

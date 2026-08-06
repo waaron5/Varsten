@@ -88,7 +88,7 @@ function useStoredLanguage(projectId: string): [LanguageId, (next: LanguageId) =
 }
 
 function defaultPathForIntent(): IntegrationPathId {
-  // Observe intent = the 60-second base-URL "try". Trial / unknown = the
+  // Base intent = the 60-second base-URL "try". Trial / unknown = the
   // production-safe SDK, which is also the recommended path.
   return currentOnboardingIntent() === "observe" ? "base_url" : "sdk";
 }
@@ -761,7 +761,7 @@ function KeysStep({
         secondary={
           path.requiresProviderConnection ? (
             <button className="onb-linkbtn" onClick={onUseMetadata}>
-              No provider key? Switch to metadata only
+              No provider key? Switch to Direct Monitoring
             </button>
           ) : undefined
         }
@@ -1030,7 +1030,7 @@ function ManualProviderSetupNote({ onUseMetadata, provider }: { onUseMetadata: (
     <div className="onb-note warn">
       This environment cannot store {PROVIDER_LABELS[provider]} keys from the dashboard yet — a Varsten operator
       needs to finish vault setup, and your traffic is not affected. Don&apos;t want to wait?{" "}
-      <button className="onb-linkbtn" onClick={onUseMetadata}>Switch to metadata only</button> (no provider key), or{" "}
+      <button className="onb-linkbtn" onClick={onUseMetadata}>Switch to Direct Monitoring</button> (no provider key), or{" "}
       <a className="onb-inline-link" href={SETUP_CALL_HREF}>book a setup call</a>.
     </div>
   );

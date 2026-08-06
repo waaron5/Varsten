@@ -5,7 +5,7 @@ find Varsten on their own and convert without a cold email. Written 2026-07-19.
 
 The one-sentence strategy: **ship one remarkable interactive asset (the client-side Waste
 Analyzer), surround it with a small set of high-intent pages (comparisons, integrations,
-methodology), make the free observe tier genuinely self-serve, and let launches and honest
+methodology), make the free Base tier genuinely self-serve, and let launches and honest
 engineering content drive the first traffic while search compounds in the background.**
 
 ---
@@ -69,7 +69,7 @@ wasting," with the user's own data. Different category, no incumbent, perfectly 
 - **Gating: do not hard-gate.** Show everything without an email. At 0 to 1 you want
   conversations and shares, not a mailing list. Offer two CTAs at the bottom: "get the
   human version: free 48-hour teardown" (email capture with intent) and "watch it live:
-  connect observe mode, free." Optionally an email field to send yourself the report PDF.
+  connect Base mode, free." Optionally an email field to send yourself the report PDF.
   A hard email gate would also kill the HN launch.
 - **Claims discipline carries over:** every number labeled estimated, never "guaranteed,"
   ranges not point estimates. The analyzer is the brand's honesty, demonstrated.
@@ -145,7 +145,7 @@ OpenAI-compatible client is base URL + `vk_` key. The work is documentation, not
 - One docs page per framework: LangChain (Python/JS), Vercel AI SDK, LlamaIndex, plus raw
   OpenAI/Anthropic SDK pages (partly written already in `marketing/content/docs/`). Each page:
   the 2-4 line diff, what the fail-open SDK adds (direct-to-provider fallback), what shows up
-  in the dashboard, and the free observe-mode CTA. Each page is also a Tier 2 search page.
+  in the dashboard, and the Base CTA. Each page is also a Tier 2 search page.
 - Copy-paste-complete snippets. A developer should go from the page to traffic in the
   dashboard in under 10 minutes; the self-serve walkthrough already proves the path.
 - **Official directory listings are phase 2, not now.** Getting into LangChain's integrations
@@ -161,8 +161,8 @@ argument: claim → interactive proof (Waste Analyzer, embedded or one click awa
 number is verified (methodology) → what it costs (25% of verified, $0 if $0) → two CTAs.
 
 - **Primary CTA everywhere: run the analyzer.** It is the lowest-friction high-signal action.
-  Secondary: "connect observe mode free" for the already-convinced.
-- Observe-mode signup must be genuinely self-serve end to end. Every hour between
+  Secondary: "connect Base mode free" for the already-convinced.
+- Base-mode signup must be genuinely self-serve end to end. Every hour between
   "convinced" and "data flowing" leaks leads you cannot afford.
 - Add the security page prominently in the nav path: for this product, the security story is
   a conversion feature, not compliance boilerplate.
@@ -211,7 +211,7 @@ produced nothing, double what produced analyzer runs.
 - Paid search or social ads pre-case-study.
 - A high-volume AI-generated blog. Ten thin posts hurt the domain and the brand; the brand
   is rigor.
-- Hard email-gating anything. Optimize for conversations, launches, and shares.
+- Hard email-gating anything. Pro for conversations, launches, and shares.
 - Official framework directory listings before the first paying customer (maintenance SLA
   you cannot yet honor). Community lists yes, official registries later.
 - Building analyzer features server-side for convenience. Client-side is the point; the

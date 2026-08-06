@@ -194,7 +194,7 @@ function ProofSavingsBody() {
           empty={!data && !loading ? "No verified savings yet" : undefined}
           emptyDetail={
             !data && !loading
-              ? "Every dollar here is measured, not modeled. Once optimization is on, a small random slice of traffic stays on the original model as a live control arm — the savings shown are the measured difference between the two, with confidence intervals a CFO can audit. Turn on Optimize and let traffic accrue to populate this page."
+              ? "Every dollar here is measured, not modeled. Once optimization is on, a small random slice of traffic stays on the original model as a live control arm — the savings shown are the measured difference between the two, with confidence intervals a CFO can audit. Turn on Pro and let traffic accrue to populate this page."
               : undefined
           }
         /></div>
@@ -222,7 +222,7 @@ function ProofAttributionBody() {
       />
       <Tabs tabs={PROOF_TABS} active="/proof/attribution" />
       {observeOnly && (
-        <LockedNotice title="Measured savings attribution is an Optimize feature.">
+        <LockedNotice title="Measured savings attribution is a Pro feature.">
           On Free, Varsten shows estimated opportunities. Upgrade to apply optimizations and attribute
           the savings they actually capture.
         </LockedNotice>
@@ -562,7 +562,7 @@ function GuardrailsQualityBody() {
     setBusy(true);
     setError(null);
     try {
-      // Auto-rollback is Optimize-only (it disables a live route). Free can still
+      // Auto-rollback is Pro-only (it disables a live route). Free can still
       // record a quality floor; force the flag off so the create succeeds.
       const payload = qualityGuardrailPayload({
         autoRollback: autoRollback && !observeOnly,
@@ -611,14 +611,14 @@ function GuardrailsQualityBody() {
             <input className="input" placeholder="Eval gate" value={evalGate} onChange={(e) => setEvalGate(e.target.value)} />
             <input className="input" placeholder="Minimum eval score" value={minScore} onChange={(e) => setMinScore(e.target.value)} />
             <input className="input" placeholder="Max latency ms" value={latency} onChange={(e) => setLatency(e.target.value)} />
-            <label className="check-row" title={observeOnly ? "Auto-rollback is available on Optimize" : undefined}>
+            <label className="check-row" title={observeOnly ? "Auto-rollback is available on Pro" : undefined}>
               <input
                 type="checkbox"
                 checked={!observeOnly && autoRollback}
                 disabled={observeOnly}
                 onChange={(e) => setAutoRollback(e.target.checked)}
               />
-              Auto rollback when a guardrail fails{observeOnly ? " (Optimize)" : ""}
+              Auto rollback when a guardrail fails{observeOnly ? " (Pro)" : ""}
             </label>
             <button className="btn primary" disabled={busy || !route.trim()} type="submit">{busy ? "Adding..." : "Add guardrail"}</button>
           </form>
@@ -665,7 +665,7 @@ function GuardrailsBudgetsBody() {
         owner_type: ownerType,
         owner_key: ownerKey.trim(),
         monthly_budget_usd: budget,
-        // A hard cap blocks live traffic -> Optimize only. Free budgets alert/track.
+        // A hard cap blocks live traffic -> Pro only. Free budgets alert/track.
         hard_cap_enabled: hardCap && !observeOnly,
         enabled: true,
       });
@@ -712,14 +712,14 @@ function GuardrailsBudgetsBody() {
             </select>
             <input className="input" placeholder="Owner key" value={ownerKey} onChange={(e) => setOwnerKey(e.target.value)} />
             <input className="input" placeholder="Monthly budget USD" value={budget} onChange={(e) => setBudget(e.target.value)} />
-            <label className="check-row" title={observeOnly ? "Hard caps are available on Optimize" : undefined}>
+            <label className="check-row" title={observeOnly ? "Hard caps are available on Pro" : undefined}>
               <input
                 type="checkbox"
                 checked={!observeOnly && hardCap}
                 disabled={observeOnly}
                 onChange={(e) => setHardCap(e.target.checked)}
               />
-              Hard cap: block traffic when exceeded{observeOnly ? " (Optimize)" : ""}
+              Hard cap: block traffic when exceeded{observeOnly ? " (Pro)" : ""}
             </label>
             <button className="btn primary" disabled={busy || !ownerKey.trim() || !budget} type="submit">{busy ? "Adding..." : "Add budget"}</button>
           </form>

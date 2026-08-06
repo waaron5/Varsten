@@ -1,7 +1,7 @@
 {
   "name": "@varsten/anthropic",
   "version": "0.1.0",
-  "description": "Fail-open wrapper around the Anthropic SDK. Optimize through Varsten when it is healthy; fall back directly to Anthropic when Varsten is unavailable, so an outage costs you savings, not uptime.",
+  "description": "Fail-open wrapper around the Anthropic SDK. Pro through Varsten when it is healthy; fall back directly to Anthropic when Varsten is unavailable, so an outage costs you savings, not uptime.",
   "type": "module",
   "sideEffects": false,
   "engines": {

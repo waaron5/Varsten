@@ -59,9 +59,9 @@ const RESOURCE_GROUPS: NavDropdownGroup[] = [
 ];
 
 const INTEGRATE_GROUPS: NavDropdownGroup[] = [
-  { links: [{ label: "Metadata only", href: "/#integrations", detail: "Zero content egress — async usage events after your own provider call." }] },
+  { links: [{ label: "Direct Monitoring", href: "/#integrations", detail: "Automatic cost and usage monitoring without routing traffic through Varsten." }] },
   { links: [{ label: "Base URL change", href: "/#integrations", detail: "Point a stock OpenAI client at Varsten for the fastest proxy trial." }] },
-  { links: [{ label: "SDK", href: "/#integrations", detail: "Optimized and fail-open — the wrapper for production traffic." }] },
+  { links: [{ label: "Production SDK", href: "/#integrations", detail: "Optimized and fail-open — the wrapper for production traffic." }] },
   { links: [{ label: "Sidecar", href: null, detail: "In-VPC sidecar deployment, split from the control plane.", soon: true }] },
 ];
 

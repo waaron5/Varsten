@@ -1,7 +1,7 @@
 """Measured savings derived from the ledger: direct (cache/batch/route) and the
 holdback A/B with a confidence interval. These prove the auditable "verified"
 number is real arithmetic on recorded facts, not an estimate, and that the Proof
-endpoint exposes it only on Optimize and never calls an estimate "saved".
+endpoint exposes it only on Pro and never calls an estimate "saved".
 """
 
 import uuid
@@ -185,12 +185,12 @@ def test_estimated_savings_attribution_has_no_fabricated_confidence_band(client,
 
 def test_proof_endpoint_hides_verified_on_free_and_never_calls_estimate_saved(client, db_session, provision):
     _, _, p = _ids(provision)
-    # Free (observe-only) workspace: no verified block, observe-only note.
+    # Base workspace: no verified block, Base note.
     body = client.get("/v1/proof/savings", headers={"Authorization": f"Bearer {p['api_key']}"}).json()
     assert body["plan_tier"] == "free"
     assert "verified" not in body
     assert "estimated" in body
-    assert "observe-only" in body["measurement_note"].lower()
+    assert "Base" in body["measurement_note"].lower()
 
 
 def test_proof_endpoint_exposes_verified_on_performance(client, db_session, provision):

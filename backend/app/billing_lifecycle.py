@@ -10,8 +10,8 @@ proxy hot path observes the change immediately.
 
 A Stripe setup-mode checkout means "payment method ready", not "paid active".
 During the trial that readiness is only stored; when the trial elapses, the lazy
-read path / sweep either promotes the org to continuing active Optimize or
-downgrades it to Free observe-only.
+read path / sweep either promotes the org to continuing active Pro or
+downgrades it to Base.
 """
 
 import uuid
@@ -48,7 +48,7 @@ def _invalidate(organization_id: uuid.UUID | None) -> None:
 
 
 def start_trial(org: Organization, *, now: datetime | None = None) -> None:
-    """Put a freshly provisioned workspace on the Optimize plan, trialing for
+    """Put a freshly provisioned workspace on the Pro plan, trialing for
     settings.free_trial_days. The single entry point for "a new org starts a trial"."""
     now = _now(now)
     org.plan_tier = PLAN_PERFORMANCE
@@ -63,7 +63,7 @@ def start_trial(org: Organization, *, now: datetime | None = None) -> None:
 def activate_performance(
     org: Organization, *, stripe_subscription_id: str | None = None, now: datetime | None = None
 ) -> None:
-    """Move an org to an active, continuing Optimize plan."""
+    """Move an org to an active, continuing Pro plan."""
     now = _now(now)
     org.plan_tier = PLAN_PERFORMANCE
     org.subscription_status = SUBSCRIPTION_ACTIVE
@@ -83,7 +83,7 @@ def complete_payment_method_setup(org: Organization, *, now: datetime | None = N
 
     If the org is still inside its trial, this only marks conversion readiness. If
     the org is expired/canceled/past_due/free, checkout is an explicit reactivation
-    action and moves it to active Optimize.
+    action and moves it to active Pro.
     """
     now = _now(now)
     if org.payment_method_ready_at is None:
@@ -96,7 +96,7 @@ def complete_payment_method_setup(org: Organization, *, now: datetime | None = N
 
 
 def expire_trial(org: Organization, *, now: datetime | None = None) -> None:
-    """Downgrade an unpaid, elapsed trial to Free observe-only. Traffic is never
+    """Downgrade an unpaid, elapsed trial to Base. Traffic is never
     affected by this; only behaviour-changing levers lock (enforced in entitlements)."""
     now = _now(now)
     org.plan_tier = PLAN_FREE
@@ -106,7 +106,7 @@ def expire_trial(org: Organization, *, now: datetime | None = None) -> None:
 
 
 def mark_past_due(org: Organization, *, now: datetime | None = None) -> None:
-    """A payment failed. Treat as observe-only (entitlements gates on the status)
+    """A payment failed. Treat as Base (entitlements gates on the status)
     without discarding the Stripe linkage, so a successful retry can reactivate."""
     org.subscription_status = SUBSCRIPTION_PAST_DUE
     org.plan_effective_at = _now(now)
@@ -143,8 +143,8 @@ def is_trial_elapsed(org: Organization, *, now: datetime | None = None) -> bool:
 def maybe_expire(org: Organization, *, now: datetime | None = None) -> bool:
     """Apply the trial-end transition on read.
 
-    An elapsed trial with payment readiness becomes active continuing Optimize;
-    otherwise it becomes Free observe-only. Returns True if it changed durable state.
+    An elapsed trial with payment readiness becomes active continuing Pro;
+    otherwise it becomes Base. Returns True if it changed durable state.
     """
     if is_trial_expired(org, now=now):
         if has_payment_method_ready(org):
@@ -158,8 +158,8 @@ def maybe_expire(org: Organization, *, now: datetime | None = None) -> bool:
 def sweep_expired_trials(db: Session, *, now: datetime | None = None) -> list[uuid.UUID]:
     """Find every trialing org whose window elapsed and apply the trial-end transition.
 
-    Returns the ids transitioned, whether they were promoted to active Optimize
-    or downgraded to Free observe-only.
+    Returns the ids transitioned, whether they were promoted to active Pro
+    or downgraded to Base.
     """
     now = _now(now)
     orgs = db.scalars(

@@ -377,7 +377,7 @@ exact frontmatter shape (`title, description, slug, category, order, updatedAt`)
 New docs (category `Integrations`, ordered after existing docs):
 
 - `langchain.md` — LangChain (Python + JS): the base-URL config, what the fail-open SDK adds
-  (direct-to-provider fallback), what shows up in the dashboard, and the free observe-mode CTA.
+  (direct-to-provider fallback), what shows up in the dashboard, and the Base CTA.
 - `vercel-ai-sdk.md` — same shape for the Vercel AI SDK (OpenAI-compatible provider config).
 - `llamaindex.md` — same for LlamaIndex.
 

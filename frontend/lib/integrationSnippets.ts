@@ -63,7 +63,7 @@ export const INTEGRATION_PATHS: IntegrationPath[] = [
     id: "sdk",
     method: "sdk",
     name: "Production SDK",
-    tagline: "Fail-open wrapper. Optimize safely; a Varsten outage never takes your app down.",
+    tagline: "Fail-open wrapper. Pro safely; a Varsten outage never takes your app down.",
     bestFor: "Going to production",
     recommended: true,
     failOpen: "yes",
@@ -87,7 +87,7 @@ export const INTEGRATION_PATHS: IntegrationPath[] = [
   {
     id: "metadata",
     method: "metadata",
-    name: "Metadata only",
+    name: "Direct Monitoring",
     tagline: "Send usage records async. Nothing inline, no content leaves your boundary, no provider key.",
     bestFor: "The strictest security review",
     failOpen: "n/a",
@@ -335,7 +335,7 @@ function metadataCode(provider: IntegrationProviderId, language: IntegrationLang
   const model = EXAMPLE_MODELS[provider];
   switch (language) {
     case "node":
-      return `// After each LLM call, send a usage record. Metadata only — never prompt or
+      return `// Direct Monitoring: after each LLM call, send a usage record — never prompt or
 // completion text. No provider key needed; nothing sits in your request path.
 await fetch("${PROXY_BASE}/usage-events", {
   method: "POST",
@@ -357,7 +357,7 @@ await fetch("${PROXY_BASE}/usage-events", {
   }),
 });`;
     case "python":
-      return `# After each LLM call, send a usage record. Metadata only — never prompt or
+      return `# Direct Monitoring: after each LLM call, send a usage record — never prompt or
 # completion text. No provider key needed; nothing sits in your request path.
 import os
 from datetime import UTC, datetime

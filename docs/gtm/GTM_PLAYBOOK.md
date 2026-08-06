@@ -4,7 +4,7 @@ The exact playbook for landing the first paying clients. Written 2026-07-19. Thi
 document: update the funnel numbers and the prospect list as reality reports back.
 
 The one-sentence strategy: **sell a free, quantified savings teardown to founders of AI-native
-products bleeding margin on inference, convert the teardown into an observe-only connect, convert
+products bleeding margin on inference, convert the teardown into an Base connect, convert
 the observed number into a gain-share pilot on the safe levers, and turn the first verified
 savings number into the case study that sells everyone after.**
 
@@ -18,8 +18,8 @@ Strategy has to fit the actual constraints, so name them.
 - A working inline proxy with six levers, a randomized holdback that measures savings as an A/B
   experiment, and a metadata-only ledger. Nobody in the commodity gateway space does concurrent
   holdback measurement. This is the differentiator.
-- Gain-share pricing (25% of verified savings, free observe mode). Zero-budget ask.
-- Free observe-only mode already built. This is a productized audit, not a promise of one.
+- Gain-share pricing (25% of verified savings, Base plan). Zero-budget ask.
+- Base mode already built. This is a productized audit, not a promise of one.
 - Production infrastructure is most of the way there; backup and restore proof remains in progress.
 
 **Constraints:**
@@ -114,7 +114,7 @@ savings. If we save you nothing, you pay nothing.
 | Do nothing / wait for price drops | "Prices drop 10x/year" | Margin is a ratio; usage grows faster; your competitors get the same cuts. Free audit costs you nothing to check. |
 | DIY (LiteLLM + own caching) | "It's open source, we'll build it" | You'll spend eng-months building the easy 20% and never build the measurement. Who on your team is going to run a randomized holdback and defend the number to your board? Your engineers should ship product. |
 | Portkey / Helicone / gateways | "Gateway with caching built in" | They sell you tools and you do the work and own the risk. Varsten sells the outcome and proves it. Also: gain-share vs their subscription means your CFO does no ROI math. |
-| Observability (Datadog, Vantage, Langfuse) | "See where money goes" | Seeing is not saving. Varsten includes the seeing (observe mode, free) and then acts on it. |
+| Observability (Datadog, Vantage, Langfuse) | "See where money goes" | Seeing is not saving. Varsten includes the seeing (Base mode, free) and then acts on it. |
 
 **Claims discipline.** Never say "guaranteed 40-70%." Say: "we typically find 20-40% in the
 audit; whatever we actually save is measured, and you only pay on what's verified." Underclaiming
@@ -137,8 +137,8 @@ outbound; skipping is fine when a prospect pulls you forward.
 - Why this beats "free consulting" positioning: it is consulting, but productized, bounded, and
   always ending in the same CTA. You are not selling hours and must not drift into it.
 
-**Rung 1: observe-only connect (free plan, already built).**
-- SDK or proxy in metadata mode. No behavior changes possible on the free tier (enforced at the
+**Rung 1: Base connect (free plan, already built).**
+- SDK or Direct Monitoring. No behavior changes are possible on the Base plan (enforced at the
   backend, which is a security talking point). Now the teardown numbers become their live
   dashboard, and unpriced/untagged traffic gets surfaced (data-quality page).
 - Exit criteria: 2+ weeks of data, a credible waste number on a named route.
@@ -255,7 +255,7 @@ You cannot out-spend anyone; you can out-honest them. Everything publishable fro
 - Paid ads, SEO plays, cold LinkedIn automation, outsourced SDRs. Wrong stage, wrong economics,
   and mass outbound with a security-sensitive inline product poisons the well.
 - Conferences/sponsorships. Attend free NYC events; sponsor nothing.
-- Building "lead magnet" product features. The observe tier already is one.
+- Building "lead magnet" product features. The Base tier already is one.
 
 ## 8. Funnel math and metrics
 
@@ -265,11 +265,11 @@ Assumed conversion at hand-written quality (update with real data monthly):
 |---|---|---|
 | Touch → teardown accepted | ~10-15% | 15-20 teardowns |
 | Teardown → observe connect | ~40% | 6-8 connected |
-| Observe → pilot | ~50% | 3-4 pilots |
+| Base → pilot | ~50% | 3-4 pilots |
 | Pilot → paying (criteria met) | ~50-70% | 2-3 paying |
 
 Weekly scorecard (keep it in this file or a sheet, review every Friday):
-- personalized touches sent, teardowns delivered, orgs in observe mode, active pilots,
+- personalized touches sent, teardowns delivered, orgs in Base mode, active pilots,
   verified savings $/mo across all customers, MRR (25% share), case studies published.
 
 **The single 90-day goal: one named case study with a verified savings number and a quote.**
@@ -308,7 +308,7 @@ conversation from "trust me" to "here's what happened at [Company]."
 ## 10. Objection handling (the six you will hear)
 
 1. **"I'm not putting a proxy in my hot path."** Never asked to on day one. Teardown needs a CSV;
-   observe mode is metadata-only and can't change behavior (enforced server-side). When you do go
+   Base mode is metadata-only and can't change behavior (enforced server-side). When you do go
    inline: fail-open everywhere, your kill switch, canary ramp, per-route latency SLO. Worst case
    is "savings stop, traffic doesn't."
 2. **"We'll build it ourselves with LiteLLM."** Sure, the gateway is the easy part. The eval/

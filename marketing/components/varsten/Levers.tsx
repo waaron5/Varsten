@@ -78,12 +78,11 @@ export function Levers() {
   return (
     <section id="levers" className="border-b border-border">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <SectionIntro eyebrow="Section 02 · Mechanisms" title="Six cost saving mechanisms.">
+        <SectionIntro eyebrow="Section 02 · Cost savers" title="Six cost saving mechanisms.">
           <p className="text-[16px] leading-[1.6] text-ink-soft">
             Traffic is sent through routing, cache, trim, downshift, and prompt
             compression mechanisms. Batching is a separate async workflow for
-            non-urgent jobs. Each lever is auditable, individually togglable,
-            and measured against the evidence appropriate to the workload.
+            non-urgent jobs. Each lever is auditable and togglable.
           </p>
         </SectionIntro>
 

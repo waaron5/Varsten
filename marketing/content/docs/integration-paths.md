@@ -1,6 +1,6 @@
 ---
 title: Integration paths
-description: Compare SDK, base URL, and metadata-only integration paths so each workload starts with the right risk posture.
+description: Compare Production SDK, Base URL Swap, and Direct Monitoring so each workload starts with the right risk posture.
 slug: integration-paths
 category: Architecture
 order: 50
@@ -18,9 +18,9 @@ The SDK is the production path. It keeps Varsten inline for healthy traffic and 
 
 Base URL mode is useful for quick evaluations. It does not provide the SDK's direct provider fallback.
 
-## Metadata-only path
+## Direct Monitoring
 
-Metadata-only mode is analysis-only. It gives visibility and proof inputs without inline optimization.
+Direct Monitoring is analysis-only. It automatically tracks direct provider calls and supplies visibility and proof inputs without inline optimization.
 
 ## Planned: in-VPC sidecar
 
@@ -28,6 +28,6 @@ A sidecar data plane that runs inside your own cloud boundary is designed but no
 
 ## Practical rollout order
 
-1. Start with metadata-only or base URL mode if the team needs visibility first.
+1. Start with Direct Monitoring or a Base URL Swap if the team needs visibility first.
 2. Move one stable OpenAI workload to the SDK path.
 3. Enable optimization levers only after pricing coverage and fallback behavior are verified.

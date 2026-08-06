@@ -97,7 +97,7 @@ class OutcomePrior:
 
 @dataclass(frozen=True)
 class PlannerInput:
-    """Pure planner input for observe-only evaluation.
+    """Pure planner input for Base evaluation.
 
     The body is inspected in memory only. The plan returned from this module stores
     derived facts and reason codes, never prompt or completion text.

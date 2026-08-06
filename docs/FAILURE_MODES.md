@@ -42,7 +42,7 @@ mid-stream.
 |---|---|
 | Cache lookup error | Treated as a miss; the request forwards normally. |
 | Embedding call slow/failed (semantic cache) | Semantic matching skipped; forwards (exact-match cache still works). |
-| Plan-tier lookup error | Treated as **observe-only** (never silently grants paid optimization). |
+| Plan-tier lookup error | Treated as **Base** (never silently grants paid optimization). |
 | Budget-state lookup error | Treated as no cap (never blocks traffic on a bug). |
 | Metadata header malformed/oversized | Ignored; request succeeds with empty context. |
 | Control plane / scheduler down | Data plane keeps forwarding; only background optimization pauses. |

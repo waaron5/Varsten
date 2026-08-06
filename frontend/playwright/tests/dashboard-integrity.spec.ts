@@ -327,7 +327,7 @@ test("non-dashboard pages render inside the new global shell without overlap", a
   await page.goto("/upgrade");
 
   await expect(page.locator(".lv-sidebar")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Optimize Trial Active" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pro Trial Active" })).toBeVisible();
 
   const sidebar = await page.locator(".lv-sidebar").boundingBox();
   const content = await page.locator(".content").boundingBox();

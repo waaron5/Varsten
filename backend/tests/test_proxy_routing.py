@@ -72,7 +72,7 @@ def reset_circuit():
 def _project(db, provision) -> Project:
     ws = provision(sub="auth0|route", email="route@example.com")
     project = db.get(Project, uuid.UUID(ws["project_id"]))
-    # Routing is an Optimize-tier lever; these tests exercise it on a paid org.
+    # Routing is a Pro-tier lever; these tests exercise it on a paid org.
     org = db.get(Organization, project.organization_id)
     org.plan_tier = "performance"
     db.flush()

@@ -215,7 +215,7 @@ def planner_summary(
     db: Session = Depends(get_db),
     days: int = Query(default=30, ge=1, le=90),
 ) -> dict[str, Any]:
-    """Read-side aggregate of observe-only planner traces.
+    """Read-side aggregate of Base planner traces.
 
     This endpoint reports what the planner considered. It does not trigger
     recommendations, mutate policies, or authorize any optimization.

@@ -9,9 +9,9 @@ For system-level boundaries that are not specific to one lever, see
 
 Two rules hold across every lever:
 
-1. **Free is observe-only.** No behaviour-changing lever can activate on the Free
+1. **Free is Base.** No behaviour-changing lever can activate on the Free
    plan — enforced at the backend chokepoint, not the UI. Levers below are
-   Optimize-only unless noted.
+   Pro-only unless noted.
 2. **Fail-open and kill-switchable.** Any lever can be bypassed in one toggle
    (global `PROXY_KILL_SWITCH` or a project's bypass), and a failure in the
    optimization path forwards the request straight to the provider.

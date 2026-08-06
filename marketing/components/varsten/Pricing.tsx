@@ -6,11 +6,11 @@ import { PricingFeatureList, PricingPlanBody, PricingPlanPrice, pricingToneClass
 const plans = [
   {
     id: "observe",
-    name: "Observe",
+    name: "Base",
     price: "Free",
     priceNote: "no credit card",
-    tag: "Audit mode",
-    body: "Connect via Quick Eval or Metadata Only to audit your live traffic and map out estimated savings, with no behavior-changing optimization applied.",
+    tag: "Free Forever",
+    body: "Connect via Quick Eval or Direct Monitoring to audit your live traffic and map out estimated savings, with no behavior-changing optimization applied.",
     features: [
       "Monitor AI spend",
       "100k requests/month",
@@ -24,10 +24,10 @@ const plans = [
   },
   {
     id: "performance",
-    name: "Optimize",
+    name: "Pro",
     price: "25%",
     priceNote: "of verified savings",
-    tag: "Early access",
+    tag: "Billed Monthly",
     body: "Unlocks the optimization engine: inline routing, cache, trim, compression, and downshift, plus async batching for eligible jobs. Pricing is capped at 25% of verified savings.",
     features: [
       "Everything in free + ",
@@ -105,8 +105,9 @@ export function Pricing() {
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
         <SectionIntro eyebrow="Section 04 · Pricing" title="Pay from savings, or audit for free.">
           <p className="text-[16px] leading-[1.6] text-ink-soft">
-            Opportunity estimates are free. Paid savings use an accepted evidence method—such as direct avoided cost, holdback comparison,
-            or approved replay—with applicable overhead subtracted before fees are calculated.
+            We charge a fee on verified savings, so you only pay when we save you money.
+            Plans are billed monthly. No commitment, cancel anytime.
+            If you just want to audit your traffic, you can do that for free.
           </p>
           <div className="mono mt-6 border-t border-border pt-4 text-[11px] uppercase tracking-[0.24em] text-ink">
             Fee &lt; Savings · always
@@ -123,7 +124,7 @@ export function Pricing() {
           <div className="md:max-w-md">
             <div className="mono mb-8 flex items-center gap-3 text-[10px] uppercase tracking-[0.28em] text-ink-soft">
               <span>Plan · 03</span>
-              <span className="text-blueprint">Custom</span>
+              <span className="text-blueprint">Custom Pricing</span>
             </div>
             <h3 className="text-[26px] font-medium tracking-[-0.01em] text-ink">
               Enterprise

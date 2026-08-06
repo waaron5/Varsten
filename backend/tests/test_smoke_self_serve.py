@@ -149,19 +149,19 @@ def test_self_serve_smoke(client, db_session, monkeypatch):
     )
     _say(9, "first gateway request detected (mocked ledger write)")
 
-    # 10. Dashboard shows trial mode + Optimize access.
+    # 10. Dashboard shows trial mode + Pro access.
     ent = client.get(f"/v1/entitlements?project_id={project_id}", headers=auth_headers(sub)).json()
     assert ent["plan_tier"] == PLAN_PERFORMANCE and ent["observe_only"] is False
     assert ent["trial"]["trial_ends_at"] is not None and ent["trial"]["trial_expired"] is False
     assert ent["features"]["apply_recommendations"] is True
-    _say(10, "entitlements: Optimize unlocked, trial active")
+    _say(10, "entitlements: Pro unlocked, trial active")
 
     # 13b. Upgrade actions are gated off while billing is disabled (default).
     disabled_checkout = client.post(f"/v1/organizations/{org_id}/billing/checkout-session", headers=auth_headers(sub))
     assert disabled_checkout.status_code == 503
     _say(13, "billing disabled -> checkout endpoint 503 (frontend hides upgrade)")
 
-    # 11. Force the trial to expire -> Free observe-only, without blocking traffic.
+    # 11. Force the trial to expire -> Base, without blocking traffic.
     org.trial_ends_at = datetime.now(UTC) - timedelta(hours=1)
     db_session.commit()
     stripe_billing.billing_lifecycle._invalidate(org.id)
@@ -172,7 +172,7 @@ def test_self_serve_smoke(client, db_session, monkeypatch):
     assert client.get(f"/v1/onboarding/status?project_id={project_id}", headers=auth_headers(sub)).status_code == 200
     db_session.refresh(org)
     assert org.subscription_status == SUBSCRIPTION_EXPIRED
-    _say(11, "expired trial -> Free observe-only; metering still serves")
+    _say(11, "expired trial -> Base; metering still serves")
 
     # 14. Production readiness fails when self-serve billing is disabled without an
     # explicit assisted-conversion escape hatch, and still flags missing Stripe
@@ -228,7 +228,7 @@ def test_self_serve_smoke(client, db_session, monkeypatch):
     db_session.refresh(org)
     assert org.plan_tier == PLAN_PERFORMANCE and org.subscription_status == SUBSCRIPTION_ACTIVE
     assert org.payment_method_ready_at is not None
-    _say(12, "webhook verifies signature; expired org reactivates Optimize")
+    _say(12, "webhook verifies signature; expired org reactivates Pro")
 
     portal = client.post(f"/v1/organizations/{org_id}/billing/portal-session", headers=auth_headers(sub))
     assert portal.status_code == 200 and portal.json()["url"] == "https://portal.stripe/x"

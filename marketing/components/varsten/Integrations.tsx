@@ -5,8 +5,8 @@ const paths = [
   {
     id: "sdk",
     label: "Production SDK",
-    tag: "Recommended",
-    posture: "Optimized + fail-open",
+    tag: "Pro",
+    posture: "Recommended",
     body: "The OpenAI wrapper sends healthy traffic through Varsten and falls back direct-to-provider on Varsten-origin failures before provider output starts. Your provider key stays local for fallback.",
     bullets: [
       "Direct provider fallback",
@@ -42,8 +42,8 @@ await client.chat.completions.create(
   {
     id: "eval",
     label: "Base URL Swap",
-    tag: "Fastest",
-    posture: "No direct fallback",
+    tag: "Base / Pro",
+    posture: "Fastest",
     body: "A stock OpenAI client pointed at Varsten. Useful for low-risk evaluation traffic when you want the fastest proxy test. Not fail-open — use the SDK wrapper for production-critical routes.",
     bullets: [
       "Uses your Varsten vk_ key",
@@ -64,9 +64,9 @@ await client.chat.completions.create({
   },
   {
     id: "meta",
-    label: "Metadata Only",
-    tag: "Strictest",
-    posture: "Zero content egress",
+    label: "Direct Monitoring",
+    tag: "Base / Pro",
+    posture: "Strictest",
     body: "The strictest security posture. Send async usage-event POSTs after your provider call. No provider key, prompt content, or completion content is sent to Varsten.",
     bullets: [
       "No provider key or content",
@@ -104,9 +104,9 @@ export function Integrations() {
   return (
     <section id="integrations" className="border-b border-border">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <SectionIntro eyebrow="Section 03 · Integration" title="Three ways to connect.">
+        <SectionIntro eyebrow="Section 03 · Setup" title="Three ways to connect.">
           <p className="text-[16px] leading-[1.6] text-ink-soft">
-            Three ways to connect. Each provides a different level of security and control. The SDK wrapper is recommended for production traffic, the base URL is fastest for evaluation, and the metadata-only path is strictest for sensitive workloads.
+            Three ways to connect. Each provides a different level of security and control. The SDK wrapper is recommended for production traffic, the base URL is fastest for evaluation, and Direct Monitoring keeps sensitive workloads out of the request path.
           </p>
         </SectionIntro>
 

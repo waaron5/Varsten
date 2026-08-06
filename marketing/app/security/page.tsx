@@ -19,7 +19,7 @@ const controls = [
 
 const dataPaths = [
   {
-    title: "Metadata-only",
+    title: "Direct Monitoring",
     posture: "No inline content path",
     description: "Send provider, model, token, cost, and workload labels after your own provider call. Prompts and responses stay out of Varsten.",
   },

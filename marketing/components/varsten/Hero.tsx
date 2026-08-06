@@ -10,7 +10,7 @@ export function Hero() {
           <div className="lg:col-span-7">
             <div className="mono mb-8 flex items-center gap-3 text-[11px] uppercase tracking-[0.28em] text-ink-soft">
               <span className="inline-block h-1.5 w-1.5 bg-blueprint" />
-              LLM cost optimization · Be an early adopter
+              LLM cost optimization
             </div>
 
             <h1 className="text-[44px] font-medium leading-[1.02] tracking-[-0.03em] text-ink sm:text-[64px] md:text-[80px] lg:text-[92px]">
@@ -22,7 +22,7 @@ export function Hero() {
             </h1>
 
             <p className="mt-10 max-w-xl text-[17px] leading-[1.55] text-ink-soft">
-              Run your AI workloads through varsten to reduce your API bill and monitor + categorize spending.
+              Run your AI workloads through varsten to reduce your API bill, and stop worrying about wether you're getting the most bang for your buck.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
@@ -47,7 +47,7 @@ export function Hero() {
             <dl className="mono mt-16 grid max-w-lg grid-cols-3 gap-x-6 border-t border-border pt-6 text-[11px] uppercase tracking-[0.2em] text-ink-soft">
               {[
                 ["600k +", "# Tokens processed"],
-                ["< 2%", "Overall quality degradation"],
+                ["0 - 1%", "Overall quality degradation"],
                 ["> 10%", "Avg cost reduction"],
               ].map(([k, v]) => (
                 <div key={v}>

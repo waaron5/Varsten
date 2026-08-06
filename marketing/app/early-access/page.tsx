@@ -5,7 +5,7 @@ import { pageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
   title: "Request early access — Varsten",
-  description: "Request founder-led early access to Varsten Optimize during the public preview.",
+  description: "Request founder-led early access to Varsten Pro during the public preview.",
   path: "/early-access",
 });
 
@@ -20,7 +20,7 @@ export default function EarlyAccessPage() {
               Request early access
             </h1>
             <p className="mt-7 max-w-xl text-[16px] leading-7 text-ink-soft">
-              Varsten is onboarding Optimize users selectively while the public preview is underway. Tell us who
+              Varsten is onboarding Pro users selectively while the public preview is underway. Tell us who
               you are and what you want to improve; submitting this form requests access rather than activating
               production optimization automatically.
             </p>

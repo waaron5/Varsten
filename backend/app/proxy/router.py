@@ -324,7 +324,7 @@ async def _resolve_entitlement_state(db: AsyncSession, organization_id) -> Entit
             return state._replace(observe_only=legacy_observe_only)
         return state
     except Exception:
-        logger.exception("entitlement lookup failed; treating as observe-only")
+        logger.exception("entitlement lookup failed; treating as Base")
         return EntitlementState(
             plan_tier="free",
             observe_only=True,
@@ -343,12 +343,12 @@ async def observe_only_async(db: AsyncSession, organization_id) -> bool:
 
 def _entitlement_headers(state: EntitlementState) -> dict[str, str]:
     headers = {
-        "X-Varsten-Observe-Only": "true" if state.observe_only else "false",
+        "X-Varsten-Base-Only": "true" if state.observe_only else "false",
         "X-Varsten-Monthly-Requests": str(state.monthly_requests),
         "X-Varsten-Monthly-Request-Limit": str(state.monthly_request_limit),
     }
     if state.reason:
-        headers["X-Varsten-Observe-Only-Reason"] = state.reason
+        headers["X-Varsten-Base-Only-Reason"] = state.reason
     if state.requests_remaining is not None:
         headers["X-Varsten-Requests-Remaining"] = str(state.requests_remaining)
     if state.trial_ends_at is not None:
@@ -529,7 +529,7 @@ def _attach_observe_plan(
             )
         )
     except Exception:
-        logger.exception("observe-only optimization planner failed")
+        logger.exception("Base optimization planner failed")
 
 
 def _rejected_candidate(draft: DecisionDraft, lever: str):
@@ -693,7 +693,7 @@ async def _openai_dialect_completions(
         return cache_probe.response
 
     # Hard-cap budget enforcement on the paid forward path. Cache hits above were
-    # served at $0 and are exempt; only optimization-enabled (Optimize,
+    # served at $0 and are exempt; only optimization-enabled (Pro,
     # non-bypassed) traffic is gated, and the check is fail-open.
     if ctx.optimize_enabled:
         blocked = await _budget_block(db, project, ctx.draft.ctx, ctx.request_id)
@@ -726,8 +726,8 @@ async def _openai_dialect_completions(
     body = opt.body
     adapter, client_key, opt = _resolve_openai_candidate_provider(project, ctx.adapter, ctx.client_key, opt, ctx.draft)
 
-    # --- forward to OpenAI (cache miss, bypassed, or observe-only). store_cache is
-    # off unless optimization is enabled (Optimize and not kill-switched). ---
+    # --- forward to OpenAI (cache miss, bypassed, or Base). store_cache is
+    # off unless optimization is enabled (Pro and not kill-switched). ---
     headers = _openai_forward_headers(
         adapter=adapter,
         bypass=ctx.bypass,
@@ -1643,8 +1643,8 @@ async def _native_provider_passthrough(
         return limited
     adapter = get_adapter(provider)
     bypass = _is_bypassed(project)
-    # Free is observe-only: no cross-provider routing. Native is passthrough anyway,
-    # so observe-only and the default behaviour coincide except for routing.
+    # Free is Base: no cross-provider routing. Native is passthrough anyway,
+    # so Base and the default behaviour coincide except for routing.
     entitlement = await _resolve_entitlement_state(db, project.organization_id)
     observe_only = entitlement.observe_only
     mode = "bypass" if bypass else "observe"

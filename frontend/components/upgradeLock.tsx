@@ -14,7 +14,7 @@ export function LockedNotice({ title, children }: { title: string; children?: Re
         <strong>{title}</strong>
         {children ? <span>{children}</span> : null}
       </div>
-      <Link href="/upgrade" className="btn primary">Upgrade to Optimize</Link>
+      <Link href="/upgrade" className="btn primary">Upgrade to Pro</Link>
     </div>
   );
 }

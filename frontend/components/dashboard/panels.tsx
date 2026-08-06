@@ -82,7 +82,7 @@ function FirstRunBanner({ grossSavings }: { grossSavings: string }) {
   return (
     <section className="lv-observe-banner">
       <div>
-        <div className="lv-section-kicker blue">Observe-only mode</div>
+        <div className="lv-section-kicker blue">Base mode</div>
         <h2>You&apos;re observing. Savings are not turned on yet.</h2>
         <p>
           {hasOpportunity ? (

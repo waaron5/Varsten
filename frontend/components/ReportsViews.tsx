@@ -190,7 +190,7 @@ function ReportsBody() {
 function ReportsGate({ observeOnly }: { observeOnly: boolean }) {
   if (!observeOnly) return null;
   return (
-    <LockedNotice title="Executive reports are an Optimize feature.">
+    <LockedNotice title="Executive reports are a Pro feature.">
       Free includes the read-only Savings dashboards. Upgrade to generate and share board-ready reports.
     </LockedNotice>
   );
@@ -211,7 +211,7 @@ function ReportsActions({
       <button
         className="btn primary"
         disabled={busy || observeOnly}
-        title={observeOnly ? "Upgrade to Optimize to generate reports" : undefined}
+        title={observeOnly ? "Upgrade to Pro to generate reports" : undefined}
         onClick={() => void onGenerate()}
         type="button"
       >

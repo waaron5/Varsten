@@ -1327,7 +1327,7 @@ def engine_update_route(
     rule = db.get(ProxyPolicy, rule_id)
     if rule is None or rule.project_id != project.id or rule.lever not in ROUTING_LEVERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="route not found")
-    # Enabling (resuming) a route changes production behaviour -> Optimize only.
+    # Enabling (resuming) a route changes production behaviour -> Pro only.
     # Pausing is always allowed so a customer can stop optimization on any tier.
     if payload.enabled:
         require_performance(db, project, action="Enabling a routing policy")
@@ -1663,7 +1663,7 @@ def engine_update_lever(
     if config is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lever not found")
     # Turning a lever on, or moving it to auto-apply, changes production behaviour.
-    # Both are Optimize-only; turning a lever off / back to approve stays open.
+    # Both are Pro-only; turning a lever off / back to approve stays open.
     if payload.enabled:
         require_performance(db, project, action="Enabling a lever")
     if payload.automation_mode == "auto":
@@ -1714,7 +1714,7 @@ def create_report(
     project: Project = Depends(resolve_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    # Generating/publishing a shareable executive report is an advanced (Optimize)
+    # Generating/publishing a shareable executive report is an advanced (Pro)
     # capability. Free keeps the read-only Proof dashboards.
     require_performance(db, project, action="Generating an executive report")
     snapshot = _report_snapshot(db, project)
@@ -1797,7 +1797,7 @@ def proof_savings(
     - observed: real month-to-date spend.
     - estimated: the modeled impact of applied optimizations, plus open
       opportunity. Never presented as "saved".
-    - verified (Optimize only): savings measured from the ledger -- direct
+    - verified (Pro only): savings measured from the ledger -- direct
       (cache/batch/route avoided cost) plus holdback A/B with a confidence
       interval. This is the number the fee is billed on.
     """
@@ -1854,8 +1854,8 @@ def proof_savings(
         )
     else:
         payload["measurement_note"] = (
-            "Free is observe-only: these are estimated opportunity figures, not measured savings. "
-            "Verified, measured savings unlock on Optimize, where Varsten applies levers and "
+            "Free is Base: these are estimated opportunity figures, not measured savings. "
+            "Verified, measured savings unlock on Pro, where Varsten applies levers and "
             "proves the result against a live holdback."
         )
     return payload
@@ -1925,7 +1925,7 @@ def create_quality_guardrail(
     db: Session = Depends(get_db),
 ) -> dict:
     # Auto-rollback is a behaviour-changing control (it disables a live route on
-    # drift); gate it to Optimize. A plain quality floor stays observe-friendly.
+    # drift); gate it to Pro. A plain quality floor stays observe-friendly.
     if payload.auto_rollback_enabled:
         require_performance(db, project, action="Enabling auto-rollback guardrails")
     rule = QualityGuardrail(
@@ -1961,7 +1961,7 @@ def create_budget_rule(
     db: Session = Depends(get_db),
 ) -> dict:
     # A hard cap blocks production traffic when exceeded -> behaviour-changing,
-    # Optimize only. A soft budget (alert/track) is fine on Free.
+    # Pro only. A soft budget (alert/track) is fine on Free.
     if payload.hard_cap_enabled:
         require_performance(db, project, action="Enabling a hard budget cap")
     rule = BudgetRule(

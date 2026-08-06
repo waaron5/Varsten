@@ -43,15 +43,15 @@ Pick the entry point that matches the CTA you want to test:
 
 | CTA | URL | Result |
 | --- | --- | --- |
-| Start free trial | http://localhost:3000/start?intent=trial | Optimize trial org |
-| Explore observe only | http://localhost:3000/start?intent=observe | Free / observe-only org |
+| Start free trial | http://localhost:3000/start?intent=trial | Pro trial org |
+| Explore observe only | http://localhost:3000/start?intent=observe | Base org |
 
 Then:
 
 1. Log in via Auth0 (your dev tenant). `/start` syncs the intent and redirects
    into `/onboarding?intent=…`.
 2. **Stack step** — pick provider, language, and integration path. Production SDK
-   is pre-selected. (Observe intent defaults to the Gateway URL; picking a
+   is pre-selected. (Base intent defaults to the Gateway URL; picking a
    non-TypeScript language moves an SDK selection to the Gateway URL, since the
    fail-open SDK is TypeScript-only today.)
 3. **Keys step** — create the Varsten key (copy the `vk_…` shown once), then
@@ -115,7 +115,7 @@ make walkthrough-proof ARGS="--requests 200 --holdback 0.25"
 
 What it does, end to end, on a throwaway org it cleans up afterward:
 
-1. Seeds a throwaway Optimize project + vaulted key.
+1. Seeds a throwaway Pro project + vaulted key.
 2. Activates **one real lever** (token-trim) through the product's own
    `activate_trim_policy` — the same function the apply-recommendation endpoint
    calls — then opens the canary rollout to 100% so the experiment fills in test
@@ -136,7 +136,7 @@ confidence interval, and the URLs where these appear in the product
 Explicit about volume: the holdback A/B needs **≥30 samples per arm**. At the
 default 30% holdback, ~140 requests yields ~42 control / ~98 treatment. It fails
 clearly (and cleans up) if an arm falls short, if the model is unpriced, if the
-org is not on Optimize, or if trim produced no cost delta.
+org is not on Pro, or if trim produced no cost delta.
 
 Because it uses a throwaway org with no Auth0 user, it is not viewable in the
 browser — the printed numbers are exactly what the UI renders. To see them in the

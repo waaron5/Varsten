@@ -125,7 +125,7 @@ async def create_batch(
     """Create the batch over an uploaded input file: stream it to OpenAI and start
     the job. Fails if the input has not been uploaded yet."""
     project = api_context.project
-    # Submitting a batch is a behaviour-changing savings lever -> Optimize only.
+    # Submitting a batch is a behaviour-changing savings lever -> Pro only.
     require_performance(db, project, action="Submitting a batch job")
     if not lever_enabled(db, project.id, LEVER_BATCHING):
         raise HTTPException(

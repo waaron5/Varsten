@@ -90,16 +90,16 @@ test("signup, project creation, provider connection, and first proxy request act
   expect(clientErrors).toEqual([]);
 });
 
-test("metadata-only path skips the provider key and shows the ingest snippet", async ({ page }) => {
+test("Direct Monitoring skips the provider key and shows the ingest snippet", async ({ page }) => {
   const state = createMockState();
   const clientErrors = watchClientErrors(page);
   await installMockApi(page, state);
 
   await page.goto("/onboarding");
 
-  // The wizard opens on the stack chooser. Pick the metadata-only path.
+  // The wizard opens on the stack chooser. Pick Direct Monitoring.
   await expect(page.getByRole("heading", { name: "Connect your stack" })).toBeVisible();
-  await page.getByRole("button", { name: /Metadata only/ }).click();
+  await page.getByRole("button", { name: /Direct Monitoring/ }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
   // The metadata path needs no provider key, so the keys step only asks for the

@@ -6,7 +6,7 @@ bad day? This page answers that and explains why the **SDK is the safe productio
 path**.
 
 There are two ways to send traffic *through* Varsten (inline). There is also a third,
-non-inline option: **metadata-only ingestion** (`POST /v1/usage-events`) sends token
+non-inline option: **Direct Monitoring** (`POST /v1/usage-events`) sends token
 counts and labels asynchronously after each call — never prompt or completion content,
 no provider key, nothing in your request path. It carries zero availability risk and
 powers spend/savings analysis, but cannot optimize (optimization requires an inline

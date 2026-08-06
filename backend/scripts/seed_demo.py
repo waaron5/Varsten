@@ -172,8 +172,8 @@ def _get_or_create_org(db: Session) -> Organization:
             name=DEMO_ORG_NAME,
             monthly_spend_budget_usd=Decimal("95000.00"),
             is_demo=True,
-            # The demo narrative shows applied savings, which are an Optimize-tier
-            # capability, so the demo tenant is provisioned on Optimize.
+            # The demo narrative shows applied savings, which are a Pro-tier
+            # capability, so the demo tenant is provisioned on Pro.
             plan_tier="performance",
         )
         db.add(org)

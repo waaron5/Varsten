@@ -8,8 +8,8 @@ import {
   watchClientErrors,
 } from "./support/mockApi";
 
-// Free observe-only features (every behaviour-changing lever locked), for the
-// upgrade-path tests where the workspace is NOT on Optimize.
+// Base features (every behaviour-changing lever locked), for the
+// upgrade-path tests where the workspace is NOT on Pro.
 const FREE_FEATURES = {
   apply_recommendations: false,
   enable_levers: false,
@@ -59,7 +59,7 @@ function expiredObserveOnly() {
 test("self-serve: /start lands on onboarding with an active project and reaches the trial dashboard", async ({
   page,
 }) => {
-  // Default state mirrors a real signup: an Optimize-trialing org that already
+  // Default state mirrors a real signup: a Pro-trialing org that already
   // has a default Production project (no create-project dead-end).
   const state = createMockState();
   const clientErrors = watchClientErrors(page);
@@ -109,7 +109,7 @@ test("self-serve: /start lands on onboarding with an active project and reaches 
     timeout: 7000,
   });
 
-  // 10. Continue -> dashboard_entered event + Optimize dashboard renders.
+  // 10. Continue -> dashboard_entered event + Pro dashboard renders.
   await page.getByRole("button", { name: "Finish setup" }).click();
   await expect.poll(() => state.calls["event:dashboard_entered"] ?? 0).toBe(1);
   await expect(page).toHaveURL(/\/dashboard/);
@@ -117,7 +117,7 @@ test("self-serve: /start lands on onboarding with an active project and reaches 
   expect(clientErrors).toEqual([]);
 });
 
-test("self-serve: trial start intent is preserved and shows Optimize onboarding copy", async ({ page }) => {
+test("self-serve: trial start intent is preserved and shows Pro onboarding copy", async ({ page }) => {
   const state = createMockState();
   await installMockApi(page, state);
 
@@ -128,7 +128,7 @@ test("self-serve: trial start intent is preserved and shows Optimize onboarding 
   await expect(page.getByText(/nothing changes in production/)).toHaveCount(0);
 });
 
-test("self-serve: observe-only start intent is preserved and shows Free onboarding copy", async ({ page }) => {
+test("self-serve: Base start intent is preserved and shows Free onboarding copy", async ({ page }) => {
   const state = createMockState({
     onboarding: createOnboardingStatus({ plan_tier: "free", observe_only: true }),
     entitlements: freeObserveOnly(),
@@ -141,11 +141,11 @@ test("self-serve: observe-only start intent is preserved and shows Free onboardi
   await expect(page.getByText(/nothing changes in production/)).toBeVisible();
 });
 
-test("self-serve: trial mode shows Optimize unlocked with a trial end date", async ({ page }) => {
-  const state = createMockState(); // Optimize + trial active
+test("self-serve: trial mode shows Pro unlocked with a trial end date", async ({ page }) => {
+  const state = createMockState(); // Pro + trial active
   await installMockApi(page, state);
   await page.goto("/upgrade");
-  await expect(page.getByRole("heading", { name: "Optimize Trial Active" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pro Trial Active" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add payment method to continue after trial" })).toBeVisible();
   await expect(page.getByText("Trial ends")).toBeVisible();
   await expect(page.getByText("60 priced requests")).toBeVisible();
@@ -177,7 +177,7 @@ test("self-serve: active and past-due billing states render distinct actions", a
   });
   await installMockApi(page, state);
   await page.goto("/upgrade");
-  await expect(page.getByRole("heading", { name: "Optimize Active" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pro Active" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Manage billing" })).toBeVisible();
 
   state.entitlements = createEntitlements({
@@ -197,7 +197,7 @@ test("self-serve: upgrade is a contact path when billing is disabled", async ({ 
   await installMockApi(page, state);
   await page.goto("/upgrade");
 
-  const upgrade = page.getByRole("button", { name: "Add payment method and reactivate Optimize" });
+  const upgrade = page.getByRole("button", { name: "Add payment method and reactivate Pro" });
   await expect(upgrade).toBeVisible();
   await upgrade.click();
   await expect(page.getByText(/Self-serve billing is not available/)).toBeVisible();
@@ -209,7 +209,7 @@ test("self-serve: upgrade starts Stripe checkout when billing is enabled", async
   await installMockApi(page, state);
   await page.goto("/upgrade");
 
-  await page.getByRole("button", { name: "Add payment method and reactivate Optimize" }).click();
+  await page.getByRole("button", { name: "Add payment method and reactivate Pro" }).click();
   await expect.poll(() => state.calls.billingCheckout ?? 0).toBe(1);
   // The client redirects to the URL returned by the checkout endpoint.
   await expect(page).toHaveURL(/checkout=stripe-redirect/);

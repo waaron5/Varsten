@@ -336,7 +336,7 @@ export function DashboardShowcase() {
 
   return (
     <>
-      <Exhibit number="01 · Period" title="Change the window. Keep the whole picture." body="Move between month, quarter, and year. Every number on the dashboard follows the same reporting period." variant="first-wide">
+      <Exhibit number="01 · Period" title="Monitor AI spend over time" body="Move between month, quarter, and year. Every number on the dashboard follows the same reporting period." variant="first-wide">
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <span className="mono text-[9px] uppercase tracking-[0.22em] text-ink-soft">Illustrative workspace · Demo data</span>
           <PeriodControls period={period} setPeriod={setPeriod} />
@@ -344,7 +344,7 @@ export function DashboardShowcase() {
         <KpiStrip period={period} />
       </Exhibit>
 
-      <Exhibit number="02 · Trend" title="See savings happen day by day." body="Actual provider spend and eliminated cost stay separate, so the trend is readable at a glance." variant="split">
+      <Exhibit number="02 · Trend" title="Watch savings happen in real time" body="Helpful for seeing short-term spending trends." variant="split">
         <DailyChart />
       </Exhibit>
 
@@ -356,7 +356,7 @@ export function DashboardShowcase() {
         <SpendDrivers />
       </Exhibit>
 
-      <Exhibit number="05 · Confidence" title="Trust the savings." body="Coverage and evidence are visible beside the result, giving finance and engineering the same answer." variant="split">
+      <Exhibit number="05 · Confidence" title="Savings that prove it" body="You don't have to take our word for it." variant="split">
         <div className="mx-auto max-w-[620px]"><DataIntegrity /></div>
       </Exhibit>
     </>

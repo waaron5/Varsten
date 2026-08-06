@@ -1,7 +1,7 @@
 {
   "name": "@varsten/openai",
   "version": "0.1.0",
-  "description": "Fail-open wrapper around the OpenAI SDK. Optimize through Varsten when it is healthy; fall back directly to your provider when Varsten is unavailable, so an outage costs you savings, not uptime.",
+  "description": "Fail-open wrapper around the OpenAI SDK. Pro through Varsten when it is healthy; fall back directly to your provider when Varsten is unavailable, so an outage costs you savings, not uptime.",
   "type": "module",
   "sideEffects": false,
   "engines": {

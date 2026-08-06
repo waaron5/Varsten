@@ -150,7 +150,7 @@ Auto-applied cuts still pass every guardrail before going live, and any cut that
 
 Offer two modes and let the answer be honest in both:
 
-- **Metadata mode**: ingest only token counts, model, route, and latency from billing APIs and instrumentation. Never content. Powers Analysis, Proof, and recommendations, but not inline caching or content-based routing. Lowest security burden.
+- **Direct Monitoring**: automatically ingest token counts, model, route, and latency from billing APIs and instrumentation while provider calls remain direct. Never content. Powers Analysis, Proof, and recommendations, but not inline caching or content-based routing. Lowest security burden.
 - **Inline gateway mode**: sees content because caching and routing require it. Must be in-VPC to keep content in the boundary. If Varsten-hosted: no content persistence by default, in-memory processing, PII redaction before any logging, tenant isolation, customer-managed encryption keys for the cache.
 
 Bring real security artifacts, not a badge: SOC 2 Type II report under NDA, a DPA, a subprocessor list, a pen test summary, and a data flow diagram. A serious CTO asks for all five.

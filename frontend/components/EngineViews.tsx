@@ -114,9 +114,9 @@ function totalSavings(items: readonly LeverConfig[]): number {
 
 function lockedLeverStatus(): LeverStatus {
   return {
-    label: "Observe only",
+    label: "Base only",
     tone: "locked",
-    detail: "Upgrade to Optimize before Varsten changes production behavior.",
+    detail: "Upgrade to Pro before Varsten changes production behavior.",
   };
 }
 
@@ -307,7 +307,7 @@ function AutomationRow({
   const status = leverStatus({ batches, compressions, item, observeOnly, routes, trims });
   const canToggle = !observeOnly && (runtimeAvailable(item) || item.enabled);
   const title = observeOnly
-    ? "Upgrade to Optimize to control production automations."
+    ? "Upgrade to Pro to control production automations."
     : !canToggle
       ? status.detail
       : undefined;
@@ -533,8 +533,8 @@ function AutomationBody() {
     <div className="view automation-view">
       <AutomationHero rows={rows} />
       {observeOnly && (
-        <LockedNotice title="Automation is available on Optimize.">
-          Free workspaces are observe-only. Varsten can measure traffic, but it will not change production behavior.
+        <LockedNotice title="Automation is available on Pro.">
+          Base workspaces are Base. Varsten can measure traffic, but it will not change production behavior.
         </LockedNotice>
       )}
       {secondaryError ? <AutomationError>{secondaryError}</AutomationError> : null}

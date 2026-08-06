@@ -9,8 +9,8 @@ is true today and what is on the roadmap, without conflating the two.
 Varsten is an inline AI proxy plus a control plane. Customer traffic authenticates
 with a Varsten `vk_` key, Varsten resolves the customer's upstream provider key,
 forwards the request, and records metadata-only usage. Optimization (caching,
-routing, trimming, batching) only runs on the paid Optimize plan; the Free plan
-is observe-only and cannot alter production behavior.
+routing, trimming, batching) only runs on the paid Pro plan; the Base plan
+is Base and cannot alter production behavior.
 
 ## Data protection
 

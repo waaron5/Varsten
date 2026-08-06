@@ -10,14 +10,14 @@ import { SavingsCalculator } from "@/components/varsten/pricing/SavingsCalculato
 export const metadata: Metadata = pageMetadata({
   title: "Pricing — Varsten",
   description:
-    "Varsten pricing for observe-only monitoring, verified savings optimization, and enterprise AI cost governance.",
+    "Varsten pricing for Base monitoring, verified savings optimization, and enterprise AI cost governance.",
   path: "/pricing",
 });
 
 const plans = [
   {
     id: "observe",
-    name: "Observe",
+    name: "Base",
     price: "Free",
     priceNote: "no credit card",
     tag: "Audit mode",
@@ -26,7 +26,7 @@ const plans = [
       "Spend dashboard",
       "Pricing coverage checks",
       "Savings recommendations",
-      "Metadata-only setup",
+      "Direct Monitoring setup",
       "No production changes",
     ],
     cta: "Start a free audit",
@@ -35,13 +35,13 @@ const plans = [
   },
   {
     id: "optimize",
-    name: "Optimize",
+    name: "Pro",
     price: "25%",
     priceNote: "of savings",
     tag: "Early access",
     body: "Turn on approved savings levers and pay only from savings Varsten can prove.",
     features: [
-      "Everything in Observe",
+      "Everything in Base",
       "Production SDK setup",
       "Cache and routing controls",
       "Guardrails and rollback",
@@ -60,7 +60,7 @@ const plans = [
     tag: "Custom",
     body: "For teams that need procurement, security review, and a guided rollout.",
     features: [
-      "Everything in Optimize",
+      "Everything in Pro",
       "Pilot planning",
       "Security review support",
       "Custom retention terms",

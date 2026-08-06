@@ -1,5 +1,5 @@
 ---
-title: Metadata-only mode
+title: Direct Monitoring
 description: Send token counts, model names, and workload labels to Varsten without placing Varsten in the request path.
 slug: metadata-only-mode
 category: Integration modes
@@ -8,7 +8,7 @@ updatedAt: 2026-07-09
 ---
 ## Lowest-risk start
 
-Metadata-only mode sends usage records after provider calls. Nothing sits inline, so this path has no availability risk and cannot apply optimization levers.
+Direct Monitoring automatically sends usage records after provider calls. Nothing sits inline, so this path has no availability risk and cannot apply optimization levers.
 
 ## What to send
 

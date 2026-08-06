@@ -215,7 +215,7 @@ class Scheduler:
             logger.info("cache purge removed expired entries", extra={"deleted": deleted})
 
     async def _run_trial_sweep(self) -> None:
-        # Downgrade unpaid, elapsed Optimize trials to Free observe-only. Pure DB
+        # Downgrade unpaid, elapsed Pro trials to Base. Pure DB
         # work; run it off the event loop. Never touches traffic or the proxy.
         def work() -> list:
             db = SessionLocal()
