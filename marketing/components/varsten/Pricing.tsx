@@ -103,7 +103,7 @@ export function Pricing() {
   return (
     <section id="pricing" className="border-b border-border">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <SectionIntro eyebrow="Section 04 · Pricing" title="Verified savings, or you pay nothing.">
+        <SectionIntro eyebrow="Section 04 · Pricing" title="Pay from savings, or audit for free.">
           <p className="text-[16px] leading-[1.6] text-ink-soft">
             Opportunity estimates are free. Paid savings use an accepted evidence method—such as direct avoided cost, holdback comparison,
             or approved replay—with applicable overhead subtracted before fees are calculated.

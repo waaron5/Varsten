@@ -41,9 +41,9 @@ await client.chat.completions.create(
   },
   {
     id: "eval",
-    label: "Quick Eval",
+    label: "Base URL Swap",
     tag: "Fastest",
-    posture: "Base URL trial",
+    posture: "No direct fallback",
     body: "A stock OpenAI client pointed at Varsten. Useful for low-risk evaluation traffic when you want the fastest proxy test. Not fail-open — use the SDK wrapper for production-critical routes.",
     bullets: [
       "Uses your Varsten vk_ key",
@@ -104,7 +104,7 @@ export function Integrations() {
   return (
     <section id="integrations" className="border-b border-border">
       <div className="mx-auto max-w-[1400px] px-6 md:px-10">
-        <SectionIntro eyebrow="Section 03 · Integration" title="Match your security needs.">
+        <SectionIntro eyebrow="Section 03 · Integration" title="Three ways to connect.">
           <p className="text-[16px] leading-[1.6] text-ink-soft">
             Three ways to connect. Each provides a different level of security and control. The SDK wrapper is recommended for production traffic, the base URL is fastest for evaluation, and the metadata-only path is strictest for sensitive workloads.
           </p>
